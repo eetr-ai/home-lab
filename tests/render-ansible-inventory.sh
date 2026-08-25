@@ -49,9 +49,14 @@ jq -e '
 
 if PATH="$fixture_bin:$PATH" MOCK_NETWORK_MODE=bridge-missing-address \
   "$missing_address_repo/scripts/render-ansible-inventory.sh" \
-  --vm-user vm-admin >/dev/null 2>&1; then
+  --vm-user vm-admin >"$test_root/missing-address.stdout" \
+  2>"$test_root/missing-address.stderr"; then
   printf 'Bridge inventory unexpectedly accepted a missing node address\n' >&2
   exit 1
 fi
+
+grep -q \
+  'No router-reserved ipv4_address is declared for bridged node k8s-cp-1' \
+  "$test_root/missing-address.stderr"
 
 printf 'Inventory rendering tests passed.\n'
