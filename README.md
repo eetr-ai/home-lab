@@ -74,6 +74,9 @@ Directories will be introduced as their corresponding implementation phase
 begins. The repository should describe the infrastructure that actually
 exists, not only the intended end state.
 
+The first implementation is the [Terraform libvirt cluster](terraform/README.md),
+which defines the three Ubuntu VM nodes and their cloud-init configuration.
+
 ## Working in this repository
 
 Changes to `main` are made through pull requests. A pull request must pass the

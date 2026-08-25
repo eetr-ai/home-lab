@@ -23,9 +23,14 @@ jobs:
       - name: Check Terraform formatting
         run: terraform fmt -check -recursive
 
+      - name: Initialize Terraform
+        run: terraform -chdir=terraform init -backend=false
+
+      - name: Validate Terraform
+        run: terraform -chdir=terraform validate
+
       - name: Check shell scripts
         shell: bash
         run: |
           find . -type f -name '*.sh' -not -path './.git/*' -print0 \
             | xargs -0 -r shellcheck
-

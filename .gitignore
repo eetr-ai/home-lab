@@ -18,12 +18,18 @@ crash.log
 crash.*.log
 *.tfvars
 *.tfvars.json
+*.tfplan
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# Locally rendered cloud-init data
+cloud-init/*.yaml
+!cloud-init/*.yaml.example
+**/seed.iso
 
 # Ansible
 *.retry
@@ -46,4 +52,3 @@ ansible/roles/
 *.ova
 *.tar
 *.tar.gz
-
