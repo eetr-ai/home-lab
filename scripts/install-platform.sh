@@ -23,7 +23,7 @@ done
 [[ -n $values_file && -f $values_file ]] || { usage; exit 2; }
 : "${KUBECONFIG:?Set KUBECONFIG to the ignored administrator kubeconfig}"
 
-for command_name in grep helm kubectl; do
+for command_name in awk grep helm kubectl; do
   command -v "$command_name" >/dev/null 2>&1 || {
     printf 'Required command not found: %s\n' "$command_name" >&2
     exit 1
@@ -53,7 +53,32 @@ kubectl label namespace "$namespace" \
   home-lab.example/gateway-access=true \
   --overwrite
 
-for secret_spec in 'cloudflare-api-token:api-token' 'cloudflared-token:token'; do
+helm repo add traefik https://traefik.github.io/charts --force-update
+helm repo add nfs-subdir-external-provisioner \
+  https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/ \
+  --force-update
+helm dependency build "$chart_dir"
+
+rendered_chart=$(helm template "$release" "$chart_dir" \
+  --namespace "$namespace" \
+  --values "$values_file" \
+  --skip-crds)
+
+issuer_secret_spec=$(printf '%s\n' "$rendered_chart" | awk '
+  $0 == "# Source: home-lab-platform/templates/issuers.yaml" { in_template = 1; next }
+  in_template && $1 == "apiTokenSecretRef:" { in_ref = 1; next }
+  in_ref && $1 == "name:" { name = $2; next }
+  in_ref && $1 == "key:" { print name ":" $2; exit }
+')
+cloudflared_secret_spec=$(printf '%s\n' "$rendered_chart" | awk '
+  $0 == "# Source: home-lab-platform/templates/cloudflared.yaml" { in_template = 1; next }
+  in_template && $1 == "-" && $2 == "name:" && $3 == "TUNNEL_TOKEN" { in_token = 1; next }
+  in_token && $1 == "name:" { name = $2; next }
+  in_token && $1 == "key:" { print name ":" $2; exit }
+')
+
+for secret_spec in "$issuer_secret_spec" "$cloudflared_secret_spec"; do
+  [[ -n $secret_spec ]] || continue
   secret_name=${secret_spec%%:*}
   secret_key=${secret_spec#*:}
   if [[ -z $(kubectl get secret "$secret_name" --namespace "$namespace" \
@@ -64,19 +89,13 @@ for secret_spec in 'cloudflare-api-token:api-token' 'cloudflared-token:token'; d
   fi
 done
 
-helm repo add traefik https://traefik.github.io/charts --force-update
-helm repo add nfs-subdir-external-provisioner \
-  https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/ \
-  --force-update
-helm dependency build "$chart_dir"
-
 helm upgrade --install "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file" \
   --set platform.issuers.enabled=false \
   --set platform.whoami.enabled=false \
   --skip-crds \
-  --atomic \
+  --rollback-on-failure \
   --wait \
   --timeout 10m
 
@@ -89,7 +108,7 @@ helm upgrade "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file" \
   --skip-crds \
-  --atomic \
+  --rollback-on-failure \
   --wait \
   --timeout 10m
 

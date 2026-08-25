@@ -64,7 +64,8 @@ traefik:
   gatewayClass:
     enabled: false
   service:
-    type: ClusterIP
+    spec:
+      type: ClusterIP
   ports:
     web:
       expose:

@@ -75,6 +75,17 @@ jobs:
           grep -q '^kind: HTTPRoute$' rendered-platform.yaml
           grep -q -- '- --port=8080' rendered-platform.yaml
           grep -q 'runAsUser: 65532' rendered-platform.yaml
+          awk '
+            $0 == "# Source: home-lab-platform/charts/traefik/templates/service.yaml" {
+              in_traefik_service = 1
+            }
+            in_traefik_service && $1 == "type:" {
+              found = 1
+              if ($2 != "ClusterIP") exit 1
+              exit 0
+            }
+            END { if (!found) exit 1 }
+          ' rendered-platform.yaml
           if grep -q '^kind: Ingress$' rendered-platform.yaml; then
             printf 'Platform chart must use Gateway API, not Ingress\n' >&2
             exit 1
