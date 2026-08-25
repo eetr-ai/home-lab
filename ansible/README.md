@@ -39,8 +39,8 @@ On the operator laptop, install Terraform, Ansible Core, Helm, the Cilium CLI,
 `jq`, and OpenSSH. Terraform must already have applied the VM stack, and all
 three VMs must have active leases on the selected libvirt network.
 
-The current topology is NAT, so every node connection uses SSH ProxyJump
-through `eetr01`. The generated inventory supplies the current lease addresses;
+For a NAT topology, every node connection uses SSH ProxyJump through the
+operator-supplied libvirt host. The generated inventory supplies current lease addresses;
 it is regenerated whenever Terraform recreates a VM or DHCP changes an address.
 
 ## 1. Generate the ignored inventory
@@ -49,7 +49,7 @@ From the repository root, provide all environment-specific inputs explicitly:
 
 ```bash
 ./scripts/render-ansible-inventory.sh \
-  --libvirt-host eetr01 \
+  --libvirt-host YOUR_LIBVIRT_HOST \
   --network default \
   --vm-user YOUR_VM_ADMIN_USER
 ```
@@ -145,6 +145,12 @@ configuration, namespaces, or wrappers around upstream Cilium. A custom chart
 belongs here only when an application owned by this repository has a cohesive
 set of configurable Kubernetes resources. Secrets never belong in Helm values
 or Git.
+
+Cilium remains a standalone bootstrap release because the cluster needs a CNI
+before other services can run. After Cilium validates, install the platform
+umbrella chart described in [the platform guide](../charts/platform/README.md).
+Its Traefik routing
+contract is Kubernetes Gateway API, not `Ingress` or Traefik-specific routes.
 
 ## Rebuild and recovery
 

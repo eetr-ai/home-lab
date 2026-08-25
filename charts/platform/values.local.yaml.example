@@ -1,0 +1,23 @@
+# Copy this file to values.local.yaml. The copy is ignored by Git.
+platform:
+  baseDomain: example.com
+  acmeEmail: operator@example.com
+  issuers:
+    enabled: true
+    cloudflareApiTokenSecret:
+      name: cloudflare-api-token
+      key: api-token
+  cloudflared:
+    enabled: true
+    tunnelTokenSecret:
+      name: cloudflared-token
+      key: token
+  whoami:
+    enabled: true
+    hostname: whoami.example.com
+
+nfs-provisioner:
+  nfs:
+    # RFC 5737 documentation address; replace it only in values.local.yaml.
+    server: 192.0.2.1
+    path: /export/kubernetes

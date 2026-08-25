@@ -45,3 +45,63 @@ jobs:
         run: |
           find . -type f -name '*.sh' -not -path './.git/*' -print0 \
             | xargs -0 -r shellcheck
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.1.1
+
+      - name: Build pinned Helm dependencies
+        shell: bash
+        run: |
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo add nfs-subdir-external-provisioner \
+            https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+          helm dependency build charts/platform
+
+      - name: Lint platform chart
+        run: >-
+          helm lint charts/platform
+          --values charts/platform/values.local.yaml.example
+
+      - name: Render Gateway API platform resources
+        shell: bash
+        run: |
+          helm template home-lab-platform charts/platform \
+            --namespace platform-system \
+            --kube-version 1.36.0 \
+            --api-versions policy/v1/PodDisruptionBudget \
+            --values charts/platform/values.local.yaml.example \
+            > rendered-platform.yaml
+          grep -q '^kind: Gateway$' rendered-platform.yaml
+          grep -q '^kind: HTTPRoute$' rendered-platform.yaml
+          grep -q -- '- --port=8080' rendered-platform.yaml
+          grep -q 'runAsUser: 65532' rendered-platform.yaml
+          awk '
+            $0 == "# Source: home-lab-platform/charts/traefik/templates/service.yaml" {
+              in_traefik_service = 1
+            }
+            in_traefik_service && $1 == "type:" {
+              found = 1
+              if ($2 != "ClusterIP") exit 1
+              exit 0
+            }
+            END { if (!found) exit 1 }
+          ' rendered-platform.yaml
+          if grep -q '^kind: Ingress$' rendered-platform.yaml; then
+            printf 'Platform chart must use Gateway API, not Ingress\n' >&2
+            exit 1
+          fi
+
+      - name: Validate rendered Kubernetes resources
+        uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
+        with:
+          entrypoint: /kubeconform
+          args: >-
+            -strict
+            -summary
+            -skip CustomResourceDefinition
+            -schema-location default
+            -schema-location https://raw.githubusercontent.com/datreeio/CRDs-catalog/7b1e26ef9deea49293714d204c1a2270aab1178f/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+            -kubernetes-version 1.36.0
+            /github/workspace/rendered-platform.yaml

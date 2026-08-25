@@ -1,0 +1,40 @@
+{{- if .Values.platform.issuers.enabled }}
+{{- $secret := .Values.platform.issuers.cloudflareApiTokenSecret }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  labels:
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+spec:
+  acme:
+    email: {{ required "platform.acmeEmail is required when issuers are enabled" .Values.platform.acmeEmail | quote }}
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: {{ $secret.name }}
+              key: {{ $secret.key }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-production
+  labels:
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+spec:
+  acme:
+    email: {{ .Values.platform.acmeEmail | quote }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-production-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: {{ $secret.name }}
+              key: {{ $secret.key }}
+{{- end }}

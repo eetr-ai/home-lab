@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["platform", "nfs-provisioner"],
+  "properties": {
+    "platform": {
+      "type": "object",
+      "required": ["baseDomain", "acmeEmail", "gateway", "issuers", "cloudflared", "whoami"],
+      "properties": {
+        "baseDomain": { "type": "string", "minLength": 1 },
+        "acmeEmail": { "type": "string", "minLength": 3 },
+        "gateway": { "type": "object" },
+        "issuers": { "type": "object" },
+        "cloudflared": { "type": "object" },
+        "whoami": { "type": "object" }
+      }
+    },
+    "nfs-provisioner": {
+      "type": "object",
+      "required": ["nfs"],
+      "properties": {
+        "nfs": {
+          "type": "object",
+          "required": ["server", "path"],
+          "properties": {
+            "server": { "type": "string", "minLength": 1 },
+            "path": { "type": "string", "pattern": "^/" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,17 +1,17 @@
 all:
   vars:
     ansible_user: your-vm-admin-user
-    ansible_ssh_common_args: -o ProxyJump=eetr01
+    ansible_ssh_common_args: -o ProxyJump=YOUR_LIBVIRT_HOST
   children:
     kubernetes:
       children:
         control_plane:
           hosts:
             k8s-cp-1:
-              ansible_host: 192.168.122.10
+              ansible_host: 192.0.2.10
         workers:
           hosts:
             k8s-worker-1:
-              ansible_host: 192.168.122.11
+              ansible_host: 192.0.2.11
             k8s-worker-2:
-              ansible_host: 192.168.122.12
+              ansible_host: 192.0.2.12

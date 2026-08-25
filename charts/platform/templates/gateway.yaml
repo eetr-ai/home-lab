@@ -1,0 +1,48 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.platform.gateway.className }}
+  labels:
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+spec:
+  controllerName: traefik.io/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.platform.gateway.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+  {{- if .Values.platform.issuers.enabled }}
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+  {{- end }}
+spec:
+  gatewayClassName: {{ .Values.platform.gateway.className }}
+  listeners:
+    - name: web
+      port: 8000
+      protocol: HTTP
+      hostname: {{ printf "*.%s" .Values.platform.baseDomain | quote }}
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              {{ .Values.platform.gateway.routeNamespaceLabel.key }}: {{ .Values.platform.gateway.routeNamespaceLabel.value | quote }}
+    - name: websecure
+      port: 8443
+      protocol: HTTPS
+      hostname: {{ printf "*.%s" .Values.platform.baseDomain | quote }}
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              {{ .Values.platform.gateway.routeNamespaceLabel.key }}: {{ .Values.platform.gateway.routeNamespaceLabel.value | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .Values.platform.gateway.tlsSecretName }}
