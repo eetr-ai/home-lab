@@ -1,0 +1,39 @@
+---
+- name: Prepare every Kubernetes node
+  hosts: kubernetes
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Verify inventory names match operating-system hostnames
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == ansible_hostname
+        fail_msg: >-
+          Inventory host {{ inventory_hostname }} reports hostname
+          {{ ansible_hostname }}. Rebuild or correct the node before bootstrap.
+
+    - name: Verify hostnames are unique
+      ansible.builtin.assert:
+        that:
+          - >-
+            (groups['kubernetes'] | map('extract', hostvars, 'ansible_hostname') |
+            list | unique | length) == (groups['kubernetes'] | length)
+        fail_msg: Kubernetes nodes must have unique hostnames.
+      run_once: true
+
+  roles:
+    - role: common_node
+
+- name: Initialize the control plane
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  roles:
+    - role: control_plane
+
+- name: Join worker nodes
+  hosts: workers
+  become: true
+  gather_facts: true
+  roles:
+    - role: worker

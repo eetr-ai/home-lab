@@ -1,0 +1,33 @@
+---
+- name: Check whether the worker is already joined
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: worker_kubelet_config
+
+- name: Wait for the control-plane API from the worker
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[groups['control_plane'][0]].ansible_host }}"
+    port: 6443
+    state: started
+    timeout: 180
+  when: not worker_kubelet_config.stat.exists
+
+- name: Generate a short-lived worker join command on the control plane
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - token
+      - create
+      - --ttl
+      - 15m
+      - --print-join-command
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  register: worker_join_command
+  changed_when: true
+  when: not worker_kubelet_config.stat.exists
+  no_log: true
+
+- name: Join the worker to the cluster
+  ansible.builtin.command: "{{ worker_join_command.stdout }}"
+  when: not worker_kubelet_config.stat.exists
+  no_log: true
