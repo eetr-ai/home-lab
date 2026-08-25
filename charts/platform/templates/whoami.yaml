@@ -1,0 +1,80 @@
+{{- if .Values.platform.whoami.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: whoami
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whoami
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: whoami
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: whoami
+          image: {{ printf "%s:%s" .Values.platform.whoami.image.repository .Values.platform.whoami.image.tag | quote }}
+          imagePullPolicy: {{ .Values.platform.whoami.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: whoami
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: whoami
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: whoami
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.platform.gateway.name }}
+      sectionName: websecure
+  hostnames:
+    - {{ required "platform.whoami.hostname is required when whoami is enabled" .Values.platform.whoami.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: whoami
+          port: 80
+{{- end }}

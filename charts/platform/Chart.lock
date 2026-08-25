@@ -1,0 +1,12 @@
+dependencies:
+- name: traefik
+  repository: https://traefik.github.io/charts
+  version: 41.3.0
+- name: cert-manager
+  repository: oci://quay.io/jetstack/charts
+  version: 1.21.1
+- name: nfs-subdir-external-provisioner
+  repository: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+  version: 4.0.18
+digest: sha256:a142134f792cb3ff62b265708895d5b8377eb47cb8bd0dc1e7f90e1a5b054ca3
+generated: "2026-08-24T23:33:32.715656-07:00"

@@ -39,6 +39,8 @@ ansible/artifacts/
 
 # Generated and local files
 .DS_Store
+**/values.local.yaml
+**/charts/*.tgz
 *.swp
 *.swo
 *.tmp

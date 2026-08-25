@@ -45,3 +45,35 @@ jobs:
         run: |
           find . -type f -name '*.sh' -not -path './.git/*' -print0 \
             | xargs -0 -r shellcheck
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.1.1
+
+      - name: Build pinned Helm dependencies
+        shell: bash
+        run: |
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo add nfs-subdir-external-provisioner \
+            https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+          helm dependency build charts/platform
+
+      - name: Lint platform chart
+        run: >-
+          helm lint charts/platform
+          --values charts/platform/values.local.yaml.example
+
+      - name: Render Gateway API platform resources
+        shell: bash
+        run: |
+          helm template home-lab-platform charts/platform \
+            --namespace platform-system \
+            --values charts/platform/values.local.yaml.example \
+            > /tmp/home-lab-platform.yaml
+          grep -q '^kind: Gateway$' /tmp/home-lab-platform.yaml
+          grep -q '^kind: HTTPRoute$' /tmp/home-lab-platform.yaml
+          if grep -q '^kind: Ingress$' /tmp/home-lab-platform.yaml; then
+            printf 'Platform chart must use Gateway API, not Ingress\n' >&2
+            exit 1
+          fi

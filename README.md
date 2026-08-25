@@ -22,7 +22,7 @@ Internet
    |
 Cloudflare Tunnel
    |
-Kubernetes ingress
+Traefik Gateway API
    |
 Ubuntu Server virtualization host
    |
@@ -41,8 +41,9 @@ The platform includes or will include:
 - QEMU/KVM virtual machines managed through libvirt.
 - A three-node Kubernetes cluster bootstrapped with `kubeadm`.
 - Cloud-init for repeatable VM initialization.
-- NFS-backed dynamic Kubernetes volume provisioning.
-- MetalLB and NGINX Ingress for services on the local network.
+- Traefik with Kubernetes Gateway API for application routing.
+- cert-manager with Cloudflare DNS-01 for managed TLS certificates.
+- NFS-backed dynamic volume provisioning.
 - PostgreSQL and MongoDB for lab projects.
 - Cloudflare Tunnel for explicitly approved public endpoints.
 - Terraform/OpenTofu for VM infrastructure and cluster integrations.
@@ -55,7 +56,7 @@ The platform includes or will include:
 2. Install and validate QEMU/KVM and the `br0` network bridge.
 3. Define the three virtual machines with Terraform/OpenTofu and cloud-init.
 4. Configure the nodes and bootstrap Kubernetes with `kubeadm`.
-5. Install storage, load balancing, ingress, databases, and Cloudflare Tunnel.
+5. Install storage, Gateway API routing, certificates, and Cloudflare Tunnel.
 6. Add observability, backups, secret management, and GitOps.
 
 ## Planned repository layout
@@ -64,7 +65,8 @@ The platform includes or will include:
 .
 ├── ansible/          # Host and Kubernetes-node configuration
 ├── docs/             # Architecture, operations, and recovery guides
-├── helm-values/      # Reviewed values for installed Helm charts
+├── charts/           # Cluster platform and repository-owned Helm charts
+├── helm-values/      # Reviewed values for standalone upstream charts
 ├── k8s/              # Kubernetes resources and GitOps definitions
 ├── scripts/          # Small, idempotent operational helpers
 └── terraform/        # libvirt VMs and infrastructure integrations
@@ -85,7 +87,9 @@ terraform apply
 The [Terraform libvirt cluster](terraform/README.md) defines the Ubuntu VMs and
 their cloud-init configuration. The [Ansible Kubernetes bootstrap](ansible/README.md)
 configures the operating systems and runs kubeadm. Tracked Helm values install
-cluster services such as Cilium without repackaging their upstream charts.
+the bootstrap CNI, while the [platform chart](charts/platform/README.md) installs
+Traefik, cert-manager, NFS provisioning, and cloudflared. Application routing
+uses Gateway API `HTTPRoute` resources rather than Kubernetes `Ingress`.
 
 ## Working in this repository
 
