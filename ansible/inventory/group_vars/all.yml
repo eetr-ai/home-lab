@@ -1,0 +1,16 @@
+---
+kubernetes_version: v1.36.4
+kubernetes_package_version: 1.36.4-1.1
+kubernetes_package_repository_minor: v1.36
+
+pod_network_cidr: 10.244.0.0/16
+service_network_cidr: 10.96.0.0/12
+
+containerd_socket: unix:///run/containerd/containerd.sock
+encryption_config_directory: /etc/kubernetes/encryption
+encryption_config_path: /etc/kubernetes/encryption/encryption-config.yaml
+
+# This deliberately has no permissive default. Pass an absolute path outside
+# the repository with -e encryption_key_file=/absolute/path/to/key.
+encryption_key_file: ""
+encryption_key_backup_confirmed: false

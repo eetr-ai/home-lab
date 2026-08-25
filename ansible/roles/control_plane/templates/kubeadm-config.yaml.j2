@@ -1,0 +1,34 @@
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ ansible_host }}"
+  bindPort: 6443
+nodeRegistration:
+  name: "{{ inventory_hostname }}"
+  criSocket: "{{ containerd_socket }}"
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: home-lab
+kubernetesVersion: "{{ kubernetes_version }}"
+controlPlaneEndpoint: "{{ ansible_host }}:6443"
+networking:
+  dnsDomain: cluster.local
+  podSubnet: "{{ pod_network_cidr }}"
+  serviceSubnet: "{{ service_network_cidr }}"
+proxy:
+  disabled: false
+apiServer:
+  certSANs:
+    - "{{ inventory_hostname }}"
+    - "{{ ansible_host }}"
+  extraArgs:
+    - name: encryption-provider-config
+      value: "{{ encryption_config_path }}"
+  extraVolumes:
+    - name: encryption-config
+      hostPath: "{{ encryption_config_directory }}"
+      mountPath: "{{ encryption_config_directory }}"
+      readOnly: true
+      pathType: Directory

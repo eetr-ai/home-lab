@@ -1,0 +1,12 @@
+---
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - secretbox:
+          keys:
+            - name: key-1
+              secret: "{{ encryption_key_content.content }}"
+      - identity: {}

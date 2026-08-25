@@ -1,0 +1,215 @@
+---
+- name: Verify the supported node platform
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Ubuntu"
+      - ansible_architecture == "x86_64"
+      - ansible_service_mgr == "systemd"
+    fail_msg: This role supports x86_64 Ubuntu nodes running systemd.
+
+- name: Verify swap is disabled
+  ansible.builtin.assert:
+    that:
+      - ansible_swaptotal_mb | int == 0
+    fail_msg: Disable swap persistently and rerun the playbook.
+
+- name: Install node prerequisites and containerd
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - conntrack
+      - containerd
+      - curl
+      - gpg
+      - python3-debian
+      - socat
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Configure Kubernetes kernel modules at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/kubernetes.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      overlay
+      br_netfilter
+
+- name: Load Kubernetes kernel modules
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - "{{ item }}"
+  loop:
+    - overlay
+    - br_netfilter
+  changed_when: false
+
+- name: Configure Kubernetes sysctls
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+  notify: Apply Kubernetes sysctls
+
+- name: Apply pending node handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Read required sysctl values
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - "{{ item }}"
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+    - net.ipv4.ip_forward
+  register: kubernetes_sysctls
+  changed_when: false
+
+- name: Verify required sysctl values
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim == "1"
+    fail_msg: Required sysctl {{ item.item }} is not set to 1.
+  loop: "{{ kubernetes_sysctls.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Create the containerd configuration directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render the installed containerd default configuration
+  ansible.builtin.command:
+    argv:
+      - containerd
+      - config
+      - default
+  register: containerd_default_config
+  changed_when: false
+
+- name: Build the containerd systemd-cgroup configuration
+  ansible.builtin.set_fact:
+    containerd_systemd_config: >-
+      {{ containerd_default_config.stdout |
+      regex_replace('SystemdCgroup = false', 'SystemdCgroup = true') }}
+
+- name: Verify containerd exposes the systemd-cgroup setting
+  ansible.builtin.assert:
+    that:
+      - "'SystemdCgroup = true' in containerd_systemd_config"
+    fail_msg: The installed containerd default configuration has an unsupported cgroup layout.
+
+- name: Enable systemd cgroups in containerd
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ containerd_systemd_config }}"
+  notify: Restart containerd
+
+- name: Apply the containerd configuration before Kubernetes starts
+  ansible.builtin.meta: flush_handlers
+
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Kubernetes repository signing key
+  ansible.builtin.get_url:
+    url: >-
+      https://pkgs.k8s.io/core:/stable:/{{ kubernetes_package_repository_minor }}/deb/Release.key
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure the Kubernetes package repository
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types:
+      - deb
+    uris:
+      - >-
+        https://pkgs.k8s.io/core:/stable:/{{ kubernetes_package_repository_minor }}/deb/
+    suites:
+      - /
+    signed_by: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    state: present
+
+- name: Refresh APT metadata after configuring Kubernetes packages
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install the pinned Kubernetes packages
+  ansible.builtin.apt:
+    name:
+      - "kubeadm={{ kubernetes_package_version }}"
+      - "kubectl={{ kubernetes_package_version }}"
+      - "kubelet={{ kubernetes_package_version }}"
+    state: present
+    allow_downgrade: true
+    allow_change_held_packages: true
+    update_cache: true
+
+- name: Hold Kubernetes packages at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubeadm
+    - kubectl
+    - kubelet
+
+- name: Enable containerd and kubelet
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - containerd
+    - kubelet
+
+- name: Read installed Kubernetes package versions
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - --show
+      - "--showformat=${Version}"
+      - "{{ item }}"
+  loop:
+    - kubeadm
+    - kubectl
+    - kubelet
+  register: installed_kubernetes_packages
+  changed_when: false
+
+- name: Verify installed Kubernetes package versions
+  ansible.builtin.assert:
+    that:
+      - item.stdout == kubernetes_package_version
+    fail_msg: >-
+      {{ item.item }} is {{ item.stdout }}, expected
+      {{ kubernetes_package_version }}.
+  loop: "{{ installed_kubernetes_packages.results }}"
+  loop_control:
+    label: "{{ item.item }}"

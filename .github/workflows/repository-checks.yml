@@ -29,6 +29,17 @@ jobs:
       - name: Validate Terraform
         run: terraform -chdir=terraform validate
 
+      - name: Install Ansible Core
+        run: python3 -m pip install ansible-core==2.21.3
+
+      - name: Check Ansible syntax
+        working-directory: ansible
+        run: >-
+          ansible-playbook
+          -i inventory/hosts.example.yml
+          playbooks/bootstrap.yml
+          --syntax-check
+
       - name: Check shell scripts
         shell: bash
         run: |

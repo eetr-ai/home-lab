@@ -36,7 +36,7 @@ Ubuntu Server virtualization host
    +-- LVM-backed host storage
 ```
 
-The planned platform includes:
+The platform includes or will include:
 
 - QEMU/KVM virtual machines managed through libvirt.
 - A three-node Kubernetes cluster bootstrapped with `kubeadm`.
@@ -46,8 +46,8 @@ The planned platform includes:
 - PostgreSQL and MongoDB for lab projects.
 - Cloudflare Tunnel for explicitly approved public endpoints.
 - Terraform/OpenTofu for VM infrastructure and cluster integrations.
-- Ansible or idempotent scripts for host and Kubernetes-node configuration.
-- Helm or GitOps for services running inside the cluster.
+- Ansible for host and Kubernetes-node configuration.
+- Upstream Helm charts or GitOps for services running inside the cluster.
 
 ## Delivery phases
 
@@ -74,8 +74,18 @@ Directories will be introduced as their corresponding implementation phase
 begins. The repository should describe the infrastructure that actually
 exists, not only the intended end state.
 
-The first implementation is the [Terraform libvirt cluster](terraform/README.md),
-which defines the three Ubuntu VM nodes and their cloud-init configuration.
+The delivery boundary is deliberately explicit:
+
+```text
+terraform apply
+    -> ansible-playbook
+        -> helm upgrade --install
+```
+
+The [Terraform libvirt cluster](terraform/README.md) defines the Ubuntu VMs and
+their cloud-init configuration. The [Ansible Kubernetes bootstrap](ansible/README.md)
+configures the operating systems and runs kubeadm. Tracked Helm values install
+cluster services such as Cilium without repackaging their upstream charts.
 
 ## Working in this repository
 

@@ -34,7 +34,8 @@ cloud-init/*.yaml
 # Ansible
 *.retry
 ansible/collections/
-ansible/roles/
+ansible/inventory/hosts.yml
+ansible/artifacts/
 
 # Generated and local files
 .DS_Store
