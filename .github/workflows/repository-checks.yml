@@ -69,6 +69,8 @@ jobs:
         run: |
           helm template home-lab-platform charts/platform \
             --namespace platform-system \
+            --kube-version 1.36.0 \
+            --api-versions policy/v1/PodDisruptionBudget \
             --values charts/platform/values.local.yaml.example \
             > rendered-platform.yaml
           grep -q '^kind: Gateway$' rendered-platform.yaml
@@ -98,6 +100,8 @@ jobs:
           args: >-
             -strict
             -summary
-            -ignore-missing-schemas
+            -skip CustomResourceDefinition
+            -schema-location default
+            -schema-location https://raw.githubusercontent.com/datreeio/CRDs-catalog/7b1e26ef9deea49293714d204c1a2270aab1178f/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
             -kubernetes-version 1.36.0
             /github/workspace/rendered-platform.yaml
