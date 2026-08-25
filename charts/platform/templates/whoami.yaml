@@ -26,9 +26,11 @@ spec:
         - name: whoami
           image: {{ printf "%s:%s" .Values.platform.whoami.image.repository .Values.platform.whoami.image.tag | quote }}
           imagePullPolicy: {{ .Values.platform.whoami.image.pullPolicy }}
+          args:
+            - --port=8080
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
           readinessProbe:
             httpGet:
               path: /health
@@ -39,6 +41,9 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
 ---
 apiVersion: v1
 kind: Service
