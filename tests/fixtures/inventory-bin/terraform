@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+output_name=${!#}
+case "$output_name" in
+  nodes)
+    case "${MOCK_NETWORK_MODE:?}" in
+      bridge)
+        printf '%s\n' '{"k8s-cp-1":{"role":"control-plane","mac":"52:54:00:00:00:11","ipv4_address":"192.0.2.10"},"k8s-worker-1":{"role":"worker","mac":"52:54:00:00:00:12","ipv4_address":"192.0.2.11"}}'
+        ;;
+      bridge-missing-address)
+        printf '%s\n' '{"k8s-cp-1":{"role":"control-plane","mac":"52:54:00:00:00:11","ipv4_address":null}}'
+        ;;
+      network)
+        printf '%s\n' '{"k8s-cp-1":{"role":"control-plane","mac":"52:54:00:00:00:11","ipv4_address":null},"k8s-worker-1":{"role":"worker","mac":"52:54:00:00:00:12","ipv4_address":null}}'
+        ;;
+    esac
+    ;;
+  network_attachment)
+    if [[ ${MOCK_NETWORK_MODE:?} == network ]]; then
+      printf '%s\n' '{"mode":"network","source":"default"}'
+    else
+      printf '%s\n' '{"mode":"bridge","source":"br0"}'
+    fi
+    ;;
+  *)
+    exit 1
+    ;;
+esac

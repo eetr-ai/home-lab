@@ -13,7 +13,7 @@ Set these values for your environment before running the commands:
 ```bash
 NFS_EXPORT_PATH=/export/kubernetes
 VM_SUBNET_CIDR=192.0.2.0/24
-VIRTUAL_BRIDGE=virbr0
+VIRTUAL_BRIDGE=br0
 ```
 
 ## Install and export the filesystem

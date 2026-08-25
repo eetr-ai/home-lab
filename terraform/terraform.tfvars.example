@@ -10,35 +10,39 @@ timezone            = "Etc/UTC"
 upgrade_packages    = true
 cloud_init_revision = 1
 
-# Use an existing libvirt network, such as the default NAT network.
-network_mode         = "network"
+# The host bridge must exist before Terraform runs. The router must reserve each
+# node's ipv4_address for its stable MAC address.
+network_mode         = "bridge"
 libvirt_network_name = "default"
 bridge_name          = "br0"
 
-# To use an existing host bridge instead:
-# network_mode = "bridge"
-# bridge_name  = "br0"
+# For a temporary NAT build instead, use:
+# network_mode         = "network"
+# libvirt_network_name = "default"
 
 nodes = {
   k8s-cp-1 = {
-    role       = "control-plane"
-    vcpu       = 2
-    memory_mib = 3072
-    disk_gib   = 20
-    mac        = "52:54:00:aa:00:11"
+    role         = "control-plane"
+    vcpu         = 2
+    memory_mib   = 3072
+    disk_gib     = 20
+    mac          = "52:54:00:aa:00:11"
+    ipv4_address = "192.0.2.10"
   }
   k8s-worker-1 = {
-    role       = "worker"
-    vcpu       = 4
-    memory_mib = 5120
-    disk_gib   = 40
-    mac        = "52:54:00:aa:00:12"
+    role         = "worker"
+    vcpu         = 4
+    memory_mib   = 5120
+    disk_gib     = 40
+    mac          = "52:54:00:aa:00:12"
+    ipv4_address = "192.0.2.11"
   }
   k8s-worker-2 = {
-    role       = "worker"
-    vcpu       = 4
-    memory_mib = 5120
-    disk_gib   = 40
-    mac        = "52:54:00:aa:00:13"
+    role         = "worker"
+    vcpu         = 4
+    memory_mib   = 5120
+    disk_gib     = 40
+    mac          = "52:54:00:aa:00:13"
+    ipv4_address = "192.0.2.12"
   }
 }

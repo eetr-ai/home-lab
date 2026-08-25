@@ -10,7 +10,7 @@ Terraform manages:
 - One released Ubuntu Server 26.04 LTS base image.
 - One copy-on-write QCOW2 disk per node.
 - One generated and uploaded cloud-init seed per node.
-- Stable virtual MAC addresses.
+- Stable virtual MAC addresses and expected router-reserved IPv4 addresses.
 - CPU, memory, UEFI, disk, guest-agent, and network domain configuration.
 
 Cloud-init creates the administrator, installs base packages, enables the QEMU
@@ -21,8 +21,9 @@ Containerd and Kubernetes bootstrap will be managed by the Ansible layer.
 ## Node plan
 
 The stack creates one control-plane node and two workers. CPU, memory, disk,
-and stable MAC addresses are required inputs in the ignored
-`terraform.tfvars`; the tracked example contains non-production values.
+stable MAC addresses, and router-reserved IPv4 addresses are inputs in the
+ignored `terraform.tfvars`; the tracked example contains documentation-only
+values.
 
 ## Prerequisites
 
@@ -32,24 +33,15 @@ and stable MAC addresses are required inputs in the ignored
 - The SSH user on the host belongs to `libvirt` and `kvm`.
 - The selected public key file exists on the laptop.
 - Any manually created domains with the same node names have been removed.
+- The host bridge exists and has working LAN connectivity; follow the
+  [generic bridge guide](../docs/network-bridge.md).
+- The router reserves every node address for the matching stable virtual MAC.
 
 Verify remote libvirt access before applying:
 
 ```bash
 ssh LIBVIRT_HOST virsh -c qemu:///system list --all
 ```
-
-The current manual `k8s-cp-1` proof of concept conflicts with the Terraform
-domain name. Destroy it only when ready to replace it:
-
-```bash
-ssh LIBVIRT_HOST virsh -c qemu:///system destroy k8s-cp-1
-ssh LIBVIRT_HOST virsh -c qemu:///system undefine k8s-cp-1 --nvram
-```
-
-Its manually created QCOW2 and cloud-init artifacts are outside the
-Terraform-managed pool and can be retained until the Terraform deployment has
-been validated.
 
 ## Configure
 
@@ -58,9 +50,11 @@ cd terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Every environment-specific variable is required. Review the ignored
-`terraform.tfvars` and replace every placeholder. For the initial build, use
-libvirt's NAT network. Never configure a private-key path.
+Review the ignored `terraform.tfvars` and replace every placeholder. Use
+`network_mode = "bridge"`, name the existing host bridge, and record each
+router-reserved node address beside its stable MAC. Terraform carries those
+addresses into downstream inventory but does not configure the router or
+assign guest addresses itself. Never configure a private-key path.
 
 Incrementing `cloud_init_revision` replaces each affected cloud-init volume and
 domain so the VM reboots and cloud-init sees a new instance identity. Review
@@ -87,26 +81,41 @@ Inspect the result:
 
 ```bash
 ssh LIBVIRT_HOST virsh -c qemu:///system list --all
-ssh LIBVIRT_HOST virsh -c qemu:///system net-dhcp-leases default
+ssh LIBVIRT_HOST virsh -c qemu:///system domiflist k8s-cp-1
+ssh VM_ADMIN_USER@CONTROL_PLANE_RESERVED_ADDRESS
 ```
 
-With NAT, reach a node through the libvirt host:
+The VM receives its address from the LAN DHCP server. Terraform records the
+expected reservation; verify the observed address in the router before running
+Ansible.
 
-```bash
-ssh -J LIBVIRT_HOST VM_ADMIN_USER@NODE_IP
+## Optional temporary NAT mode
+
+The stack retains NAT support for disposable tests:
+
+```hcl
+network_mode         = "network"
+libvirt_network_name = "default"
 ```
 
-## Migrate from NAT to Ethernet bridge
+NAT addresses come from libvirt rather than the router and require ProxyJump
+through the host. They are unsuitable for the final directly reachable
+control-plane endpoint.
 
-After `eno1` and host bridge `br0` are configured, change:
+## Change network attachment
+
+Changing an existing cluster between NAT and bridge networking replaces its
+domain network attachment and changes node identity assumptions. Treat it as a
+rebuild: preserve required external keys and data, destroy the disposable VM
+stack, change the ignored values, and apply again. For bridge mode:
 
 ```hcl
 network_mode = "bridge"
 bridge_name  = "br0"
 ```
 
-Run a new plan and review the interface replacements carefully. The stable MAC
-addresses should be used for router DHCP reservations.
+Run a new plan and review it carefully. The host bridge is an operating-system
+prerequisite and intentionally remains outside Terraform's control.
 
 ## State and secrets
 

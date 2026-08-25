@@ -91,6 +91,13 @@ the bootstrap CNI, while the [platform chart](charts/platform/README.md) install
 Traefik, cert-manager, NFS provisioning, and cloudflared. Application routing
 uses Gateway API `HTTPRoute` resources rather than Kubernetes `Ingress`.
 
+The Kubernetes nodes attach directly to the LAN through an existing host
+bridge. The router owns DHCP reservations; Terraform records the expected
+MAC-to-address mapping, and Ansible uses those addresses without an SSH jump
+host. Configure the prerequisite with the
+[generic bridge guide](docs/network-bridge.md), while keeping actual topology
+in private notes and ignored values.
+
 ## Working in this repository
 
 Changes to `main` are made through pull requests. A pull request must pass the

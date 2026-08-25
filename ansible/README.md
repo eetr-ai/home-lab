@@ -27,7 +27,7 @@ helm upgrade --install
 - The fetched administrator kubeconfig and generated inventory are ignored and
   mode `0600`. Both contain environment-specific or privileged data.
 - SSH host-key checking stays enabled. When a disposable VM is rebuilt at a
-  reused NAT address, remove only that stale entry with `ssh-keygen -R ADDRESS`
+  reused reserved address, remove only that stale entry with `ssh-keygen -R ADDRESS`
   after independently verifying that the VM was intentionally replaced.
 
 Losing the encryption key makes encrypted Secrets in etcd unrecoverable. Store
@@ -37,26 +37,33 @@ the backup somewhere independent of the control-plane VM before initialization.
 
 On the operator laptop, install Terraform, Ansible Core, Helm, the Cilium CLI,
 `jq`, and OpenSSH. Terraform must already have applied the VM stack, and all
-three VMs must have active leases on the selected libvirt network.
+three VMs must be reachable at their router-reserved addresses.
 
-For a NAT topology, every node connection uses SSH ProxyJump through the
-operator-supplied libvirt host. The generated inventory supplies current lease addresses;
-it is regenerated whenever Terraform recreates a VM or DHCP changes an address.
+For bridge mode, the generated inventory reads direct node addresses from
+Terraform output and does not configure ProxyJump. Terraform does not create
+the router reservations; its ignored input records the operator-managed
+address contract.
 
 ## 1. Generate the ignored inventory
 
-From the repository root, provide all environment-specific inputs explicitly:
+From the repository root, provide the VM administrator:
 
 ```bash
 ./scripts/render-ansible-inventory.sh \
-  --libvirt-host YOUR_LIBVIRT_HOST \
-  --network default \
   --vm-user YOUR_VM_ADMIN_USER
 ```
 
-The script reads node names, roles, and MAC addresses from Terraform output,
-looks up the matching current libvirt DHCP leases over SSH, and writes
-`ansible/inventory/hosts.yml` with mode `0600`.
+The script reads node names, roles, and reserved IPv4 addresses from Terraform
+output and writes `ansible/inventory/hosts.yml` with mode `0600`.
+
+For optional NAT mode, provide the libvirt host. The network defaults to the
+source recorded by Terraform, but `--network` can override it:
+
+```bash
+./scripts/render-ansible-inventory.sh \
+  --vm-user YOUR_VM_ADMIN_USER \
+  --libvirt-host YOUR_LIBVIRT_HOST
+```
 
 Review connectivity before making changes:
 
@@ -96,9 +103,9 @@ v1beta4 configuration, mounts the secretbox configuration in kube-apiserver,
 and initializes only when `/etc/kubernetes/admin.conf` is absent. Each worker
 joins only when `/etc/kubernetes/kubelet.conf` is absent.
 
-The disposable control-plane endpoint is the current `k8s-cp-1` NAT address in
-the generated inventory. It must be replaced with a stable endpoint before this
-becomes a durable cluster.
+The control-plane endpoint is the stable router-reserved `k8s-cp-1` address in
+the generated inventory. kubeadm includes that address in the API server
+certificate, and the fetched kubeconfig is directly usable from the LAN.
 
 The playbook fetches the administrator kubeconfig to the ignored
 `ansible/artifacts/admin.conf` file.

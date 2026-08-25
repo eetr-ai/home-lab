@@ -1,10 +1,11 @@
 output "nodes" {
-  description = "Provisioned node identities. Addresses are assigned by the selected DHCP server."
+  description = "Provisioned node identities and expected router-reserved addresses."
   value = {
     for name, node in var.nodes : name => {
-      role        = node.role
-      mac         = node.mac
-      domain_uuid = libvirt_domain.node[name].uuid
+      role         = node.role
+      mac          = node.mac
+      ipv4_address = node.ipv4_address
+      domain_uuid  = libvirt_domain.node[name].uuid
     }
   }
 }
