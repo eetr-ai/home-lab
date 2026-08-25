@@ -1,0 +1,49 @@
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.kubeconfig
+kubeconfig
+
+# Terraform and OpenTofu
+**/.terraform/*
+**/.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Ansible
+*.retry
+ansible/collections/
+ansible/roles/
+
+# Generated and local files
+.DS_Store
+*.swp
+*.swo
+*.tmp
+*.log
+.idea/
+.vscode/
+
+# VM images and archives
+*.qcow2
+*.img
+*.iso
+*.ova
+*.tar
+*.tar.gz
+
