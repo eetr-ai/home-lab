@@ -79,7 +79,7 @@ while IFS= read -r node; do
   role=$(jq -r '.value.role' <<<"$node")
   mac=$(jq -r '.value.mac' <<<"$node")
 
-  lease_output=$(ssh "$libvirt_host" \
+  lease_output=$(ssh -n "$libvirt_host" \
     virsh -c qemu:///system net-dhcp-leases "$network" --mac "$mac")
   address=$(awk 'NR > 2 && $5 != "-" {sub(/\/.*/, "", $5); print $5; exit}' \
     <<<"$lease_output")
