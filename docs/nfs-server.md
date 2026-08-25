@@ -24,6 +24,7 @@ Run on the NFS server:
 sudo apt update
 sudo apt install -y nfs-kernel-server
 
+sudo install -d -m 0755 /etc/exports.d
 sudo install -d -o nobody -g nogroup -m 0770 "$NFS_EXPORT_PATH"
 printf '%s %s(rw,sync,no_subtree_check,root_squash)\n' \
   "$NFS_EXPORT_PATH" "$VM_SUBNET_CIDR" \
