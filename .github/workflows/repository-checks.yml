@@ -70,10 +70,21 @@ jobs:
           helm template home-lab-platform charts/platform \
             --namespace platform-system \
             --values charts/platform/values.local.yaml.example \
-            > /tmp/home-lab-platform.yaml
-          grep -q '^kind: Gateway$' /tmp/home-lab-platform.yaml
-          grep -q '^kind: HTTPRoute$' /tmp/home-lab-platform.yaml
-          if grep -q '^kind: Ingress$' /tmp/home-lab-platform.yaml; then
+            > rendered-platform.yaml
+          grep -q '^kind: Gateway$' rendered-platform.yaml
+          grep -q '^kind: HTTPRoute$' rendered-platform.yaml
+          if grep -q '^kind: Ingress$' rendered-platform.yaml; then
             printf 'Platform chart must use Gateway API, not Ingress\n' >&2
             exit 1
           fi
+
+      - name: Validate rendered Kubernetes resources
+        uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
+        with:
+          entrypoint: /kubeconform
+          args: >-
+            -strict
+            -summary
+            -ignore-missing-schemas
+            -kubernetes-version 1.36.0
+            /github/workspace/rendered-platform.yaml

@@ -9,10 +9,10 @@ dependencies:
     version: 41.3.0
     repository: https://traefik.github.io/charts
   - name: cert-manager
-    alias: certManager
+    alias: cert-manager
     version: 1.21.1
     repository: oci://quay.io/jetstack/charts
   - name: nfs-subdir-external-provisioner
-    alias: nfsProvisioner
+    alias: nfs-provisioner
     version: 4.0.18
     repository: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/

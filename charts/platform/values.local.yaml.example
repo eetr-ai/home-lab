@@ -16,7 +16,7 @@ platform:
     enabled: true
     hostname: whoami.example.com
 
-nfsProvisioner:
+nfs-provisioner:
   nfs:
     # RFC 5737 documentation address; replace it only in values.local.yaml.
     server: 192.0.2.1

@@ -77,7 +77,7 @@ traefik:
   api:
     dashboard: false
 
-certManager:
+cert-manager:
   fullnameOverride: cert-manager
   crds:
     enabled: true
@@ -88,7 +88,7 @@ certManager:
   prometheus:
     enabled: false
 
-nfsProvisioner:
+nfs-provisioner:
   fullnameOverride: nfs-subdir-external-provisioner
   nfs:
     server: 192.0.2.1
