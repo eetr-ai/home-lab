@@ -101,6 +101,10 @@ resource "libvirt_domain" "node" {
 
   }
 
+  lifecycle {
+    replace_triggered_by = [libvirt_volume.cloud_init[each.key]]
+  }
+
   depends_on = [
     libvirt_volume.node_disk,
     libvirt_volume.cloud_init,

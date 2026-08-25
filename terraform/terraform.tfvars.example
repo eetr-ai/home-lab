@@ -1,5 +1,5 @@
 libvirt_uri       = "qemu+sshcmd://YOUR_USER@YOUR_HOST/system"
-cluster_name      = "YOUR_CLUSTER_NAME"
+cluster_name      = "your-cluster-name"
 storage_pool_path = "/var/lib/libvirt/home-lab"
 
 ubuntu_image_url = "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img"

@@ -26,7 +26,7 @@ and stable MAC addresses are required inputs in the ignored
 
 ## Prerequisites
 
-- Terraform `>= 1.10` on the laptop.
+- Terraform `>= 1.10, < 2.0` on the laptop.
 - Passwordless public-key SSH access from the laptop to the libvirt host.
 - QEMU/KVM and libvirt running on the host.
 - The SSH user on the host belongs to `libvirt` and `kvm`.
@@ -61,6 +61,10 @@ cp terraform.tfvars.example terraform.tfvars
 Every environment-specific variable is required. Review the ignored
 `terraform.tfvars` and replace every placeholder. For the initial build, use
 libvirt's NAT network. Never configure a private-key path.
+
+Incrementing `cloud_init_revision` replaces each affected cloud-init volume and
+domain so the VM reboots and cloud-init sees a new instance identity. Review
+that plan as a disruptive node operation; it does not replace the node disk.
 
 The public-key file is read from the laptop only while Terraform renders the
 cloud-init seed. Key material is not stored in the repository; the real tfvars,
