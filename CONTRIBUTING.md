@@ -24,5 +24,20 @@
 
 ## Commit messages
 
-Use short, imperative commit subjects. Conventional prefixes such as `feat:`,
-`fix:`, `docs:`, `chore:`, and `refactor:` are encouraged but not mandatory.
+This repository uses [Conventional Commits](https://www.conventionalcommits.org/).
+Every commit subject must use the following shape:
+
+```text
+<type>[optional scope]: <imperative description>
+```
+
+Common types are `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, and `ci`.
+Examples:
+
+```text
+feat(terraform): provision libvirt kubernetes nodes
+fix(cloud-init): load bridge netfilter module
+docs(networking): document br0 migration
+```
+
+Use `!` and a `BREAKING CHANGE:` footer when a change requires manual migration.

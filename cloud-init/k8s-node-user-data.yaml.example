@@ -1,0 +1,72 @@
+#cloud-config
+
+# Change this for each node: k8s-cp-1, k8s-worker-1, or k8s-worker-2.
+hostname: k8s-cp-1
+manage_etc_hosts: true
+timezone: Etc/UTC
+
+# SSH-only administrative account. Replace the placeholder with the complete
+# contents of your laptop's public key, including the key type and comment.
+users:
+  - name: YOUR_VM_ADMIN_USER
+    gecos: Home Lab Administrator
+    groups:
+      - adm
+      - sudo
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - REPLACE_WITH_YOUR_SSH_PUBLIC_KEY
+
+disable_root: true
+ssh_pwauth: false
+
+# Expand the filesystem to use the virtual disk size assigned by libvirt.
+growpart:
+  mode: auto
+  devices:
+    - /
+  ignore_growroot_disabled: false
+resize_rootfs: true
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - conntrack
+  - curl
+  - ethtool
+  - gnupg
+  - jq
+  - nfs-common
+  - qemu-guest-agent
+  - socat
+  - vim
+
+# Kubernetes and container runtimes require packet forwarding and visibility
+# into traffic traversing Linux bridges.
+write_files:
+  - path: /etc/modules-load.d/kubernetes.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      overlay
+      br_netfilter
+
+  - path: /etc/sysctl.d/99-kubernetes.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+
+runcmd:
+  - [modprobe, overlay]
+  - [modprobe, br_netfilter]
+  - [sysctl, --system]
+  - [swapoff, -a]
+  - [systemctl, enable, --now, qemu-guest-agent]
+
+final_message: "Cloud-init completed after $UPTIME seconds"

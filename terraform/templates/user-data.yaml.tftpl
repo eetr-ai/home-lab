@@ -1,0 +1,72 @@
+#cloud-config
+
+hostname: ${hostname}
+manage_etc_hosts: true
+timezone: ${timezone}
+
+users:
+  - name: ${admin_user}
+    gecos: Home Lab Administrator
+    groups:
+      - adm
+      - sudo
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+disable_root: true
+ssh_pwauth: false
+
+growpart:
+  mode: auto
+  devices:
+    - /
+  ignore_growroot_disabled: false
+resize_rootfs: true
+
+package_update: true
+package_upgrade: ${upgrade_packages}
+packages:
+  - ca-certificates
+  - conntrack
+  - curl
+  - ethtool
+  - gnupg
+  - jq
+  - nfs-common
+  - qemu-guest-agent
+  - socat
+  - vim
+
+write_files:
+  - path: /etc/modules-load.d/kubernetes.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      overlay
+      br_netfilter
+
+  - path: /etc/sysctl.d/99-kubernetes.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+
+  - path: /etc/home-lab-node-role
+    owner: root:root
+    permissions: "0644"
+    content: |
+      ${node_role}
+
+runcmd:
+  - [modprobe, overlay]
+  - [modprobe, br_netfilter]
+  - [sysctl, --system]
+  - [swapoff, -a]
+  - [systemctl, enable, --now, qemu-guest-agent]
+
+final_message: "Cloud-init completed after $UPTIME seconds"
