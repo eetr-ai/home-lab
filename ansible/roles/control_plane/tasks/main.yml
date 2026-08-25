@@ -118,9 +118,24 @@
     state: started
     timeout: 180
 
+- name: Resolve the VM administrator account
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+
+- name: Derive the VM administrator home directory
+  ansible.builtin.set_fact:
+    vm_administrator_home: "{{ ansible_facts.getent_passwd[ansible_user][4] }}"
+
+- name: Verify the VM administrator home directory
+  ansible.builtin.assert:
+    that:
+      - vm_administrator_home is match('^/')
+    fail_msg: Could not resolve an absolute home directory for {{ ansible_user }}.
+
 - name: Create the administrator kubeconfig directory
   ansible.builtin.file:
-    path: "{{ ansible_user_dir }}/.kube"
+    path: "{{ vm_administrator_home }}/.kube"
     state: directory
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
@@ -129,7 +144,7 @@
 - name: Install kubeconfig for the VM administrator
   ansible.builtin.copy:
     src: /etc/kubernetes/admin.conf
-    dest: "{{ ansible_user_dir }}/.kube/config"
+    dest: "{{ vm_administrator_home }}/.kube/config"
     remote_src: true
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"

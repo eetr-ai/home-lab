@@ -42,12 +42,14 @@ secret_marker=$(openssl rand -hex 16)
 etcd_record=$(mktemp -t home-lab-etcd-record.XXXXXX)
 
 cleanup() {
-  kubectl delete secret "$secret_name" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete secret "$secret_name" --namespace default --ignore-not-found >/dev/null 2>&1 || true
   rm -f "$etcd_record"
 }
 trap cleanup EXIT
 
-kubectl create secret generic "$secret_name" --from-literal="value=$secret_marker" >/dev/null
+kubectl create secret generic "$secret_name" \
+  --namespace default \
+  --from-literal="value=$secret_marker" >/dev/null
 
 kubectl -n kube-system exec "etcd-$control_plane" -- \
   etcdctl \
