@@ -25,6 +25,9 @@ includes:
   admin-web:
     taskfile: ./admin/web/Taskfile.yml
     dir: ./admin/web
+  admin-agent:
+    taskfile: ./admin/agent/Taskfile.yml
+    dir: ./admin/agent
 
 vars:
   # Pinned so a local run and a CI run resolve the same tool. These match the
@@ -54,6 +57,7 @@ tasks:
       - task: admin-api:openapi:check
       - task: admin-web:lint
       - task: admin-web:typecheck
+      - task: admin-agent:lint
 
   test:
     desc: Run the module tests and the repository regression tests
@@ -75,6 +79,7 @@ tasks:
     cmds:
       - task: admin-api:build
       - task: admin-web:build
+      - task: admin-agent:build
 
   # --- Terraform ------------------------------------------------------------
 
@@ -202,7 +207,7 @@ tasks:
   # not lead. Set DEV_DOCKER_CONTEXT to override deliberately.
 
   dev:
-    desc: Start the admin panel and API locally (see admin/.env.example)
+    desc: Start the panel, the API and the assistant locally (see admin/.env.example)
     env:
       DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
     preconditions:
@@ -212,6 +217,12 @@ tasks:
       # compose reads the environment before it reads the file.
       - sh: test -s admin/.env || test -n "${OIDC_ISSUER:-}"
         msg: 'admin/.env is missing or empty. Create it with: cp admin/.env.example admin/.env && chmod 600 admin/.env'
+      # Checked here rather than left to the container, because the container is
+      # the expensive place to find out: without a key the agent starts, fails its
+      # own required-variable check, never becomes healthy, and `--wait` fails the
+      # whole stack with the reason four screens up in another service's logs.
+      - sh: grep -qE '^OPENROUTER_API_KEY=.+' admin/.env 2>/dev/null || test -n "${OPENROUTER_API_KEY:-}"
+        msg: 'OPENROUTER_API_KEY is not set in admin/.env. The assistant is part of the local stack — see admin/.env.example.'
     cmds:
       - docker compose -f admin/compose.yaml up --build --detach --wait {{.CLI_ARGS}}
       - cmd: printf '\nThe panel is at http://localhost:3000 and the API at http://localhost:8090\nFollow the logs with `task logs`, and stop it with `task stop`.\n'
