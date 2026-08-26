@@ -1,0 +1,141 @@
+{
+    "components": {
+        "schemas": {
+            "auth.WhoamiResponse": {
+                "properties": {
+                    "email": {
+                        "description": "Email is the caller's email when the token carried the claim.",
+                        "type": "string"
+                    },
+                    "subject": {
+                        "description": "Subject is the identity provider's stable subject claim.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "health.Response": {
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "http.ErrorBody": {
+                "properties": {
+                    "error": {
+                        "description": "Error is a stable, machine-readable code.",
+                        "type": "string"
+                    },
+                    "message": {
+                        "description": "Message is a human-readable explanation. It never carries internal detail.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "securitySchemes": {
+            "BearerAuth": {
+                "description": "An OAuth 2.1 access token, as \"Bearer \u003ctoken\u003e\".",
+                "in": "header",
+                "name": "Authorization",
+                "type": "apiKey"
+            }
+        }
+    },
+    "info": {
+        "description": "Manages the home lab's PostgreSQL and MongoDB services, and reads its Kubernetes cluster.\nEvery /api endpoint needs a bearer access token from the configured OpenID Connect\nprovider. There are no API keys: a caller acts as the person who signed in, and an\nagent carries that person's token.",
+        "license": {
+            "name": "MIT"
+        },
+        "title": "home-lab Admin API",
+        "version": "0.1.0"
+    },
+    "externalDocs": {
+        "description": "",
+        "url": ""
+    },
+    "paths": {
+        "/api/whoami": {
+            "get": {
+                "description": "Reports the subject and email the presented bearer token belongs to.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/auth.WhoamiResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Describe the authenticated caller",
+                "tags": [
+                    "identity"
+                ]
+            }
+        },
+        "/healthz": {
+            "get": {
+                "description": "Reports whether the process is running. Checks nothing downstream, so it stays\ntrue while a managed database is unreachable.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/health.Response"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Liveness and readiness probe",
+                "tags": [
+                    "health"
+                ]
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "description": "Returns the generated OpenAPI document describing every endpoint. Requires no authentication.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "The OpenAPI description of this API",
+                "tags": [
+                    "meta"
+                ]
+            }
+        }
+    },
+    "openapi": "3.1.0"
+}

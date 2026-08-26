@@ -6,6 +6,14 @@ version: '3'
 
 vars:
   GO: go
+  # Pinned so every machine and CI regenerate byte-identical output. Bumping this
+  # is expected to move internal/openapi/swagger.json; commit both together.
+  #
+  # v2 is what emits OpenAPI 3.1, and rc5 is the newest published tag. Depending on
+  # a release candidate is tolerable precisely because the output is committed: the
+  # generator runs in CI and on developer machines, never in the running service,
+  # so the worst a bad release does is fail this task.
+  SWAG_VERSION: v2.0.0-rc5
   # Pinned, and run through `go run` rather than installed, for two reasons: every
   # machine and CI resolve the same linter, and it is compiled by the toolchain
   # that builds this module. A separately installed binary built by an older Go
@@ -13,6 +21,27 @@ vars:
   GOLANGCI_VERSION: v2.13.1
 
 tasks:
+  openapi:
+    desc: Regenerate the embedded OpenAPI description from the handler annotations
+    # JSON only, on purpose. swag can also emit a Go package, but importing it
+    # would put the generator in the module's dependency graph and give the binary
+    # a second copy of the spec that could disagree with the committed one.
+    # Generating the artifact and embedding it keeps swaggo a tool, not a dependency.
+    cmds:
+      - '{{.GO}} run github.com/swaggo/swag/v2/cmd/swag@{{.SWAG_VERSION}} init --v3.1 --quiet --generalInfo internal/openapi/doc.go --dir ./ --parseInternal --outputTypes json --output internal/openapi'
+
+  openapi:check:
+    desc: Fail if the committed OpenAPI description is out of date
+    cmds:
+      - task: openapi
+      - |
+        if ! git diff --quiet -- internal/openapi/swagger.json; then
+          printf 'The committed OpenAPI description does not match the annotations.\n' >&2
+          printf 'Run `task admin-api:openapi` and commit the result.\n' >&2
+          git --no-pager diff --stat -- internal/openapi/swagger.json >&2
+          exit 1
+        fi
+
   fmt:
     desc: Format the module
     cmds:

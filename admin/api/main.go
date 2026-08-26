@@ -4,100 +4,97 @@
 // host and reads the Kubernetes cluster, and it publishes an OpenAPI description
 // of itself so a caller can look up what it offers rather than being told.
 //
-// This first iteration is deliberately minimal: it serves a readiness endpoint
-// and nothing else, so the build, release, and deployment path can be proven
-// before there is anything to break.
+// This file is wiring and nothing else. Every behavior lives in a slice under
+// internal/, folded by component rather than by layer — see
+// docs/contributing/layer-conventions.md.
 package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"net/http"
+	stdhttp "net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
+	"github.com/eetr-ai/home-lab/admin/api/internal/health"
+	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
+	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 )
 
 const (
 	defaultPort = "8090"
 
-	// Bounds on a single request, so a stalled client cannot hold a connection
-	// open indefinitely. Generous enough that no legitimate call approaches them.
-	readHeaderTimeout = 5 * time.Second
-	readTimeout       = 30 * time.Second
-	writeTimeout      = 30 * time.Second
-	idleTimeout       = 120 * time.Second
-
-	// How long in-flight requests get to finish after a shutdown signal. Kept
-	// under the ten seconds Kubernetes allows by default, so the process exits on
-	// its own terms rather than being killed.
-	shutdownTimeout = 8 * time.Second
+	// Discovery is one HTTP call to the identity provider at startup. Bounded so
+	// an unreachable provider fails the process quickly and visibly, rather than
+	// leaving it hanging with no logs and no listener.
+	discoveryTimeout = 15 * time.Second
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	if err := run(logger); err != nil {
-		logger.Error("server stopped", slog.Any("error", err))
+		logger.Error("admin-api stopped", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-// run owns the server lifecycle and returns the error that ended it, so main
-// stays a thin entry point and every exit path flows through one place.
 func run(logger *slog.Logger) error {
+	// Signals a container runtime sends, so a rollout drains rather than dropping
+	// whatever was in flight.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	verifier, err := newVerifier(ctx, logger)
+	if err != nil {
+		return err
+	}
+
+	// Routes under /api require a verified caller. Everything else does not, and
+	// the two are separate muxes so that is a property of the wiring rather than
+	// something each handler has to remember.
+	api := stdhttp.NewServeMux()
+	auth.NewHandler().Register(api)
+
+	root := stdhttp.NewServeMux()
+	health.New().Register(root)
+	openapi.New().Register(root)
+	root.Handle("/api/", auth.Middleware(verifier)(api))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = defaultPort
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthz)
-
-	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
-		ReadHeaderTimeout: readHeaderTimeout,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
-		IdleTimeout:       idleTimeout,
-	}
-
-	// Listen for the signals a container runtime sends, so a rollout drains
-	// rather than dropping whatever was in flight.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	errs := make(chan error, 1)
-	go func() {
-		logger.Info("listening", slog.String("addr", server.Addr))
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errs <- err
-			return
-		}
-		errs <- nil
-	}()
-
-	select {
-	case err := <-errs:
-		return err
-	case <-ctx.Done():
-		logger.Info("shutting down")
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-
-	return server.Shutdown(shutdownCtx) //nolint:wrapcheck // the caller logs it as-is
+	return httpx.Serve(ctx, ":"+port, root, logger)
 }
 
-// healthz answers whether the process is up. It deliberately checks nothing else:
-// a readiness probe that fails when PostgreSQL is unreachable would take the
-// panel out of service exactly when an operator needs it to say so.
-func healthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+// newVerifier builds the token verifier from the environment.
+//
+// A missing issuer is fatal rather than a mode. This API is a resource server:
+// running it without one would leave every endpoint it grows open to anyone who
+// can reach the pod, and "authentication was not configured" is not a state worth
+// being able to reach by accident.
+func newVerifier(ctx context.Context, logger *slog.Logger) (*auth.OIDCVerifier, error) {
+	issuer := os.Getenv("ADMIN_OIDC_ISSUER")
+	audience := os.Getenv("ADMIN_OIDC_AUDIENCE")
+
+	if audience == "" {
+		// Survivable, and worth saying loudly: without it any token this issuer
+		// signed for any application is accepted here.
+		logger.Warn("ADMIN_OIDC_AUDIENCE is unset; tokens will not be checked against an audience")
+	}
+
+	discoveryCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+
+	verifier, err := auth.NewOIDCVerifier(discoveryCtx, issuer, audience)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("verifying bearer tokens", slog.String("issuer", issuer), slog.String("audience", audience))
+	return verifier, nil
 }

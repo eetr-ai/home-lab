@@ -30,10 +30,7 @@ jobs:
           # Read from the module so the toolchain CI builds with is the one the
           # module targets, and a bump needs editing in one place.
           go-version-file: admin/api/go.mod
-          # The module has no dependencies yet, so there is no go.sum for the
-          # cache to key on and enabling it fails on the missing path. Turn this
-          # on with the first dependency.
-          cache: false
+          cache-dependency-path: admin/api/go.sum
 
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v4

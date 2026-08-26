@@ -48,6 +48,7 @@ tasks:
       - task: ansible:syntax
       - task: helm:lint
       - task: admin-api:lint
+      - task: admin-api:openapi:check
 
   test:
     desc: Run the module tests and the repository regression tests
