@@ -75,8 +75,18 @@ export default function AgentLauncher({ userKey }: { userKey: string }) {
 					}`}
 				>
 					{/* The inner column keeps its full width while the outer one animates,
-					    so the transcript does not reflow line by line on the way in. */}
-					<div className="h-full w-[min(32rem,100vw)]">
+					    so the transcript does not reflow line by line on the way in.
+
+					    It also fades and slides its own short distance, a little slower
+					    than the column and from the side the column grows from, so the
+					    conversation arrives with the space rather than being revealed by a
+					    shutter. Under prefers-reduced-motion both stop and it simply
+					    appears. */}
+					<div
+						className={`h-full w-[min(32rem,100vw)] transition-[opacity,transform] duration-500 ease-panel motion-reduce:transition-none motion-reduce:translate-x-0 motion-reduce:opacity-100 ${
+							open ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0"
+						}`}
+					>
 						<AgentDrawer userKey={userKey} onCollapse={() => setOpen(false)} />
 					</div>
 				</aside>
@@ -86,8 +96,18 @@ export default function AgentLauncher({ userKey }: { userKey: string }) {
 				<button
 					type="button"
 					onClick={() => {
+						// Mount collapsed first, and widen two frames later.
+						//
+						// A transition needs two rendered states to move between, and on
+						// the very first open there is only one: the column is mounted for
+						// the first time already wide, so the browser has no previous width
+						// to interpolate from and it simply appears. Every open after that
+						// animated, which made the first one look like a different control.
+						//
+						// Two frames rather than one because the first commits the
+						// collapsed column and the second runs after it has been laid out.
 						setOpened(true);
-						setOpen(true);
+						requestAnimationFrame(() => requestAnimationFrame(() => setOpen(true)));
 					}}
 					title="Ask Sous"
 					aria-label="Ask Sous"

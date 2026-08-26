@@ -139,6 +139,22 @@ describe("parseNavigateEvent", () => {
 		});
 	});
 
+	// The scope of several pages lives in the query string — ?database=, ?namespace=
+	// — so a navigation that loses it lands on the right page showing the wrong
+	// thing, which is worse than not navigating. The catalogue the agent is given
+	// names those parameters, and this is what says they survive the boundary.
+	it("keeps a query string, which is where a page's scope lives", () => {
+		expect(parseNavigateEvent('{"path":"/postgres/query?database=orders"}')).toEqual({
+			path: "/postgres/query?database=orders",
+			reason: undefined,
+		});
+	});
+
+	it("keeps more than one parameter, and an encoded value", () => {
+		const path = "/kubernetes/pods?namespace=kube-system&q=web%20server";
+		expect(parseNavigateEvent(JSON.stringify({ path }))?.path).toBe(path);
+	});
+
 	// This is the boundary, not the agent's definition — so every way out of the
 	// site has to be refused here, whatever the definition was changed to say.
 	it.each([

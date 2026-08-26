@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Play, Table2 } from "lucide-react";
 import { runQuery } from "@/app/actions/postgres";
 import { Banner, Button, FormField, Select, Td, Th } from "@/components/ui";
@@ -17,17 +18,67 @@ import type { QueryResult } from "@/lib/api/types";
  * pattern match over the text here would suggest the safety came from the
  * browser; it does not, and comments, CTEs and dollar quoting all defeat one.
  */
-export function QueryConsole({ databases }: { databases: string[] }) {
-	const [database, setDatabase] = useState(databases[0] ?? "");
+export function QueryConsole({
+	databases,
+	selected: database,
+}: {
+	databases: string[];
+	selected: string;
+}) {
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const [sql, setSql] = useState("");
 	const [result, setResult] = useState<QueryResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [pending, startTransition] = useTransition();
+	// A second transition, because these two are not the same wait. Sharing one
+	// put the Run button in its loading state while the page was merely fetching
+	// another database's name list, which says a statement is running when none is.
+	const [switching, startSwitching] = useTransition();
+	// Which database the console is actually showing, readable from inside a
+	// callback that started before the answer arrived. A statement takes up to
+	// fifteen seconds, and the selection can move while one is in flight.
+	// Set both here — from the effect, which catches the back button — and
+	// synchronously in `choose`, which catches the gap between a push starting and
+	// the new prop arriving. An answer landing inside that gap would otherwise pass
+	// the check and paint itself under a database the operator had already left.
+	const shown = useRef(database);
+	useEffect(() => {
+		shown.current = database;
+	}, [database]);
+
+	// The choice is the address, so changing it is a navigation. The statement in
+	// the box survives it: this component stays mounted across a soft navigation
+	// to the same route, which is the point of putting only the scope in the URL.
+	function choose(next: string) {
+		// A result belongs to the database it ran against, so it does not survive the
+		// switch. Left alone it is the previous database's rows sitting under the new
+		// database's name — which is not a stale table, it is a wrong answer, and
+		// nothing on screen would say so.
+		setResult(null);
+		setError(null);
+		shown.current = next;
+		const params = new URLSearchParams(searchParams.toString());
+		params.set("database", next);
+		startSwitching(() => router.push(`?${params.toString()}`));
+	}
 
 	function run() {
 		setError(null);
+		// The database this particular run asked about, compared against the one on
+		// screen when the answer lands. A statement that started before the selection
+		// moved must not paint its rows under a name they did not come from, and
+		// clearing the result in `choose` does not cover it — the late completion
+		// arrives afterwards.
+		//
+		// Checked this way rather than by disabling the selector while a query runs.
+		// Disabling forbids a reasonable thing — abandoning a slow query by moving on
+		// — and it would still miss the back button, which changes the selection
+		// without going anywhere near `choose`.
+		const ran = database;
 		startTransition(async () => {
-			const answer = await runQuery(database, sql);
+			const answer = await runQuery(ran, sql);
+			if (ran !== shown.current) return;
 			if (!answer.ok) {
 				setError(answer.error);
 				setResult(null);
@@ -44,7 +95,8 @@ export function QueryConsole({ databases }: { databases: string[] }) {
 					<Select
 						id="query-database"
 						value={database}
-						onChange={(event) => setDatabase(event.target.value)}
+						disabled={switching || databases.length === 0}
+						onChange={(event) => choose(event.target.value)}
 					>
 						{databases.map((name) => (
 							<option key={name} value={name}>
@@ -56,7 +108,7 @@ export function QueryConsole({ databases }: { databases: string[] }) {
 				<Button
 					icon={Play}
 					loading={pending}
-					disabled={sql.trim() === "" || database === ""}
+					disabled={switching || sql.trim() === "" || database === ""}
 					onClick={run}
 				>
 					Run
