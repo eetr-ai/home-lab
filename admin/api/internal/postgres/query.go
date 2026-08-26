@@ -37,15 +37,20 @@ const (
 //     UPDATE, DELETE and DDL is refused by the server;
 //   - statement_timeout, so a runaway query is killed by the server rather than
 //     abandoned by the client;
-//   - pgx's extended protocol, one statement per message, so
-//     `SELECT 1; DROP TABLE t` is refused rather than run as two.
+//   - pgx's extended protocol, asked for by name rather than inherited, so one
+//     statement goes per message and `SELECT 1; DROP TABLE t` is refused rather
+//     than run as two.
 //
 // Be clear about what that does not bound. A superuser session reaches outside
 // the database: `COPY (SELECT 1) TO PROGRAM ...` runs a shell command as the
 // server's own user, and a READ ONLY transaction does not refuse it, because it
-// is not a database write. Nor can the session lower its own floor — SET ROLE is
-// reversible by whoever authenticated, so a submitted RESET ROLE undoes it and
-// session_user stays the superuser. Verified against PostgreSQL 18, both.
+// is not a database write. Nor can the session lower its own floor, by either
+// route: SET ROLE changes current_user and RESET ROLE puts it back, while SET
+// SESSION AUTHORIZATION changes session_user as well and RESET SESSION
+// AUTHORIZATION still puts that back — PostgreSQL keeps the identity the
+// connection actually authenticated as, and it is a superuser. So a submitted
+// statement that appears to give up privilege is undone by the next one.
+// Verified against PostgreSQL 18.
 //
 // How far that reaches is a property of the deployment rather than of this code.
 // The home lab runs PostgreSQL in an unprivileged container with one bind mount
@@ -103,9 +108,20 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	}
 
 	started := time.Now()
-	// One statement per message, because pgx uses the extended protocol: verified
-	// that "SELECT 1; DROP TABLE t" is refused rather than run as two.
-	rows, err := tx.Query(ctx, sql)
+	// One statement per message, because this asks for the extended protocol
+	// rather than inheriting whatever the connection defaults to: verified that
+	// "SELECT 1; DROP TABLE t" is refused rather than run as two.
+	//
+	// Named here and not left to the default, because the default is not this
+	// package's to decide. `connectTo` copies the pool's config, the pool parses
+	// the DSN, and pgx reads `default_query_exec_mode` out of a connection string
+	// — `simple_protocol` among the values it accepts. Under that mode the whole
+	// string goes to the server as one Query message and runs as many statements,
+	// so `COMMIT; INSERT ...` would end the read-only transaction above and
+	// persist what followed, with the deferred Rollback left nothing to undo. A
+	// bound that a deployment's DSN can switch off is not one of the three this
+	// function claims to have.
+	rows, err := tx.Query(ctx, sql, pgx.QueryExecModeExec)
 	if err != nil {
 		// The server's own message, which is the useful part: a syntax error names
 		// the position, and a refusal names what it would not run.

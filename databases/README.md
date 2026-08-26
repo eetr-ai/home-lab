@@ -216,16 +216,24 @@ What bounds a submitted statement is therefore its shape, not its authority:
 - It runs in a `READ ONLY` transaction that is always rolled back, so every
   `INSERT`, `UPDATE`, `DELETE`, and DDL is refused by the server.
 - `SET LOCAL statement_timeout`, so a runaway query is killed by the server.
-- pgx's extended protocol carries one statement per message, so
-  `SELECT 1; DROP TABLE x` is refused rather than run as two.
+- The query asks for pgx's extended protocol by name rather than inheriting the
+  connection's default, so it carries one statement per message and
+  `SELECT 1; DROP TABLE x` is refused rather than run as two. Asked for by name
+  because pgx reads `default_query_exec_mode` out of a connection string, and a
+  DSN setting `simple_protocol` would otherwise hand the whole text to the
+  server as one message — where `COMMIT; INSERT ...` ends the read-only
+  transaction and keeps what follows.
 
 And be plain about what none of that bounds. A superuser session reaches outside
 the database: `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` runs a shell
 command as the `postgres` user, and the `READ ONLY` transaction does not refuse
-it, because it is not a database write. Nor can the session lower its own floor —
-`SET ROLE` is reversible by whoever authenticated, so a submitted `RESET ROLE`
-(or `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END $$`) restores it and
-`session_user` never changes. Both checked against PostgreSQL 18.
+it, because it is not a database write. Nor can the session lower its own floor:
+neither route out of the superuser is one-way. `SET ROLE` changes `current_user`, and a submitted
+`RESET ROLE` (or `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END $$`) restores
+it while `session_user` never changes at all. `SET SESSION AUTHORIZATION` does
+change `session_user` — and `RESET SESSION AUTHORIZATION` puts that back too,
+because PostgreSQL keeps the identity the connection authenticated as. All
+checked against PostgreSQL 18.
 
 What that reaches here is the container, not the machine. PostgreSQL runs
 unprivileged in one, with a single bind mount for its data directory and no
