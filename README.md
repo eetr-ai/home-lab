@@ -356,6 +356,19 @@ Changes to `main` are made through pull requests. A pull request must pass the
 repository checks and resolve all review conversations before it can be
 merged. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
+Every check is defined in [Taskfile.yml](Taskfile.yml) and run through
+[go-task](https://taskfile.dev), so the command that gates a pull request is the
+same one you run locally:
+
+```bash
+task check
+```
+
+`task --list` shows the rest, including the operational entry points. The
+conventions the repository follows — commits, layering, testing, and the admin
+panel's interface rules — are in [docs/contributing/](docs/contributing/README.md),
+which is also what coding agents read.
+
 This is a public repository. Never commit private keys, passwords, API tokens,
 kubeconfig files, Terraform state, Cloudflare tunnel credentials, database
 credentials, or unencrypted Kubernetes secrets.

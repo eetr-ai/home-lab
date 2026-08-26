@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
 *.key
 *.p12
@@ -41,6 +42,7 @@ ansible/artifacts/
 .DS_Store
 **/values.local.yaml
 **/charts/*.tgz
+rendered-*.yaml
 *.swp
 *.swo
 *.tmp
@@ -55,3 +57,19 @@ ansible/artifacts/
 *.ova
 *.tar
 *.tar.gz
+
+# Node and the admin web app
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+coverage/
+.npm/
+
+# Go and the admin API
+admin/api/bin/
+dist/
+
+# go-task
+.task/
