@@ -7,3 +7,9 @@ updates:
     labels:
       - dependencies
 
+  - package-ecosystem: gomod
+    directory: /admin/api
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies

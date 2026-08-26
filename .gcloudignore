@@ -1,0 +1,19 @@
+# What `gcloud builds submit` leaves out of the uploaded source.
+#
+# The include below is load-bearing. Without it a .gcloudignore replaces
+# .gitignore outright, and everything .gitignore protects — databases/.env,
+# values.local.yaml, Terraform state — would be uploaded to Cloud Build.
+#!include:.gitignore
+
+.git/
+.github/
+
+# Tracked directories the build has no use for, which .gitignore cannot exclude
+# because they belong in the repository.
+ansible/
+cloud-init/
+terraform/
+tests/
+docs/
+scripts/
+helm-values/

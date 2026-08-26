@@ -1,0 +1,118 @@
+version: "2"
+
+# The strict set, adopted from the start.
+#
+# A new module can afford this because it has no backlog: every rule below is at
+# zero today and stays there. The value is in staying at zero — a permanently
+# non-empty lint output trains everyone to skim it, which is exactly when the next
+# real finding goes unnoticed.
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # Correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - bodyclose
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - copyloopvar
+    - usestdlibvars
+    # Error handling discipline
+    - errorlint
+    - wrapcheck
+    # Style and clarity
+    - revive
+    - gocritic
+    - unconvert
+    - unparam
+    - misspell
+    - whitespace
+    - predeclared
+    - nakedret
+    - prealloc
+    # The conventions in docs/contributing
+    - mnd
+    - goconst
+    - funlen
+    - gocyclo
+    - gocognit
+    - cyclop
+    - nestif
+    - lll
+    - ireturn
+    - interfacebloat
+    # Security
+    - gosec
+
+  settings:
+    funlen:
+      lines: 60
+      statements: 45
+      ignore-comments: true
+    gocyclo:
+      min-complexity: 12
+    cyclop:
+      max-complexity: 12
+    gocognit:
+      min-complexity: 20
+    nestif:
+      min-complexity: 4
+    lll:
+      line-length: 120
+    interfacebloat:
+      max: 5
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
+    wrapcheck:
+      # Wrap errors arriving from the standard library or a third party. Errors
+      # travelling between this module's own packages carry their context already.
+      ignore-package-globs:
+        - github.com/eetr-ai/home-lab/*
+    mnd:
+      ignored-numbers: ["0", "1", "2"]
+    nakedret:
+      max-func-lines: 0
+    revive:
+      rules:
+        - name: exported
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: var-declaration
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: errorf
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    rules:
+      # Tests get latitude: fixtures, long table-driven cases, repeated literals.
+      - path: _test\.go
+        linters:
+          - funlen
+          - mnd
+          - goconst
+          - gocyclo
+          - gocognit
+          - cyclop
+          - wrapcheck
+          - lll
