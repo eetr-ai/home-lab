@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Play, Table2 } from "lucide-react";
 import { runQuery } from "@/app/actions/postgres";
 import { Banner, Button, FormField, Select, Td, Th } from "@/components/ui";
@@ -17,12 +18,32 @@ import type { QueryResult } from "@/lib/api/types";
  * pattern match over the text here would suggest the safety came from the
  * browser; it does not, and comments, CTEs and dollar quoting all defeat one.
  */
-export function QueryConsole({ databases }: { databases: string[] }) {
-	const [database, setDatabase] = useState(databases[0] ?? "");
+export function QueryConsole({
+	databases,
+	selected: database,
+}: {
+	databases: string[];
+	selected: string;
+}) {
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const [sql, setSql] = useState("");
 	const [result, setResult] = useState<QueryResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [pending, startTransition] = useTransition();
+	// A second transition, because these two are not the same wait. Sharing one
+	// put the Run button in its loading state while the page was merely fetching
+	// another database's name list, which says a statement is running when none is.
+	const [switching, startSwitching] = useTransition();
+
+	// The choice is the address, so changing it is a navigation. The statement in
+	// the box survives it: this component stays mounted across a soft navigation
+	// to the same route, which is the point of putting only the scope in the URL.
+	function choose(next: string) {
+		const params = new URLSearchParams(searchParams.toString());
+		params.set("database", next);
+		startSwitching(() => router.push(`?${params.toString()}`));
+	}
 
 	function run() {
 		setError(null);
@@ -44,7 +65,8 @@ export function QueryConsole({ databases }: { databases: string[] }) {
 					<Select
 						id="query-database"
 						value={database}
-						onChange={(event) => setDatabase(event.target.value)}
+						disabled={switching || databases.length === 0}
+						onChange={(event) => choose(event.target.value)}
 					>
 						{databases.map((name) => (
 							<option key={name} value={name}>
@@ -56,7 +78,7 @@ export function QueryConsole({ databases }: { databases: string[] }) {
 				<Button
 					icon={Play}
 					loading={pending}
-					disabled={sql.trim() === "" || database === ""}
+					disabled={switching || sql.trim() === "" || database === ""}
 					onClick={run}
 				>
 					Run

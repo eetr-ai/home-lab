@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, MessageSquarePlus, X } from "lucide-react";
 import { Banner, IconButton } from "@/components/ui";
 import AgentMessage from "./AgentMessage";
@@ -34,9 +34,16 @@ export default function AgentDrawer({
 }) {
 	const router = useRouter();
 	const pathname = usePathname();
+	// The query string is part of where somebody is, not decoration on it: these
+	// pages carry their scope there, so /postgres/query and
+	// /postgres/query?database=orders are two different questions to be asked "what
+	// am I looking at". Sent whole, so the agent can answer about the database in
+	// front of the operator rather than the first one in the list.
+	const search = useSearchParams().toString();
+	const page = search ? `${pathname}?${search}` : pathname;
 	const [draft, setDraft] = useState("");
 
-	const chat = useAgentChat(userKey, pathname, (target) => {
+	const chat = useAgentChat(userKey, page, (target) => {
 		// The path was already checked for being site-relative when the frame was
 		// parsed — see parseNavigateEvent, which is the boundary. router.push keeps
 		// it a client-side navigation, so this drawer and the conversation in it
