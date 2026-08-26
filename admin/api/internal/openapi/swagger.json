@@ -38,10 +38,9 @@
         },
         "securitySchemes": {
             "BearerAuth": {
-                "description": "An OAuth 2.1 access token, as \"Bearer \u003ctoken\u003e\".",
-                "in": "header",
-                "name": "Authorization",
-                "type": "apiKey"
+                "description": "An OAuth 2.1 access token from the configured provider.",
+                "scheme": "bearer",
+                "type": "http"
             }
         }
     },

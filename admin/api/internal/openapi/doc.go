@@ -23,8 +23,6 @@
 //	@description	agent carries that person's token.
 //	@license.name	MIT
 //
-//	@securityDefinitions.apikey	BearerAuth
-//	@in							header
-//	@name						Authorization
-//	@description				An OAuth 2.1 access token, as "Bearer <token>".
+//	@securityDefinitions.bearerauth	BearerAuth
+//	@description					An OAuth 2.1 access token from the configured provider.
 package openapi

@@ -50,9 +50,10 @@ Replace the registry path, set the image tag to the version you intend to run, a
 fill in the identity provider:
 
 - `admin.api.oidc.issuer` — the OpenID Connect issuer whose tokens the API accepts,
-  written exactly as the provider publishes it. The API refuses to start without
-  one, so a chart that omits it produces a CrashLoopBackOff rather than an
-  unauthenticated API.
+  written exactly as the provider publishes it. It is `required` in the template,
+  so leaving it out fails the render: Helm refuses and Kubernetes never sees a
+  Deployment. That is the point — the failure lands where you can read it, rather
+  than as an unauthenticated API nobody notices.
 - `admin.api.oidc.audience` — the value a token must carry in `aud`, normally the
   panel's client id. It is what stops a token minted for another application being
   replayed here. Neither value is a secret; both travel in every authorization
