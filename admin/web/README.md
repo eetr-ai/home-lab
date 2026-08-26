@@ -4,7 +4,8 @@ The browser half of the administration panel: a Next.js application that signs a
 operator in against eetr-auth and calls [the admin API](../api/README.md) as them.
 
 It holds no state and talks to nothing else. Everything it shows comes from the
-API, over one typed client.
+API over one typed client — with one exception, [the assistant](#the-assistant),
+which is a second upstream and a stream rather than a request.
 
 ## How a request gets from a click to a database
 
@@ -98,6 +99,37 @@ keeps the two-tier theme from quietly becoming a pile of one-off colors.
 Tests are Vitest in the **node** environment over `src/lib/**`. There are no DOM
 tests here, deliberately — see
 [testing.md](../../docs/contributing/testing.md).
+
+## The assistant
+
+`src/components/agent/` is the drawer, and it breaks two of this app's rules on
+purpose.
+
+**It is a route handler, not a server action.** `src/app/api/agent/chat/route.ts`
+proxies to the agent, for the reason the pod-log route already gives: a server
+action's return value is serialized as one RSC payload, so there is no way to
+deliver a token before the last one arrives. It is still the trust boundary — it
+authorizes with the same write allowlist every mutation uses, overwrites the
+identity in the request body so a forged one cannot survive, and attaches the
+operator's bearer token as a header for the agent to call the API with.
+
+`signal: req.signal` is the load-bearing line. The browser aborting cancels this
+fetch, which drops the connection to the agent, which ends the model run. Without
+it, closing the drawer leaves a model generating for nobody, at full price.
+
+**It pushes rather than overlays**, so it is a third column of the shell's flex
+row and not a `SidePanel`. [ux-guidelines.md](../../docs/contributing/ux-guidelines.md#the-assistant-drawer)
+says why, and why it must not acquire a scrim, a focus trap or `role="dialog"`.
+
+The parts worth reading are the ones with no React in them: `events.ts` parses the
+SSE stream and refuses anything it cannot use, and `turns.ts` folds those frames
+into an ordered transcript — a run that thought, called two tools, thought again
+and answered reads as those four things in that order. Both are tested;
+`parseNavigateEvent` in particular is a security boundary rather than a formatter,
+because what the agent may navigate to is decided here and not in its definition.
+
+`react-markdown` and `remark-gfm` are the one third-party rendering dependency,
+and the exception is recorded in the UX guidelines.
 
 ## The design system
 
