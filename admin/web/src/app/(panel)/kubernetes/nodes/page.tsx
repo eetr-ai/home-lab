@@ -23,7 +23,9 @@ export default async function NodesPage() {
 	return (
 		<Directory
 			error={nodes.ok ? null : nodes.error}
-			isEmpty={rows.length === 0}
+			/* Not just an empty list: a read that failed returns one too, and "the
+			   cluster reported no machines" is a claim a failed read cannot make. */
+			isEmpty={nodes.ok && rows.length === 0}
 			minWidth="min-w-[900px]"
 			empty={{
 				icon: Server,
@@ -127,10 +129,14 @@ function Disk({
 	allocatable: Resources;
 }) {
 	if (!filesystem) {
-		const capacity = allocatable.ephemeralBytes ?? 0;
+		// Allocatable, not free. This is capacity minus what the kubelet and the OS
+		// have reserved — the ceiling the scheduler measures pod requests against,
+		// and it does not move as pods fill the disk. Labelling it "free" would
+		// read as a usage figure, which is the one thing it is not.
+		const allocatableDisk = allocatable.ephemeralBytes ?? 0;
 		return (
 			<span className="font-mono text-xs">
-				{capacity > 0 ? `${formatBytes(capacity)} free to pods` : "—"}
+				{allocatableDisk > 0 ? `${formatBytes(allocatableDisk)} allocatable to pods` : "—"}
 			</span>
 		);
 	}

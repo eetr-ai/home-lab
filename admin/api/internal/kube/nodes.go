@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,7 @@ func (r *Repository) nodesWithLoad(ctx context.Context, pods []corev1.Pod) ([]No
 
 	requested := requestsByNode(pods)
 	usage, measured := r.nodeUsage(ctx)
+	filesystems := r.nodeFilesystems(ctx, list.Items)
 
 	nodes := make([]Node, 0, len(list.Items))
 	for i := range list.Items {
@@ -62,9 +64,7 @@ func (r *Repository) nodesWithLoad(ctx context.Context, pods []corev1.Pod) ([]No
 		if reading, ok := usage[item.Name]; ok {
 			node.Usage = &reading
 		}
-		if stats, ok := r.nodeFilesystem(ctx, item.Name); ok {
-			node.Filesystem = &stats
-		}
+		node.Filesystem = filesystems[i]
 		nodes = append(nodes, node)
 	}
 	sort.Slice(nodes, func(a, b int) bool { return nodes[a].Name < nodes[b].Name })
@@ -303,4 +303,42 @@ func withOverhead(requests Resources, pod *corev1.Pod) Resources {
 		return requests
 	}
 	return requests.add(resourcesFrom(pod.Spec.Overhead))
+}
+
+// nodeFilesystems reads every node's disk, concurrently and with a bound.
+//
+// One HTTP request per node, so doing them in sequence would make this endpoint
+// — and the dashboard summary that shares it — take as long as the cluster is
+// large, with one unreachable kubelet delaying every node after it. The results
+// are written by index rather than into a map, so no lock is needed and the
+// order still matches the node list.
+//
+// Returns nil entries for nodes that did not answer, which is the same "no
+// reading" the caller already handles for a node with node stats switched off.
+func (r *Repository) nodeFilesystems(ctx context.Context, items []corev1.Node) []*Filesystem {
+	filesystems := make([]*Filesystem, len(items))
+	if !r.nodeStats {
+		return filesystems
+	}
+
+	// Bounded, because a kubelet request is cheap for the panel and not
+	// necessarily cheap for the node. A home lab has a handful of machines; this
+	// keeps the fan-out from becoming a thundering herd if one day it does not.
+	tokens := make(chan struct{}, maxConcurrentNodeStats)
+	var group sync.WaitGroup
+
+	for i := range items {
+		group.Add(1)
+		go func(index int, name string) {
+			defer group.Done()
+			tokens <- struct{}{}
+			defer func() { <-tokens }()
+
+			if reading, ok := r.nodeFilesystem(ctx, name); ok {
+				filesystems[index] = &reading
+			}
+		}(i, items[i].Name)
+	}
+	group.Wait()
+	return filesystems
 }

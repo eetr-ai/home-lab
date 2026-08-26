@@ -4,6 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
+)
+
+const (
+	// nodeStatsTimeout bounds one kubelet read. Short: it is one small document
+	// from a machine on the same network, and the figure is worth having only if
+	// it arrives while the page is still loading.
+	nodeStatsTimeout = 3 * time.Second
+	// maxConcurrentNodeStats bounds the fan-out across nodes.
+	maxConcurrentNodeStats = 8
 )
 
 // statsSummary is the part of the kubelet's /stats/summary this reads.
@@ -35,6 +45,12 @@ func (r *Repository) nodeFilesystem(ctx context.Context, node string) (Filesyste
 	if !r.nodeStats {
 		return Filesystem{}, false
 	}
+
+	// Its own deadline, not just the request's. The kubelet is a separate server
+	// from the API server and can accept a connection and never answer; without
+	// this, one such node would hold the whole request until the caller gave up.
+	ctx, cancel := context.WithTimeout(ctx, nodeStatsTimeout)
+	defer cancel()
 
 	raw, err := r.client.CoreV1().RESTClient().Get().
 		Resource("nodes").Name(node).SubResource("proxy").

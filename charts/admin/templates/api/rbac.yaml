@@ -26,11 +26,12 @@ metadata:
 rules:
   # ListNamespaces, ListPods, ListEvents, ListNodes, and ReadStorage.
   #
-  # nodes and the two storage kinds are cluster-scoped and carry no workload data:
-  # a node reports its capacity and its kubelet version, and a volume its size and
-  # what it is bound to. configmaps are deliberately absent — plenty of workloads
-  # keep connection strings and internal hostnames in one, and the panel renders
-  # whatever it reads.
+  # nodes and persistentvolumes are cluster-scoped; persistentvolumeclaims are
+  # namespaced, so this binding grants them across every namespace. None of the
+  # three carries workload data: a node reports its capacity and kubelet version,
+  # and a volume or claim its size and what it is bound to. configmaps are
+  # deliberately absent — plenty of workloads keep connection strings and internal
+  # hostnames in one, and the panel renders whatever it reads.
   - apiGroups: [""]
     resources:
       - namespaces

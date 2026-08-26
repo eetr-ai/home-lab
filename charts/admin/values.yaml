@@ -52,8 +52,9 @@ admin:
       # nodes/proxy subresource, and that also opens the kubelet's other read
       # endpoints, including the one that serves files under /var/log on the host.
       #
-      # Left off, the panel reports every other node figure and shows disk as
-      # unavailable. Nothing else changes.
+      # Left off, the panel reports every other node figure and shows the node's
+      # allocatable ephemeral storage in place of a usage reading, labelled as the
+      # scheduling ceiling it is. Nothing else changes.
       nodeStats:
         enabled: false
 
