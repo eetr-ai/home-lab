@@ -90,6 +90,28 @@ while read -r secret_name; do
   fi
 done <<<"$pull_secrets"
 
+# Every Secret the rendered chart reads a value out of. Same reasoning as the pull
+# secret: read from what the cluster will act on, and fail here rather than as a
+# pod that starts and immediately exits with a missing environment variable.
+value_secrets=$(printf '%s\n' "$rendered_chart" | awk '
+  $1 == "secretKeyRef:" { in_ref = 1; next }
+  in_ref && $1 == "name:" { name = $2; next }
+  in_ref && $1 == "key:"  { print name ":" $2; in_ref = 0 }
+' | sort -u)
+
+while read -r secret_spec; do
+  [[ -n $secret_spec ]] || continue
+  secret_name=${secret_spec%%:*}
+  secret_key=${secret_spec#*:}
+  if [[ -z $(kubectl get secret "$secret_name" --namespace "$namespace" \
+    -o "go-template={{ index .data \"$secret_key\" }}" 2>/dev/null) ]]; then
+    printf 'Secret %s/%s must exist with key %s\n' \
+      "$namespace" "$secret_name" "$secret_key" >&2
+    printf 'See charts/admin/README.md for the commands that create it.\n' >&2
+    exit 1
+  fi
+done <<<"$value_secrets"
+
 helm upgrade --install "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file" \

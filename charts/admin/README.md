@@ -65,6 +65,34 @@ cluster.
 `values.local.yaml` is ignored. The installer refuses to run while any
 `example.invalid` placeholder is still present.
 
+### The database credentials
+
+Each managed service is served only when configured, so a panel with no MongoDB
+answers 404 for those routes rather than pretending. Turn one on with
+`admin.api.postgres.enabled` / `admin.api.mongo.enabled`, and give it the Secret
+holding its connection string.
+
+Both strings carry a superuser password, so they are Secrets created outside Helm
+— a values file holding one would end up in Git. The installer checks each exists,
+with the key the chart names, before Helm runs.
+
+```bash
+kubectl create secret generic admin-postgres --namespace admin \
+  --from-literal=dsn='postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable' \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret generic admin-mongo --namespace admin \
+  --from-literal=uri='mongodb://USER:PASSWORD@HOST:27017/?authSource=admin' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+The credentials are the ones `databases/.env` holds — the single superuser account
+each server has. `sslmode=disable` and the plain MongoDB URI are correct here:
+those servers carry no TLS by design, which `databases/README.md` documents.
+
+Prefer `--from-file` over `--from-literal` if you would rather the connection
+string not enter your shell history.
+
 ## Install
 
 ```bash

@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -68,7 +67,7 @@ func (h *Handler) listDatabases(w http.ResponseWriter, r *http.Request) {
 //	@Router			/api/postgres/databases [post]
 func (h *Handler) createDatabase(w http.ResponseWriter, r *http.Request) {
 	var request CreateDatabaseRequest
-	if !decode(w, r, &request) {
+	if !httpx.DecodeJSON(w, r, &request) {
 		return
 	}
 	database, err := h.service.CreateDatabase(r.Context(), request)
@@ -137,7 +136,7 @@ func (h *Handler) listExtensions(w http.ResponseWriter, r *http.Request) {
 //	@Router			/api/postgres/databases/{database}/extensions [post]
 func (h *Handler) createExtension(w http.ResponseWriter, r *http.Request) {
 	var request CreateExtensionRequest
-	if !decode(w, r, &request) {
+	if !httpx.DecodeJSON(w, r, &request) {
 		return
 	}
 	extension, err := h.service.CreateExtension(r.Context(), r.PathValue("database"), request)
@@ -181,7 +180,7 @@ func (h *Handler) listRoles(w http.ResponseWriter, r *http.Request) {
 //	@Router			/api/postgres/roles [post]
 func (h *Handler) createRole(w http.ResponseWriter, r *http.Request) {
 	var request CreateRoleRequest
-	if !decode(w, r, &request) {
+	if !httpx.DecodeJSON(w, r, &request) {
 		return
 	}
 	role, err := h.service.CreateRole(r.Context(), request)
@@ -211,20 +210,6 @@ func (h *Handler) dropRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// decode reads a JSON body, answering the caller itself when it cannot. It
-// returns whether the handler should continue.
-func decode(w http.ResponseWriter, r *http.Request, into any) bool {
-	decoder := json.NewDecoder(r.Body)
-	// An unknown field is usually a misspelled one, and accepting it silently
-	// leaves the caller believing it set something.
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(into); err != nil {
-		httpx.Error(w, http.StatusBadRequest, "invalid_request", "the request body is not valid JSON for this endpoint")
-		return false
-	}
-	return true
 }
 
 // respondError maps this slice's errors to status codes.

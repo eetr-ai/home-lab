@@ -83,4 +83,21 @@ grep -q '^kind: HTTPRoute$' <<<"$routed"
 grep -q 'sectionName: websecure' <<<"$routed"
 grep -q 'admin-api.test.invalid' <<<"$routed"
 
+# A managed service is served only when configured, and its credential must come
+# from a Secret rather than from values — a connection string in a values file
+# would carry a superuser password into Git.
+if grep -q 'ADMIN_POSTGRES_DSN\|ADMIN_MONGO_URI' "$output_file"; then
+  printf 'Database credentials must not render unless the service is enabled\n' >&2
+  exit 1
+fi
+
+configured=$(render --set admin.api.postgres.enabled=true --set admin.api.mongo.enabled=true)
+grep -q 'name: ADMIN_POSTGRES_DSN' <<<"$configured"
+grep -q 'name: ADMIN_MONGO_URI' <<<"$configured"
+grep -q 'secretKeyRef' <<<"$configured"
+if grep -E -A 1 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' <<<"$configured" | grep -q '^ *value:'; then
+  printf 'A database connection string was rendered as a literal value\n' >&2
+  exit 1
+fi
+
 printf 'Admin chart validation passed.\n'

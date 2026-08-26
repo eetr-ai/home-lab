@@ -26,8 +26,10 @@
         },
         "api": {
           "type": "object",
-          "required": ["image", "replicas", "resources", "route", "oidc"],
+          "required": ["image", "replicas", "resources", "route", "oidc", "postgres", "mongo"],
           "properties": {
+            "postgres": { "$ref": "#/$defs/managedService" },
+            "mongo": { "$ref": "#/$defs/managedService" },
             "oidc": {
               "type": "object",
               "required": ["issuer"],
@@ -64,6 +66,23 @@
                 "hostname": { "type": "string" }
               }
             }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "managedService": {
+      "type": "object",
+      "required": ["enabled", "secret"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "secret": {
+          "type": "object",
+          "required": ["name", "key"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "key": { "type": "string", "minLength": 1 }
           }
         }
       }

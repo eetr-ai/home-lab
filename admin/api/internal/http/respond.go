@@ -39,3 +39,18 @@ type ErrorBody struct {
 func Error(w http.ResponseWriter, status int, code, message string) {
 	JSON(w, status, ErrorBody{Error: code, Message: message})
 }
+
+// DecodeJSON reads a JSON request body, answering the caller itself when it
+// cannot, and reports whether the handler should continue.
+//
+// Unknown fields are refused. One is usually a misspelled field, and accepting it
+// silently leaves the caller believing it set something it did not.
+func DecodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(into); err != nil {
+		Error(w, http.StatusBadRequest, "invalid_request", "the request body is not valid JSON for this endpoint")
+		return false
+	}
+	return true
+}
