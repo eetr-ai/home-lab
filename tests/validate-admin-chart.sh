@@ -455,35 +455,58 @@ fi
 # not exempt host traffic.
 policy=$(render --show-only templates/agent/networkpolicy.yaml)
 
-# Each ingress rule flattened to one line — `<ports…> from:<selectors…>` — so the
-# assertions below are about which rule carries what, not about what order the
-# rules happen to be written in. A rule begins at four spaces and a dash.
+# Each ingress rule flattened to one line, so the assertions below are about which
+# rule carries what rather than about the order the rules happen to be written in.
+#
+# It records the *kind* of every peer and not just the labels on it, which is the
+# distinction that matters: `namespaceSelector: {}` and `ipBlock: 0.0.0.0/0` each
+# widen a rule to the whole cluster while carrying no name at all, so a check that
+# only looked for `admin-web` would pass on a rule that also admitted everyone. A
+# peer is counted the moment its kind appears; the labels under it are appended to
+# that peer.
+#
+# A rule begins at four spaces and a dash. Note that the dash line CARRIES the
+# first key — a rule reading `- from:` puts `from:` there and never on a line of
+# its own — which is what an earlier version of this got wrong: it looked for
+# `from:` at six spaces, found none, and reported every rule as having no peers.
 rules() {
   awk '
     /^  ingress:/ { inrules = 1; next }
     !inrules { next }
     /^[^ ]/ || /^  [^ ]/ { if (line != "") print line; inrules = 0; next }
-    /^    - / { if (line != "") print line; line = ""; }
+    /^    - / { if (line != "") print line; line = ""; infrom = ($0 ~ /-[[:space:]]+from:/); next }
+    /^      from:/ { infrom = 1; next }
+    /^      ports:/ { infrom = 0; next }
+    infrom && /(podSelector|namespaceSelector|ipBlock):/ {
+      kind = $0; sub(/^[^a-z]*/, "", kind); sub(/:.*$/, "", kind)
+      line = line " peer:" kind; next }
     /port: / { sub(/^.*port: /, ""); line = line " port:" $0; next }
-    /name: / { sub(/^.*name: /, ""); line = line " from:" $0; next }
+    # A value is required, so `matchLabels:` — a key with nothing after it — does
+    # not append an empty token to the peer it introduces.
+    infrom && /^ *[a-zA-Z0-9._\/-]+: [^ ]/ {
+      v = $0; sub(/^.*: /, "", v); if (v != "") line = line "=" v; next }
     END { if (line != "") print line }
   ' <<<"$policy"
 }
 
-# The conversation is reachable from the panel and from nothing else.
+# The conversation is reachable from the panel and from nothing else: exactly one
+# peer, and it is a podSelector naming admin-web. Asserted as the whole peer list
+# rather than as "contains admin-web", so a second peer beside it fails.
 chat_rule=$(rules | grep 'port:8080')
-if ! grep -q 'from:admin-web' <<<"$chat_rule"; then
-  printf 'The agent chat port must be restricted to admin-web; the rule is [%s]\n' "$chat_rule" >&2
+chat_peers=$(grep -o 'peer:[^ ]*' <<<"$chat_rule" | tr '\n' ' ' | sed 's/ $//')
+if [[ $chat_peers != 'peer:podSelector=admin-web' ]]; then
+  printf 'The agent chat port must be reachable from admin-web and nothing else; its peers are [%s]\n' \
+    "$chat_peers" >&2
   exit 1
 fi
 
 # ...and the probe port is reachable from anywhere, which is not an oversight.
 # Probes come from the kubelet on the node rather than from a pod, so a rule that
-# named a selector here would fail a healthy pod on any CNI that does not exempt
+# named any peer here would fail a healthy pod on any CNI that does not exempt
 # host traffic.
 probe_rule=$(rules | grep 'port:39999')
-if grep -q 'from:' <<<"$probe_rule"; then
-  printf 'The probe port must not be restricted to a pod selector; the rule is [%s]\n' "$probe_rule" >&2
+if grep -q 'peer:' <<<"$probe_rule"; then
+  printf 'The probe port must not name a peer; the rule is [%s]\n' "$probe_rule" >&2
   exit 1
 fi
 

@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+#
+# The agent's test runner, and deliberately not part of the shipped image.
+#
+# dolphin is Octo's flow test runner. It invokes a sourceless flow directly, with
+# its inputs seeded and its side-effecting blocks mocked, which is what makes
+# config_test.yaml possible at all — and why every tool is a flow-ref to a flow
+# with a name a test can call.
+#
+# It is a second image rather than a stage of the first because the production
+# image must not carry a test runner: it is a program a language model could be
+# talked into running, and `dolphin` drives `octo`, which runs whatever definition
+# it is pointed at. The shipped image has three programs and an allow list naming
+# them, and this keeps that true.
+#
+# dolphin is copied out of the published standalone editor image, which bundles it
+# beside octo — the same trick the runtime binary arrives by, and for the same
+# reason: no Go toolchain here.
+#
+# octo v0.8.7, matching the runtime digest in Dockerfile. The two are pinned
+# separately because they are different images, but they should move together: a
+# dolphin and an octo from different commits would have the suite passing against
+# a runtime that is not the one the deployment runs.
+ARG OCTO_EDITOR_DIGEST=sha256:4ec26252d96ade6d3498107464b0a5a3a419ad560de51763981d7979034f60b0
+FROM juancavallotti/octo@${OCTO_EDITOR_DIGEST} AS editor
+
+# The agent image itself, so the suite runs against the runtime, the definition
+# and the programs that actually ship. Built from Dockerfile immediately before
+# this one; see the test task.
+FROM home-lab/admin-agent:test-base
+
+COPY --from=editor /usr/local/bin/dolphin /usr/local/bin/dolphin
+
+# The suite lives beside the definition, exactly as it does in the repository —
+# `octo run` skips `_test.yaml`, so the two can share a directory without the
+# runtime ever loading the suite.
+COPY config_test.yaml /etc/octo/integrations/config_test.yaml
+
+# dolphin finds the runtime through this. Setting it is an override rather than a
+# hint: dolphin fails when it is set and wrong instead of falling through, which
+# turns a broken image into a clear error rather than a suite run against the
+# wrong binary.
+ENV OCTO_PATH=/usr/local/bin/octo
+
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/dolphin"]
+CMD ["/etc/octo/integrations"]

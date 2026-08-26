@@ -12,9 +12,9 @@
 #   - A `cli-run` allow list is resolved when the flow is BUILT, so a literal path
 #     that is not in the image fails the whole config on load, and a path that no
 #     longer matches the Dockerfile fails the same way after an innocent bump.
-#   - `allowMethods: [GET]` on admin_read is the entire read-only guarantee. The
-#     admin API has no per-endpoint authorization of its own, so losing that line
-#     turns a read tool into a write tool with nothing else to notice.
+#   - The path guard on admin_api is the only thing keeping a model-supplied
+#     string under the panel's own base URL, now that the connector that used to
+#     enforce it is out of the picture. Losing a clause is a hole, not a lint nit.
 #
 # PyYAML rather than a hand-rolled parser: `task lint` already requires
 # ansible-core, which depends on it.
@@ -96,49 +96,182 @@ for name, path in sorted(bin_defaults.items()):
     if path not in dockerfile:
         problems.append(f"{name} defaults to {path}, which the Dockerfile never verifies")
 
-# --- admin_read is read-only --------------------------------------------------
-agent = next(
-    block for block in blocks if block.get("type") == "ai-agent"
-)
+# --- every connector is used --------------------------------------------------
+#
+# Connectors start eagerly, so a dead one is a startup cost and a standing claim
+# that something uses it. The admin API's http-client connector became dead the
+# moment its tool moved to curl, and nothing in the runtime would ever have said so.
+declared_connectors = {c["name"] for c in config.get("connectors", [])}
+used_connectors = {
+    block["settings"]["connector"]
+    for block in blocks
+    if isinstance(block.get("settings"), dict) and "connector" in block["settings"]
+}
+used_connectors |= {
+    flow["source"]["connector"]
+    for flow in config["flows"]
+    if isinstance(flow.get("source"), dict) and "connector" in flow["source"]
+}
+# The agent block names its LLM connector directly rather than through settings.
+used_connectors |= {
+    block["connector"] for block in blocks
+    if block.get("type") == "ai-agent" and "connector" in block
+}
+for name in sorted(declared_connectors - used_connectors):
+    problems.append(f"connector {name!r} is declared but nothing uses it")
+
+# --- admin_api is bounded to the panel's own base URL ------------------------
+#
+# This block carries more weight than it looks like it should, and the reason is
+# worth stating: admin_api used to be a `rest-dynamic` block, where the path prefix
+# was a runtime refusal. It cannot be, because that block refuses a rendered
+# Authorization header and the connector's own auth is configured at startup — see
+# juancavallotti/octo#378. So that boundary is now a guard in this file, and this
+# is what holds it there.
+#
+# The METHOD is deliberately not restricted, and there is no assertion about it on
+# purpose. That was a decision: a verb is not a proxy for "destructive" here, the
+# agent calls with the asking operator's own token, and narrowing what may be done
+# belongs in the token rather than in a definition anyone can edit.
+agent = next(block for block in blocks if block.get("type") == "ai-agent")
 tools = {tool["name"]: tool for tool in agent["tools"]}
+by_name = {flow["name"]: flow for flow in config["flows"]}
 
-admin_calls = [
-    block
-    for block in walk(tools["admin_read"])
-    if block.get("type") == "rest-dynamic"
-]
-if len(admin_calls) != 1:
-    problems.append(f"admin_read makes {len(admin_calls)} dynamic calls; expected exactly 1")
-for call in admin_calls:
-    settings = call.get("settings", {})
-    if settings.get("allowMethods") != ["GET"]:
-        problems.append("admin_read must set allowMethods: [GET] — it is the only read-only guarantee")
-    if settings.get("pathPrefix") != "/api":
-        problems.append("admin_read must set pathPrefix: /api")
 
-# ...and nothing else in the file may call the admin connector at all. Without this
-# a second, unrestricted rest-dynamic could be added and admin_read would still pass.
+def implementation(tool_name):
+    """The blocks of the flow a tool delegates to, following its flow-ref.
+
+    Every tool is a flow-ref to a sourceless flow, so an assertion about what a
+    tool does has to follow that hop — which also means a tool pointed at the
+    wrong flow, or at one that does not exist, fails here rather than at the
+    first call.
+    """
+    tool = tools.get(tool_name)
+    if tool is None:
+        problems.append(f"there is no {tool_name} tool")
+        return []
+    refs = [b for b in walk(tool) if b.get("type") == "flow-ref"]
+    if len(refs) != 1:
+        problems.append(f"{tool_name} should be exactly one flow-ref; it has {len(refs)}")
+        return []
+    target = refs[0].get("settings", {}).get("flow")
+    if target not in by_name:
+        problems.append(f"{tool_name} delegates to flow {target!r}, which does not exist")
+        return []
+    if "source" in by_name[target]:
+        problems.append(f"flow {target!r} has a source, so flow-ref cannot call it")
+    return list(walk(by_name[target]))
+
+
+# Every tool delegates, and every delegate resolves. Checked for all of them and
+# not only the ones asserted below, so a tool wired to the wrong flow is caught.
+for tool_name in tools:
+    implementation(tool_name)
+
+# ...and no sourceless flow is left behind unused, which is what a rename looks
+# like when only half of it happened.
+referenced = {
+    b.get("settings", {}).get("flow")
+    for b in blocks
+    if b.get("type") == "flow-ref"
+}
+for flow in config["flows"]:
+    if "source" not in flow and flow["name"] not in referenced:
+        problems.append(f"flow {flow['name']!r} has no source and nothing calls it")
+
+admin_blocks = implementation("admin_api")
+
+# Nothing may call an HTTP connector any more. If a rest or rest-dynamic block
+# comes back — because the upstream issue was fixed, say — every assertion below
+# stops describing the thing that runs, and silently.
 for block in blocks:
-    if block.get("type") not in {"rest-dynamic", "rest"}:
-        continue
-    if block.get("settings", {}).get("connector") != "admin":
-        continue
-    if block not in admin_calls:
-        problems.append("a block outside admin_read calls the admin connector")
+    if block.get("type") in {"rest", "rest-dynamic"}:
+        problems.append(
+            "a rest/rest-dynamic block is back; the assertions here are about the "
+            "curl workaround and need rewriting for it"
+        )
+
+calls = [
+    block for block in admin_blocks
+    if block.get("type") == "cli-run" and block.get("program") == "env.AGENT_CURL_BIN"
+]
+if len(calls) != 1:
+    problems.append(f"admin_api makes {len(calls)} curl calls; expected exactly 1")
+
+for call in calls:
+    stdin = call.get("stdin", "")
+    argv = call.get("args", "")
+
+    # The credential and the request body go on stdin and never in argv: a
+    # process's arguments are readable from the process list, and argv is what a
+    # trace records. The body matters as much as the token here — creating a
+    # database role puts a password in it.
+    for name, value in [("the operator token", "operatorToken"), ("the request body", "requestBody")]:
+        if value in argv:
+            problems.append(f"{name} must not appear in curl's arguments")
+    if "Authorization: Bearer " not in stdin:
+        problems.append("admin_api does not send the operator's bearer token")
+    if '"-K", "-"' not in argv:
+        problems.append("admin_api must pass -K - so curl reads the credential from stdin")
+
+    # The method is the model's to choose, but only from the enum its schema
+    # declares — so the schema is what bounds it, and an unconstrained one would
+    # let a rendered string reach curl's config as a config directive.
+    schema = tools["admin_api"].get("inputSchema", "")
+    if '"enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]' not in schema:
+        problems.append("admin_api's method must be an enum in the schema; it is what bounds what reaches curl's config")
+
+# What pathPrefix used to do. Each clause closes a way out of the base URL, so a
+# missing one is a hole rather than a lint nit; they are listed rather than
+# summarised so removing one cannot pass.
+guard = next(
+    (
+        block.get("settings", {})
+        for block in admin_blocks
+        if block.get("type") == "set-variable"
+        and block.get("settings", {}).get("name") == "pathOk"
+    ),
+    None,
+)
+if guard is None:
+    problems.append("admin_api has no path guard; a model-supplied path would reach the URL unchecked")
+else:
+    expression = guard.get("value", "")
+    for clause, why in [
+        ('startsWith("/api")', "the path prefix"),
+        ('!body.path.startsWith("//")', "a protocol-relative path reaching another host"),
+        ('!body.path.contains("..")', "a .. segment escaping the prefix"),
+        ('!body.path.contains(":")', "a scheme"),
+        ("matches", "whitespace splitting the URL into another argument"),
+    ]:
+        if clause not in expression:
+            problems.append(f"admin_api's path guard no longer refuses {why}")
+
+# ...and both halves have to gate the call, not just the token.
+gate = next(
+    (block for block in admin_blocks if block.get("type") == "if"),
+    None,
+)
+if gate is None:
+    problems.append("admin_api does not gate the call at all")
+else:
+    condition = gate.get("condition", "")
+    if "vars.pathOk" not in condition or 'vars.operatorToken != ""' not in condition:
+        problems.append("admin_api must call only with a token AND a path that passed the guard")
 
 # --- the operator's token never reaches the model -----------------------------
 #
 # It arrives as a header so that it lands in vars rather than in body. The one
-# place it may be named is the Authorization header admin_read sends; anywhere
+# place it may be named is the Authorization header admin_api sends; anywhere
 # else — the agent's input, a payload, a log line — puts a live credential into a
 # transcript, a memory object and a trace.
-# Exactly the four places it may appear, spelled out. Anything else — the agent's
-# input, a payload, a log line — puts a live credential into a transcript, a
-# memory object and a trace.
+# Where it may be named, spelled out. Two settings match exactly; the other two
+# carry prose around it and are checked by shape below. Anything else — the agent's
+# input, a payload, a log line, curl's argv — puts a live credential into a
+# transcript, a memory object and a trace.
 allowed_token_uses = {
     ("name", "operatorToken"),
-    ("condition", 'vars.operatorToken != ""'),
-    ("headers", '{"Authorization": "Bearer " + vars.operatorToken}'),
+    ("condition", 'vars.operatorToken != "" && vars.pathOk'),
 }
 seen_token_uses = set()
 for block in blocks:
@@ -146,9 +279,16 @@ for block in blocks:
         if not isinstance(value, str) or "operatorToken" not in value:
             continue
         use = (key, value.strip())
-        if use not in allowed_token_uses:
-            problems.append(f"operatorToken reaches {key}: {value.strip()[:70]}")
-        seen_token_uses.add(use)
+        if use in allowed_token_uses:
+            seen_token_uses.add(use)
+            continue
+        # The curl config on stdin, which is the one place the credential itself
+        # is rendered, and the else-branch's presence check.
+        if key == "stdin" and "Authorization: Bearer " in value:
+            continue
+        if key == "value" and 'vars.operatorToken == ""' in value:
+            continue
+        problems.append(f"operatorToken reaches {key}: {value.strip()[:70]}")
 
 # Both directions: an allowed use that has vanished means the wiring was removed
 # and this list is now describing something that is not there.

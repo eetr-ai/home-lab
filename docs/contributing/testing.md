@@ -115,23 +115,47 @@ rather than routine:
 
 ## The agent definition
 
-`admin/agent/config.yaml` is not covered by a test, and could not usefully be:
-there is no Octo binary in this repository, so nothing here can build the flow the
-way the runtime does. `task admin-agent:lint` asserts the properties whose failure
-mode is a crash-loop rather than an error somebody would notice — undeclared
-variables, a `cli-run` allow list naming a path the image does not carry, a skill
-pointing at a file that is not there, `allowMethods` slipping off the read-only
-tool, the operator's token reaching somewhere it must not.
+Three layers, and each catches what the one before it cannot.
 
-None of that is a substitute for **loading the config for real**, which takes
-seconds:
+**`task admin-agent:test`** runs a [dolphin](https://juancavallotti.github.io/octo/testing)
+suite over the agent's flows. This is why every tool in `admin/agent/config.yaml`
+is a `flow-ref` to a *sourceless* flow rather than an inline process chain: an
+inlined chain has no name a test can call, and a sourceless flow is invoked
+directly with its inputs seeded and its side-effecting blocks mocked.
+
+It runs in a container, which is the one place this repository accepts a
+Docker dependency inside `task check`. Unlike kubeconform there is no host-side
+alternative: dolphin needs an Octo runtime, and there is no Go toolchain here to
+build one. `admin/agent/Dockerfile.test` layers dolphin onto the real agent image
+so the suite runs against the runtime and the definition that actually ship.
+
+The suite earns its place twice over. It covers the path guard on `admin_api` —
+which stopped being a runtime refusal when that tool had to become curl, so every
+way out of the base URL now needs a case, each asserting through a spy `count: 0`
+that no request was made at all. And it caught a live bug: `cli-run` returns stdout
+with a trailing newline, so splitting it naively leaves an empty last element and
+the HTTP status reads as `""`. That is a wrong answer rather than a failure; it
+survived a live end-to-end check, and four cases fail on it.
+
+**`task admin-agent:lint`** covers what a suite over one flow cannot: undeclared
+variables, a `cli-run` allow list naming a path the image does not carry, a skill
+pointing at a file that is not there, a tool wired to a flow that does not exist,
+a connector nothing uses, and the operator's token appearing anywhere but the
+three settings allowed to name it.
+
+**Neither builds the whole config the way the runtime does.** So load it for real
+before trusting a change outside the flow the suite covers:
 
 ```bash
 task admin-agent:run
 curl -N -X POST localhost:8080/chat -d '{"threadId":"t1","message":"hello"}'
 ```
 
-Do that before trusting a change to the definition. The lint was written *from*
-the failures that found — including a folded YAML block that put a newline inside
-a CEL string literal, which the runtime reports as a column offset into a string
-nobody wrote that way.
+The lint was written *from* the failures that found — including a folded YAML
+block that put a newline inside a CEL string literal, which the runtime reports as
+a column offset into a string nobody wrote that way.
+
+And a live check is still not the same as a test. The trailing-newline bug passed
+one: the answer looked plausible, and only an assertion on the exact status caught
+it. When something works end to end, that is the moment to ask which case would
+have failed if it had not.

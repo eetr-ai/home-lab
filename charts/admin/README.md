@@ -271,12 +271,26 @@ once there is somewhere shared to put the store, rather than a storage migration
 as well. **Note the class's reclaim policy: deleting this PVC deletes the
 conversations with it.**
 
-**It reads the API as whoever is asking.** The panel's own route handler attaches
+**It calls the API as whoever is asking.** The panel's own route handler attaches
 the signed-in operator's bearer token to every chat request, and the agent's
-`admin_read` tool sends it on. So there is no service identity, no
-client-credentials grant and no standing token — and the agent can read exactly
-what the operator could read from the panel itself. The tool is `GET`-only, which
-is enforced by the runtime rather than by the prompt.
+`admin_api` tool sends it on. So there is no service identity, no
+client-credentials grant and no standing token — and the agent can do exactly what
+that operator could do from the panel itself, which is the point of doing it this
+way.
+
+**That includes changing things**, and it is worth deciding on rather than
+discovering: restarting and scaling workloads, creating and dropping databases and
+roles, running statements. An earlier version pinned the tool to `GET`, which
+withheld half of what the agent is for while withholding nothing an operator could
+not already do — the panel's own query consoles are POSTs, so a verb is not a
+proxy for "destructive". The prompt and the skills carry the manners instead: say
+what you are about to do first, one change at a time, never guess an identifier
+for a destructive call, and offer the page when there is no hurry.
+
+If you want it narrower than the operator is, the place for that is the token —
+`admin.web.writeEmails` decides who may open the drawer at all, and per-endpoint
+authorization would belong in the API rather than in the agent's definition, which
+anyone who can reach the image can edit.
 
 **It is a privileged pod.** It carries `curl`, `jq` and GNU `find`, and a
 workspace it can write to, because an assistant that can fetch a health endpoint

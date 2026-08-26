@@ -20,15 +20,25 @@ lint.sh       the checks whose failure mode is a crash-loop rather than an error
 
 | Tool | |
 | --- | --- |
-| `admin_read` | `GET` anything from the panel's API, **as the operator who asked** |
+| `admin_api` | Call the panel's API, **as the operator who asked** |
 | `read_workspace_file`, `write_workspace_file`, `list_workspace` | A directory of its own on the volume |
 | `run_command` | `curl`, `jq` and GNU `find`, as argv — there is no shell |
 | `recall_facts`, `remember_fact`, `forget_fact` | What it remembers about a person between conversations |
 | `navigate_to` | Move the operator's browser to a page in the panel |
 
-It cannot change anything. Every create, drop, scale and restart in this panel is
-a screen with a person's hand on it, and the agent's job when asked for one is to
-name the page and offer to take you there.
+Each tool is a `flow-ref` to a sourceless flow rather than an inline chain, which
+is what gives it a name a test can call — see [Tests](#tests).
+
+**`admin_api` is not read-only, and that is a decision.** An earlier version
+pinned it to `GET`. That withheld half of what the agent is for while withholding
+nothing an operator could not already do from the panel's own screens: the API
+answers reads through `POST` as well — both query consoles are POSTs — so a verb
+is not a proxy for "destructive". The agent calls with the asking operator's own
+bearer token, so what it may do is exactly what they may do, and narrowing that
+belongs in the token rather than in a definition anyone can edit. What the prompt
+and the skills carry instead are the manners: say what you are about to do before
+you do it, one change at a time, never guess an identifier for a destructive call,
+and offer the page when there is no hurry.
 
 Skills — `home-lab`, `admin-api`, `diagnosing`, `databases`, `commands`, `voice`
 — are Markdown documents loaded on demand. Only each one's name and description
@@ -46,15 +56,23 @@ a laptop — and why `lint.sh` checks the defaults against the Dockerfile.
 
 **The operator's token arrives as a header.** `X-Operator-Token` lands in the
 flow's `vars` and never in `body`, so it cannot reach the model's input, its
-memory, or a trace. `lint.sh` asserts the four places it is allowed to appear and
-fails on a fifth.
+memory, or a trace. `lint.sh` asserts the three settings allowed to name it — the
+variable that holds it, the check that it is there, and the header it rides — and
+fails on a fourth.
 
-**`allowMethods: [GET]` on `admin_read` is the whole read-only guarantee.** The
-API has no per-endpoint authorization of its own — a valid token is a valid token
-— so that one line is what stands between a read tool and a write tool. It is a
-runtime refusal rather than an instruction: no amount of persuading the model
-produces a `POST`. `lint.sh` asserts it, and asserts that nothing else in the file
-calls the API connector at all.
+**The path guard is the only thing keeping the agent on the panel's own host.**
+`admin_api` was a [`rest-dynamic`](https://juancavallotti.github.io/octo/reference/connectors/http)
+block, where a connector `baseURL` made leaving impossible and `pathPrefix` was a
+runtime refusal. It cannot be: that block refuses a rendered `Authorization`
+header, and the connector's own `auth` is configured at startup — so a credential
+that differs per operator has nowhere to live. See
+[juancavallotti/octo#378](https://github.com/juancavallotti/octo/issues/378).
+
+So the tool is curl, the credential rides on stdin as a curl config file (never
+argv, which is readable from the process list and is what a trace records), and
+the prefix is a CEL guard that fails closed. That guard is a worse place for a
+boundary than a runtime refusal, and it is why `config_test.yaml` gives every way
+out of the base URL its own case.
 
 ## The image
 
@@ -74,17 +92,44 @@ from a ConfigMap. One artifact, one version, nothing to drift between the image
 the chart names and the flow it runs — and changing the prompt is a release,
 which is the right weight for changing what an agent is told it may do.
 
+## Tests
+
+`config_test.yaml` is a [dolphin](https://juancavallotti.github.io/octo/testing)
+suite over `call-admin-api` — the flow behind `admin_api`, and the one carrying
+the guard that replaced a runtime refusal. Thirteen cases: the request it builds,
+the reply it reads, and one per way out of the base URL, each asserting through a
+spy `count: 0` that no request was made at all.
+
+```bash
+task admin-agent:test
+```
+
+It runs in a container because dolphin needs an Octo runtime and there is no Go
+toolchain here to build one. `Dockerfile.test` layers dolphin — copied out of the
+published standalone editor image — onto the real agent image, so the suite runs
+against the runtime, the definition and the programs that actually ship.
+Deliberately a second image: a test runner that drives `octo` is not something the
+production image should carry, since `octo` runs whatever definition it is pointed
+at.
+
+Two of the cases are there because they already caught something. `cli-run` hands
+back stdout with a trailing newline, so splitting it naively leaves an empty last
+element — the status reads as `""` and the code stays stuck on the end of the
+body. That is a wrong answer rather than a failure, it survived a live end-to-end
+check, and four cases fail on it.
+
 ## Working on it
 
 ```bash
 task admin-agent:lint     # the definition, against the image that has to run it
+task admin-agent:test     # the dolphin suite
 task admin-agent:build    # the image
 task admin-agent:run      # it, on :8080, against admin/.env
 ```
 
-`lint.sh` cannot build the flow the way the runtime does — there is no Octo
-binary in this repository — so **load the config for real** before you trust a
-change. It takes seconds and it is the only thing that catches a bad expression:
+Neither the lint nor the suite builds the whole config the way the runtime does —
+dolphin invokes one flow — so **load the config for real** before you trust a
+change to anything outside `call-admin-api`. It takes seconds:
 
 ```bash
 curl -N -X POST localhost:8080/chat \

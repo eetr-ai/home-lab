@@ -34,9 +34,9 @@ Useful shapes:
 - `["-sS", "-H", "Accept: application/json", "<url>"]` — a header is one
   argument, `Name: value`, with no quotes around it.
 
-**Do not use curl for the panel's API.** `admin_read` already carries the
+**Do not use curl for the panel's API.** `admin_api` already carries the
 operator's credential; curl does not, and pointing it at that host produces a
-401 that reads like the route is broken. Use curl for things `admin_read` cannot
+401 that reads like the route is broken. Use curl for things `admin_api` cannot
 reach: another Service inside the cluster, a health endpoint, a public URL
 somebody asked you about.
 

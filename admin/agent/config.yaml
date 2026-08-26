@@ -39,9 +39,9 @@ env:
   - name: LLM_REASONING
     default: medium
 
-  # The admin API, in-cluster. This is the security boundary for admin_read: a
-  # rest-dynamic block resolves its path against the connector's baseURL and can
-  # build no request outside it.
+  # The admin API, in-cluster. The agent calls it with curl rather than through a
+  # connector — see the comment on call-admin-api for why — so this is the base a
+  # model-chosen path is appended to, and the guard there is what keeps it under it.
   - name: ADMIN_API_URL
     required: true
 
@@ -136,13 +136,14 @@ connectors:
       host: ${HTTP_HOST}
       port: ${HTTP_PORT}
 
-  # The admin API. Its baseURL is the boundary for admin_read below: a dynamic
-  # path resolves against it, and no rendered path can redirect the call elsewhere.
-  - name: admin
-    type: http-client
-    settings:
-      baseURL: ${ADMIN_API_URL}
-      timeout: 30s
+  # There is deliberately no http-client connector for the admin API, and its
+  # absence is the whole of juancavallotti/octo#378 written down. One was here: a
+  # `baseURL` no rendered path could escape, with `pathPrefix` and `allowMethods`
+  # as runtime refusals. It had to go, because the block that would have used it
+  # refuses a rendered Authorization header and the connector's own `auth` is
+  # configured at startup — so a credential that differs per operator has nowhere
+  # to live. See call-admin-api, which does the same job with curl and rebuilds
+  # that boundary as a guard.
 
   # The workspace: somewhere to draft a file, keep notes between turns, and read
   # back what a command produced.
@@ -176,7 +177,7 @@ flows:
         # agent's stopWhen below only has to notice it is there.
         #
         # X-Operator-Token carries the signed-in operator's bearer token, which
-        # admin_read calls the API with. It arrives as a header so that it lands in
+        # admin_api calls the API with. It arrives as a header so that it lands in
         # vars and never in body — nothing that reaches the model's input, its
         # memory, or a trace.
         headers: [X-Agent-Stop, X-Operator-Token]
@@ -216,7 +217,7 @@ flows:
           name: threadKey
           value: vars.userKey + "/" + vars.threadId
 
-      # Held in a variable so admin_read can read it. Empty when the panel sent
+      # Held in a variable so admin_api can read it. Empty when the panel sent
       # none, which the tool answers as an explanation rather than a 401.
       - type: set-variable
         name: operator-token
@@ -318,7 +319,7 @@ flows:
           You have skills — instruction documents you load when the topic comes
           up, with load_skill. They are not optional reading: home-lab describes
           this installation and what is deliberately not in the cluster, admin-api
-          is the map of the routes admin_read can reach, diagnosing is the reading
+          is the map of the routes admin_api can reach, diagnosing is the reading
           order for something that is broken, databases is what this panel's model
           of PostgreSQL and MongoDB actually is, and commands is the argv-only
           discipline that makes run_command work at all. Load the one that fits
@@ -329,14 +330,30 @@ flows:
           What you can actually do:
 
 
-          admin_read reads this panel's own API, and it is a GET: the Kubernetes
-          cluster (nodes, namespaces, workloads, pods, events, storage), the
-          PostgreSQL databases and roles, and the MongoDB databases, collections
-          and users. Use it freely and answer from it when that is the whole
-          answer. It cannot write anything — this panel makes changes through its
-          own screens, with a person pressing the button, and that is deliberate.
-          When somebody asks you to change something, tell them which page does it
-          and offer to take them there.
+          admin_api is this panel's own API, and it is the main thing you have:
+          the Kubernetes cluster (nodes, namespaces, workloads, pods, events,
+          storage), the PostgreSQL databases, roles and extensions, the MongoDB
+          databases, collections and users, and both query consoles. Reading is
+          most of what you will do — answer from it when that is the whole answer.
+
+
+          You can also change things: restart or scale a workload, create or drop
+          a database, run a statement. You call as the operator who is asking, with
+          their own credential, so you may do exactly what they may do and nothing
+          more. Treat that as a responsibility rather than a permission:
+
+
+          Say what you are about to do, in one line, before anything that changes
+          something — and then do it, rather than asking twice. Do not chain
+          changes: make one, report what came back, and let them decide the next.
+          Never guess at an identifier for a destructive call; read it first and
+          quote it back. If somebody's request is ambiguous about which thing to
+          drop, ask. And when the change is one the panel has a screen for and
+          there is no hurry, offer the page instead — a person watching a form is
+          better placed to notice they meant something else.
+
+
+          A 4xx is data rather than a failure. Read it and correct the call.
 
 
           run_command runs curl, jq or find directly. Arguments are passed as argv,
@@ -365,14 +382,14 @@ flows:
 
           Report honestly. Say which tool you read something from, say when a call
           came back empty, and never round "I could not check this" up to "this
-          looks fine". A 4xx from admin_read comes back as data rather than an
+          looks fine". A 4xx from admin_api comes back as data rather than an
           error, so read it and correct the call rather than telling somebody the
           thing does not exist.
 
         tools:
           # ------------------------------------------------------------ the panel
           #
-          # A read of the admin API, and only a read.
+          # The admin API, as the operator who asked.
           #
           # It calls as the signed-in operator, with the bearer token the panel
           # already holds — the same credential the panel's own server-side calls
@@ -380,57 +397,60 @@ flows:
           # and no service identity, client-credentials grant or standing token
           # exists for it to hold.
           #
-          # The API has no per-endpoint authorization of its own (see
-          # admin/api/internal/auth/middleware.go — a valid token is a valid
-          # token), so allowMethods is the whole read-only guarantee here. It is a
-          # runtime refusal rather than an instruction: no amount of persuading the
-          # model produces a POST.
-          - name: admin_read
+          # WHY THIS IS CURL AND NOT rest-dynamic. It was a rest-dynamic block,
+          # which is the right shape for this: a fixed baseURL, a model-chosen path
+          # under it, and allowMethods/pathPrefix as runtime refusals rather than
+          # instructions. It cannot be used, because that block refuses a rendered
+          # Authorization header outright — see juancavallotti/octo#378. The
+          # connector's own `auth` is the alternative it points at, and that is
+          # configured at startup, so it can carry the deployment's credential and
+          # never the caller's. There is no third option.
+          #
+          # So the path prefix that block gave for free is rebuilt in the flow, in
+          # CEL, and that is the real cost of the workaround: it is now a guard on
+          # a model-supplied string rather than a refusal in the runtime. It is
+          # written to fail closed, and it runs before the URL is built.
+          #
+          # The token goes to curl on STDIN, as a config file, and never in argv.
+          # A process's arguments are readable by anything that can see the process
+          # list, and argv is what a trace records; stdin is neither.
+          #
+          # WHAT IS DELIBERATELY NOT RESTRICTED: the method. This tool can issue
+          # any of them, which is a decision rather than a leftover. A verb is not
+          # a proxy for "destructive" here — the panel's own SQL console reads
+          # through a POST — so pinning it to GET withheld half of what the agent
+          # is for while withholding nothing an operator could not already do from
+          # the panel's own screens. The agent calls with the asking operator's
+          # token, so what it may do is exactly what they may do, and narrowing
+          # that belongs in the token rather than in this file.
+          - name: admin_api
             description: >
-              Read anything from the admin panel's API — GET only. The cluster:
+              Call the admin panel's API. The cluster: /api/kubernetes/summary,
               /api/kubernetes/nodes, /api/kubernetes/namespaces,
               /api/kubernetes/namespaces/{namespace}/pods, and the workloads,
               events and storage routes beside them. The databases:
               /api/postgres/databases, /api/postgres/roles, /api/mongo/databases,
-              /api/mongo/users. Path only, never a full URL. A 4xx comes back as
-              data rather than an error, so read it and correct the call. Writing
-              is refused here — this panel makes changes through its own screens.
+              /api/mongo/users — and their query consoles, which are POSTs.
+              Restarting and scaling a workload live here too. Path only, never a
+              full URL. A 4xx comes back as data rather than an error, so read it
+              and correct the call. You act as the operator who is asking, so say
+              what you are about to do before anything that changes something, and
+              prefer showing them the page that does it.
             inputSchema: |
               {
                 "type": "object",
                 "required": ["path"],
                 "properties": {
-                  "path":  { "type": "string", "description": "Path only, beginning /api, e.g. /api/kubernetes/nodes." },
-                  "query": { "type": "object", "description": "Query parameters." }
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "Defaults to GET." },
+                  "path":   { "type": "string", "description": "Path only, beginning /api, e.g. /api/kubernetes/nodes." },
+                  "query":  { "type": "object", "description": "Query parameters." },
+                  "body":   { "type": "object", "description": "JSON request body, for the methods that take one." }
                 }
               }
             process:
-              # No token means the caller was not the panel. Answered from a check
-              # rather than from a 401, so the model gets an explanation instead of
-              # a transport error it has to interpret.
-              - type: if
-                name: have-token
-                condition: 'vars.operatorToken != ""'
-                then:
-                  process:
-                    - type: rest-dynamic
-                      settings:
-                        connector: admin
-                        method: '"GET"'
-                        path: body.path
-                        allowMethods: [GET]
-                        pathPrefix: /api
-                        query: 'has(body.query) ? body.query : {}'
-                        headers: '{"Authorization": "Bearer " + vars.operatorToken}'
-                        failOnError: false
-                else:
-                  process:
-                    - type: set-payload
-                      settings:
-                        value: >-
-                          {"error": "This conversation carries no operator token,
-                          so the panel's API cannot be read. That happens when the
-                          agent is called directly rather than through the panel."}
+              - type: flow-ref
+                settings:
+                  flow: call-admin-api
 
           # ---------------------------------------------------------- the workspace
           #
@@ -450,14 +470,9 @@ flows:
                 }
               }
             process:
-              - type: file-read
+              - type: flow-ref
                 settings:
-                  connector: workspace
-                  path: body.path
-                  resultVar: contents
-              - type: set-payload
-                settings:
-                  value: '{"path": body.path, "content": vars.contents}'
+                  flow: read-file
 
           - name: write_workspace_file
             description: >
@@ -475,15 +490,9 @@ flows:
                 }
               }
             process:
-              - type: file-write
+              - type: flow-ref
                 settings:
-                  connector: workspace
-                  path: body.path
-                  content: body.content
-                  resultVar: receipt
-              - type: set-payload
-                settings:
-                  value: 'vars.receipt'
+                  flow: write-file
 
           - name: list_workspace
             description: >
@@ -492,18 +501,9 @@ flows:
             inputSchema: |
               { "type": "object", "properties": {} }
             process:
-              # No argument, and that is the design rather than a simplification:
-              # constant argv puts find's -exec out of reach by construction rather
-              # than by an allow list.
-              - type: cli-run
-                name: find-workspace
-                program: env.AGENT_FIND_BIN
-                args: '[".", "-maxdepth", "4", "-not", "-path", "*/.*"]'
-                allow: ["${AGENT_FIND_BIN}"]
-                env: [PATH]
-                workDir: ${AGENT_WORKSPACE}
-                timeout: ${AGENT_CLI_TIMEOUT}
-                onExit: continue
+              - type: flow-ref
+                settings:
+                  flow: list-files
 
           - name: run_command
             description: >
@@ -523,36 +523,9 @@ flows:
                 }
               }
             process:
-              # BE HONEST ABOUT WHAT THIS LIST IS. It is a guardrail, not a
-              # boundary. It keeps the ordinary path predictable and the tool chips
-              # in the panel readable; it does not contain anything. curl reaches
-              # every address this pod can route to — other Services in the
-              # cluster, the host's own network — and nothing here restricts hosts.
-              #
-              # So the boundary is the POD. What it holds is the OpenRouter key in
-              # its environment and, for the life of one request, the token of
-              # whoever is asking. It carries no ServiceAccount token at all; see
-              # automountServiceAccountToken in the chart. If the reach itself is
-              # the concern on this cluster, a NetworkPolicy is the control and
-              # this file is not.
-              - type: cli-run
-                name: run-program
-                program: >-
-                  body.program == "curl" ? env.AGENT_CURL_BIN
-                    : body.program == "jq" ? env.AGENT_JQ_BIN
-                    : env.AGENT_FIND_BIN
-                args: >-
-                  (body.program == "curl" ? ["--max-time", env.AGENT_HTTP_MAX_TIME] : [])
-                    + (has(body.args) ? body.args : [])
-                stdin: 'has(body.stdin) ? body.stdin : ""'
-                allow:
-                  - ${AGENT_CURL_BIN}
-                  - ${AGENT_JQ_BIN}
-                  - ${AGENT_FIND_BIN}
-                env: [PATH, HOME]
-                workDir: ${AGENT_WORKSPACE}
-                timeout: ${AGENT_CLI_TIMEOUT}
-                onExit: continue
+              - type: flow-ref
+                settings:
+                  flow: run-program
 
           # ------------------------------------------------------------ the panel
           - name: navigate_to
@@ -571,26 +544,9 @@ flows:
                 }
               }
             process:
-              # ifClosed: ignore, unlike the events path above. A closed drawer
-              # means nobody is being navigated, which is not a reason to end the
-              # run mid-tool.
-              #
-              # The path is NOT validated here. A guard in this file is advice
-              # rather than a boundary — the drawer performs the navigation, so the
-              # drawer is where a path that is not a same-origin relative one has
-              # to be refused.
-              - type: sse-event
+              - type: flow-ref
                 settings:
-                  event: navigate
-                  ifClosed: ignore
-                  data: >-
-                    {
-                      "path": has(body.path) ? body.path : "",
-                      "reason": has(body.reason) ? body.reason : ""
-                    }
-              - type: set-payload
-                settings:
-                  value: '{"navigated": true}'
+                  flow: navigate
 
           # ------------------------------------------------------------- the facts
           #
@@ -613,14 +569,9 @@ flows:
             inputSchema: |
               { "type": "object", "properties": {} }
             process:
-              - type: object-read
+              - type: flow-ref
                 settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              - type: set-payload
-                settings:
-                  value: '{"facts": vars.userFacts.items}'
+                  flow: recall-facts
 
           - name: remember_fact
             description: >
@@ -639,31 +590,9 @@ flows:
                 }
               }
             process:
-              - type: object-read
+              - type: flow-ref
                 settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              # Filter-then-append is what makes this an upsert.
-              - type: set-variable
-                name: merge-facts
-                settings:
-                  name: mergedFacts
-                  value: >-
-                    vars.userFacts.items.filter(f, f.name != body.name)
-                    + [{"name": body.name, "value": body.value}]
-              # Capped, oldest first: nothing else bounds this list, and it is read
-              # back in full on every recall_facts.
-              - type: object-write
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  value: >-
-                    {"items": size(vars.mergedFacts) > 200
-                      ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
-                      : vars.mergedFacts}
-              - type: set-payload
-                settings:
-                  value: '{"remembered": body.name}'
+                  flow: remember-fact
 
           - name: forget_fact
             description: >
@@ -678,18 +607,9 @@ flows:
                 }
               }
             process:
-              - type: object-read
+              - type: flow-ref
                 settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              - type: object-write
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
-              - type: set-payload
-                settings:
-                  value: '{"forgotten": body.name}'
+                  flow: forget-fact
 
         skills:
           - name: home-lab
@@ -703,7 +623,7 @@ flows:
             description: >
               The map of the panel's API: which path answers which question, what
               to pass when reading a pod's log, and which operations belong to a
-              screen rather than to you. Load it before your first admin_read.
+              screen rather than to you. Load it before your first admin_api call.
             resource: admin-api
           - name: diagnosing
             description: >
@@ -742,3 +662,317 @@ flows:
                   I read this panel's API, run curl, jq and find, and keep notes in
                   my workspace — point me at something concrete within that and I
                   will have another go."}
+
+
+  # ======================================================== the tool flows ====
+  #
+  # Every tool above is a flow-ref to one of these, and none of them has a
+  # source — which is what makes a flow callable by name.
+  #
+  # It is written this way so the tools can be TESTED. A process chain inlined in
+  # a tool slot has no name a test can call; a sourceless flow is invoked by
+  # dolphin directly, with its inputs seeded and its side-effecting blocks mocked.
+  # That matters most for the two whose guards are the only thing standing between
+  # a model-supplied string and a request: see read-admin-api.
+  #
+  # Each receives the tool's arguments as its body, and — because flow-ref clones
+  # the caller's variables — the vars the chat flow set: userKey, threadKey and
+  # operatorToken. A test seeds those with `vars` on its input.
+
+  # The panel's API, called as the operator who asked.
+  - name: call-admin-api
+    process:
+      # The path guard. It is about which HOST is called and not which method —
+      # the connector's baseURL used to make leaving it impossible, and now this
+      # does. Every clause fails closed and each is here for a reason:
+      #
+      #   startsWith("/api")  the panel's API is under /api and nothing else is
+      #   !contains("..")     paths are joined without normalisation, so a
+      #                       ".." segment climbs out of the prefix
+      #   !startsWith("//")   "//host" is a protocol-relative URL: curl
+      #                       would resolve it against the scheme and call
+      #                       another host entirely
+      #   no "\\", no ":"      a backslash is normalised to a slash by some
+      #                       parsers, and a colon opens a scheme
+      #   no whitespace       a space or newline would end the URL argument
+      #                       and start another curl option
+      - type: set-variable
+        name: path-ok
+        settings:
+          name: pathOk
+          value: >-
+            body.path.startsWith("/api")
+              && !body.path.startsWith("//")
+              && !body.path.contains("..")
+              && !body.path.contains("\\")
+              && !body.path.contains(":")
+              && !body.path.matches("\\s")
+
+      - type: if
+        name: can-call
+        condition: 'vars.operatorToken != "" && vars.pathOk'
+        then:
+          process:
+            # toFormData escapes each value, so a query the model chose
+            # cannot add a parameter or terminate the URL.
+            - type: set-variable
+              name: build-url
+              settings:
+                name: adminUrl
+                value: >-
+                  env.ADMIN_API_URL + body.path +
+                  (has(body.query) && size(body.query) > 0
+                    ? "?" + toFormData(body.query) : "")
+
+            # The request body, escaped for curl's config format rather than
+            # written to a file or passed in argv.
+            #
+            # Backslashes first, then quotes — the other order would double-escape
+            # the backslashes it just introduced. What toJson emits is already
+            # JSON-escaped, so a newline inside a string is the two characters
+            # backslash-n; after this it is backslash-backslash-n, which curl reads
+            # back as those same two characters rather than as a line break that
+            # would end the value.
+            - type: set-variable
+              name: build-body
+              settings:
+                name: requestBody
+                value: >-
+                  has(body.body) && body.body != null
+                    ? toJson(body.body).replace("\\", "\\\\").replace("\"", "\\\"")
+                    : ""
+
+            # -K - reads curl's own config from stdin, which is where everything
+            # that must not be in argv goes: the credential, and the body. A
+            # process's arguments are readable by anything that can see the process
+            # list, and argv is what a trace records. The URL is in argv
+            # deliberately — it is worth seeing in a trace and holds nothing secret.
+            #
+            # The method comes from the model, within the enum its schema declares,
+            # and that is a deliberate decision rather than an oversight. Pinning it
+            # to GET withheld half of what this agent is for while withholding
+            # nothing an operator could not already do from the panel: the API
+            # answers reads through POST as well — the SQL console is one — so a
+            # verb is not a proxy for "destructive". What may be done is the token's
+            # question, and the token is the operator's own.
+            - type: cli-run
+              name: admin-call
+              program: env.AGENT_CURL_BIN
+              args: >-
+                ["-sS", "--max-time", env.AGENT_HTTP_MAX_TIME,
+                 "-w", "\n%{http_code}", "-K", "-", "--url", vars.adminUrl]
+              stdin: >-
+                "request = \"" + (has(body.method) ? body.method : "GET") + "\"\n" +
+                "header = \"Authorization: Bearer " + vars.operatorToken + "\"\n" +
+                "header = \"Accept: application/json\"\n" +
+                (vars.requestBody != ""
+                  ? "header = \"Content-Type: application/json\"\n" +
+                    "data = \"" + vars.requestBody + "\"\n"
+                  : "")
+              allow: ["${AGENT_CURL_BIN}"]
+              env: [PATH, HOME]
+              workDir: ${AGENT_WORKSPACE}
+              timeout: ${AGENT_CLI_TIMEOUT}
+              onExit: continue
+
+            # The status is the last line, because -w appended it.
+            #
+            # trim() before splitting, and it is load-bearing rather than
+            # tidy: cli-run hands back stdout with a trailing newline, so
+            # splitting the raw string yields a final empty element — the
+            # status reads as "" and the code stays stuck on the end of the
+            # body. That is a wrong answer rather than a failure, which is
+            # the kind worth a comment.
+            - type: set-variable
+              name: split-output
+              settings:
+                name: outLines
+                value: 'body.exitCode == 0 ? body.stdout.trim().split("\n") : []'
+
+            # Split off so a 4xx comes back as data the model can read and
+            # correct, rather than as a body it has to guess the meaning of.
+            # A response with no body at all is one line, which is a status
+            # and an empty body rather than a body and no status.
+            - type: set-payload
+              name: read-response
+              settings:
+                value: >-
+                  {
+                    "status": size(vars.outLines) > 0
+                      ? vars.outLines[size(vars.outLines) - 1] : "",
+                    "body": size(vars.outLines) > 1
+                      ? vars.outLines.slice(0, size(vars.outLines) - 1).join("\n") : "",
+                    "error": body.exitCode == 0 ? "" :
+                      "the request could not be made: " + body.stderr
+                  }
+        else:
+          process:
+            # Answered from a check rather than from a failed request, so
+            # the model gets an explanation instead of a transport error it
+            # has to interpret.
+            - type: set-payload
+              settings:
+                value: >-
+                  {"error": vars.operatorToken == ""
+                  ? "This conversation carries no operator token, so the
+                  panel's API cannot be read. That happens when the agent is
+                  called directly rather than through the panel."
+                  : "That path is refused. It must begin /api, and may not
+                  contain a scheme, a '..' segment, a backslash or
+                  whitespace."}
+
+  # One file out of the workspace.
+  - name: read-file
+    process:
+      - type: file-read
+        settings:
+          connector: workspace
+          path: body.path
+          resultVar: contents
+      - type: set-payload
+        settings:
+          value: '{"path": body.path, "content": vars.contents}'
+
+  # One file into the workspace.
+  - name: write-file
+    process:
+      - type: file-write
+        settings:
+          connector: workspace
+          path: body.path
+          content: body.content
+          resultVar: receipt
+      - type: set-payload
+        settings:
+          value: 'vars.receipt'
+
+  # The whole workspace tree.
+  - name: list-files
+    process:
+      # No argument, and that is the design rather than a simplification:
+      # constant argv puts find's -exec out of reach by construction rather
+      # than by an allow list.
+      - type: cli-run
+        name: find-workspace
+        program: env.AGENT_FIND_BIN
+        args: '[".", "-maxdepth", "4", "-not", "-path", "*/.*"]'
+        allow: ["${AGENT_FIND_BIN}"]
+        env: [PATH]
+        workDir: ${AGENT_WORKSPACE}
+        timeout: ${AGENT_CLI_TIMEOUT}
+        onExit: continue
+
+  # One of the three programs the image carries.
+  - name: run-program
+    process:
+      # BE HONEST ABOUT WHAT THIS LIST IS. It is a guardrail, not a
+      # boundary. It keeps the ordinary path predictable and the tool chips
+      # in the panel readable; it does not contain anything. curl reaches
+      # every address this pod can route to — other Services in the
+      # cluster, the host's own network — and nothing here restricts hosts.
+      #
+      # So the boundary is the POD. What it holds is the OpenRouter key in
+      # its environment and, for the life of one request, the token of
+      # whoever is asking. It carries no ServiceAccount token at all; see
+      # automountServiceAccountToken in the chart. If the reach itself is
+      # the concern on this cluster, a NetworkPolicy is the control and
+      # this file is not.
+      - type: cli-run
+        name: run-program
+        program: >-
+          body.program == "curl" ? env.AGENT_CURL_BIN
+            : body.program == "jq" ? env.AGENT_JQ_BIN
+            : env.AGENT_FIND_BIN
+        args: >-
+          (body.program == "curl" ? ["--max-time", env.AGENT_HTTP_MAX_TIME] : [])
+            + (has(body.args) ? body.args : [])
+        stdin: 'has(body.stdin) ? body.stdin : ""'
+        allow:
+          - ${AGENT_CURL_BIN}
+          - ${AGENT_JQ_BIN}
+          - ${AGENT_FIND_BIN}
+        env: [PATH, HOME]
+        workDir: ${AGENT_WORKSPACE}
+        timeout: ${AGENT_CLI_TIMEOUT}
+        onExit: continue
+
+  # Move the operator's browser, and say so on the stream.
+  - name: navigate
+    process:
+      # ifClosed: ignore, unlike the events path above. A closed drawer
+      # means nobody is being navigated, which is not a reason to end the
+      # run mid-tool.
+      #
+      # The path is NOT validated here. A guard in this file is advice
+      # rather than a boundary — the drawer performs the navigation, so the
+      # drawer is where a path that is not a same-origin relative one has
+      # to be refused.
+      - type: sse-event
+        settings:
+          event: navigate
+          ifClosed: ignore
+          data: >-
+            {
+              "path": has(body.path) ? body.path : "",
+              "reason": has(body.reason) ? body.reason : ""
+            }
+      - type: set-payload
+        settings:
+          value: '{"navigated": true}'
+
+  # Everything remembered about this operator.
+  - name: recall-facts
+    process:
+      - type: object-read
+        settings:
+          key: '"facts/" + vars.userKey'
+          as: userFacts
+          default: '{"items": []}'
+      - type: set-payload
+        settings:
+          value: '{"facts": vars.userFacts.items}'
+
+  # Upsert one fact, oldest-first capped.
+  - name: remember-fact
+    process:
+      - type: object-read
+        settings:
+          key: '"facts/" + vars.userKey'
+          as: userFacts
+          default: '{"items": []}'
+      # Filter-then-append is what makes this an upsert.
+      - type: set-variable
+        name: merge-facts
+        settings:
+          name: mergedFacts
+          value: >-
+            vars.userFacts.items.filter(f, f.name != body.name)
+            + [{"name": body.name, "value": body.value}]
+      # Capped, oldest first: nothing else bounds this list, and it is read
+      # back in full on every recall_facts.
+      - type: object-write
+        settings:
+          key: '"facts/" + vars.userKey'
+          value: >-
+            {"items": size(vars.mergedFacts) > 200
+              ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
+              : vars.mergedFacts}
+      - type: set-payload
+        settings:
+          value: '{"remembered": body.name}'
+
+  # Drop one fact by name.
+  - name: forget-fact
+    process:
+      - type: object-read
+        settings:
+          key: '"facts/" + vars.userKey'
+          as: userFacts
+          default: '{"items": []}'
+      - type: object-write
+        settings:
+          key: '"facts/" + vars.userKey'
+          value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
+      - type: set-payload
+        settings:
+          value: '{"forgotten": body.name}'

@@ -1,14 +1,18 @@
 # The panel's API
 
-Load this before your first `admin_read` of a conversation. It is the map, so you
-do not rediscover the routes one 404 at a time.
+Load this before your first `admin_api` call of a conversation. It is the map, so
+you do not rediscover the routes one 404 at a time.
 
-`admin_read` takes a **path only**, beginning `/api`, and a `query` object. It is
-`GET`-only — that is enforced by the runtime, not by this document — so every
-route below that is not a GET is listed to tell you it is out of reach, not to
-suggest it.
+`admin_api` takes a `method` (`GET` unless you say otherwise), a **path only**
+beginning `/api`, an optional `query` object and an optional JSON `body`. A path
+that is a full URL, or that tries to leave `/api`, is refused before any request
+is made.
 
 A 4xx comes back as data rather than an error. Read it and correct the call.
+
+You call with the asking operator's own credential, so what you may do is what
+they may do. Reading is most of it; the writes are listed below with the rest, and
+the rules for them are in your prompt rather than here.
 
 ## Kubernetes
 
@@ -52,19 +56,36 @@ installation. That means "not set up here", not "no databases".
 
 ## What you cannot call, and what to say instead
 
-These exist and are not yours. Every one of them is a screen in the panel with a
-person's hand on it, which is the point:
+## The two consoles
 
-| Not yours | Where it happens |
+Both read, and both are `POST` — which is exactly why the method is yours to
+choose. A verb says nothing about whether a call changes anything:
+
+| Path | |
 | --- | --- |
-| Restart or scale a workload | The Kubernetes → Workloads page |
-| Create or drop a PostgreSQL database, role or extension | The PostgreSQL pages |
-| Create or drop a Mongo database, collection or user | The MongoDB pages |
-| Run SQL, or a Mongo `find` | The query console — both are POST, so `allowMethods` refuses them even though they only read |
+| `POST /api/postgres/databases/{db}/query` | Run a read-only statement. Body `{"sql": "..."}`. It runs as a separate, deliberately non-superuser credential, and answers 503 where that is not configured. |
+| `POST /api/mongo/databases/{db}/find` | Read documents from a collection. |
 
-When somebody asks for one, name the page, offer to take them there with
-`navigate_to`, and say what you would press. Do not narrate a change you cannot
-make as though you had made it.
+## What changes something
+
+These work, and you may use them. The rules for how are in your prompt: say what
+you are about to do first, make one change at a time, and never guess an
+identifier for a destructive call.
+
+| Path | |
+| --- | --- |
+| `POST /api/kubernetes/namespaces/{ns}/workloads/{kind}/{name}/restart` | Roll the pods. |
+| `PUT /api/kubernetes/namespaces/{ns}/workloads/{kind}/{name}/scale` | Set the replica count. |
+| `POST` / `PUT` / `DELETE` on `/api/postgres/databases`, `/api/postgres/roles` | Create, alter the owner, drop. |
+| `POST /api/postgres/databases/{db}/extensions` | Install an extension. |
+| `POST` / `PUT` / `DELETE` on `/api/mongo/databases`, its collections and users | The same, for MongoDB. |
+
+Every one of these also has a screen in the panel. When there is no hurry, that is
+the better answer: name the page, offer to take them there with `navigate_to`, and
+say what you would press. A person watching a form is better placed to notice they
+meant something else. Dropping a database is the clearest case — offer the page.
+
+Never narrate a change as done before you have made it and read what came back.
 
 ## Who is asking
 
