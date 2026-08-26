@@ -1,0 +1,55 @@
+name: home-lab-mongo
+
+services:
+  mongo:
+    image: mongo:8.0.29-noble
+    restart: unless-stopped
+    stop_grace_period: 1m
+    entrypoint:
+      - /usr/local/bin/home-lab-mongo-entrypoint.sh
+    command:
+      - mongod
+      - --auth
+      - --bind_ip_all
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN_USER:?set MONGO_ADMIN_USER in databases/.env}
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_admin_password
+    ports:
+      - "127.0.0.1:27017:27017"
+      - "${DATABASE_LAN_ADDRESS:?set DATABASE_LAN_ADDRESS in databases/.env}:27017:27017"
+    secrets:
+      - mongo_admin_password
+    tmpfs:
+      - /run/home-lab-secrets:rw,noexec,nosuid,nodev,size=1m
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+      - ./mongo/entrypoint.sh:/usr/local/bin/home-lab-mongo-entrypoint.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host 127.0.0.1
+          --username "$${MONGO_INITDB_ROOT_USERNAME}"
+          --password "$$(cat /run/home-lab-secrets/mongo_admin_password)"
+          --authenticationDatabase admin
+          --eval 'quit(db.adminCommand({ ping: 1 }).ok ? 0 : 2)'
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  mongo_admin_password:
+    file: ${DATABASE_SECRETS_DIR:?set DATABASE_SECRETS_DIR in databases/.env}/mongo_admin_password
+
+volumes:
+  mongo-data:
+    name: home-lab-mongo-data
+  mongo-config:
+    name: home-lab-mongo-config

@@ -49,6 +49,9 @@ jobs:
       - name: Test inventory rendering
         run: ./tests/render-ansible-inventory.sh
 
+      - name: Validate database Compose projects
+        run: ./tests/validate-databases.sh
+
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
