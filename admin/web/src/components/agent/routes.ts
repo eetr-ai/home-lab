@@ -37,8 +37,8 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 		description: "Deployments, StatefulSets and DaemonSets in one namespace, with replica counts. Restarting and scaling happen here. Omit the parameter for the default namespace.",
 	},
 	{
-		path: "/kubernetes/workloads/{kind}/{name}",
-		description: "One workload in detail: its pods, its rollout state, and its logs. `kind` is deployment, statefulset or daemonset.",
+		path: "/kubernetes/workloads/{kind}/{name}?namespace={namespace}",
+		description: "One workload in detail: its pods, its rollout state, and its logs. `kind` is deployment, statefulset or daemonset. The namespace is required — without it this page is a 404, not a default.",
 	},
 	{ path: "/kubernetes/pods?namespace={namespace}", description: "Pods in one namespace, with phase and restart counts." },
 	{ path: "/kubernetes/events?namespace={namespace}", description: "Recent events in one namespace — where a pod that will not start says why." },

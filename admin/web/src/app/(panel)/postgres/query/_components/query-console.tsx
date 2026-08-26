@@ -40,6 +40,12 @@ export function QueryConsole({
 	// the box survives it: this component stays mounted across a soft navigation
 	// to the same route, which is the point of putting only the scope in the URL.
 	function choose(next: string) {
+		// A result belongs to the database it ran against, so it does not survive the
+		// switch. Left alone it is the previous database's rows sitting under the new
+		// database's name — which is not a stale table, it is a wrong answer, and
+		// nothing on screen would say so.
+		setResult(null);
+		setError(null);
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("database", next);
 		startSwitching(() => router.push(`?${params.toString()}`));
