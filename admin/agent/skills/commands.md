@@ -4,6 +4,10 @@ Load this before your first `run_command`. The constraint below is the whole
 reason this document exists, and forgetting it produces a command that looks
 right and does nothing.
 
+Only `curl`, `jq` and `find` are available. Any other name is refused with
+`no such program` on stderr rather than being run — so if you meant to reach for
+something else, the answer is one of these three or a different tool entirely.
+
 ## There is no shell
 
 Arguments are passed as **argv**. Nothing is interpreted: `|`, `>`, `&&`, `;`,
@@ -56,7 +60,8 @@ written.
 GNU find, in the workspace. `list_workspace` already gives you the tree and takes
 no arguments, so reach for `find` here only when you want a predicate —
 `["-name", "*.json", "-newer", "out.json"]`. Note that `-exec` runs a program,
-which is a way around every other rule on this page; do not use it.
+which is a way around every other rule on this page; do not use it. Nothing
+refuses it for you — this is a request, not a wall.
 
 ## The honest limit
 

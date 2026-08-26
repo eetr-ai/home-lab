@@ -34,11 +34,16 @@ FROM alpine:3.22
 # ca-certificates so curl and the runtime can verify TLS; tzdata so a named zone
 # resolves; curl and jq because that is what the agent was given.
 #
-# findutils replaces busybox's find with GNU find at the same path. Busybox is not
-# a security problem here — a `cli-run` allow list names an absolute path and does
-# not follow symlinks, so admitting find does not also admit sh — it is a usability
-# one: this image is driven by a language model, and busybox's reduced flag surface
-# turns a reasonable -printf into a confusing failure.
+# findutils replaces busybox's find with GNU find at the same path. The reason is
+# usability rather than security: this image is driven by a language model, and
+# busybox's reduced flag surface turns a reasonable -printf into a confusing
+# failure.
+#
+# Be clear that it is NOT a containment choice, because either find admits every
+# other program in the image: `find . -maxdepth 0 -exec /bin/sh -c ...` starts a
+# shell, and alpine has one. The `allow` list on run_command names the programs
+# the model may ASK for; it does not bound what those programs then do. See the
+# comment on the run-program flow in config.yaml — the boundary is the pod.
 RUN apk add --no-cache ca-certificates curl jq tzdata findutils
 
 # uid 65532, the same non-root user admin-api and admin-web run as, and the same

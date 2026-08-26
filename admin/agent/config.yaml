@@ -696,12 +696,21 @@ flows:
       #                       parsers, and a colon opens a scheme
       #   no whitespace       a space or newline would end the URL argument
       #                       and start another curl option
+      #
+      # The presence and type checks come first, and they are not decoration. A
+      # missing key is an evaluation ERROR in CEL rather than a false — `no such
+      # key: path` — so without them a tool call that simply omits the argument
+      # fails the block instead of taking the refusal branch below, and the model
+      # gets a transport error where it should get a sentence. `required` in the
+      # tool's schema is advice to the model, not a runtime refusal.
       - type: set-variable
         name: path-ok
         settings:
           name: pathOk
           value: >-
-            body.path.startsWith("/api")
+            has(body.path)
+              && type(body.path) == string
+              && body.path.startsWith("/api")
               && !body.path.startsWith("//")
               && !body.path.contains("..")
               && !body.path.contains("\\")
@@ -897,6 +906,12 @@ flows:
       # in the panel readable; it does not contain anything. curl reaches
       # every address this pod can route to — other Services in the
       # cluster, the host's own network — and nothing here restricts hosts.
+      # find is the same story from the other end: `-exec` starts whatever
+      # it is pointed at, and this image has a shell, so admitting find
+      # admits everything else in the image. That is deliberate rather than
+      # overlooked, and a blocklist of find predicates is not the fix — the
+      # set is not closed (-execdir, -ok, -delete, -fprintf...), so it would
+      # buy the LOOK of a boundary while still failing legitimate calls.
       #
       # So the boundary is the POD. What it holds is the OpenRouter key in
       # its environment and, for the life of one request, the token of
@@ -904,24 +919,73 @@ flows:
       # automountServiceAccountToken in the chart. If the reach itself is
       # the concern on this cluster, a NetworkPolicy is the control and
       # this file is not.
-      - type: cli-run
-        name: run-program
-        program: >-
-          body.program == "curl" ? env.AGENT_CURL_BIN
-            : body.program == "jq" ? env.AGENT_JQ_BIN
-            : env.AGENT_FIND_BIN
-        args: >-
-          (body.program == "curl" ? ["--max-time", env.AGENT_HTTP_MAX_TIME] : [])
-            + (has(body.args) ? body.args : [])
-        stdin: 'has(body.stdin) ? body.stdin : ""'
-        allow:
-          - ${AGENT_CURL_BIN}
-          - ${AGENT_JQ_BIN}
-          - ${AGENT_FIND_BIN}
-        env: [PATH, HOME]
-        workDir: ${AGENT_WORKSPACE}
-        timeout: ${AGENT_CLI_TIMEOUT}
-        onExit: continue
+      #
+      # What the check below IS for is the ternary underneath it. That
+      # expression has no failure branch — it tests for curl, then for jq,
+      # and everything else falls through to find. So `program: "bash"`
+      # used to run FIND with the model's arguments: not a breach, since
+      # find was already allowed, but a confusing answer to a call that
+      # should simply have been refused. The enum in the tool's schema is
+      # advice to the model; this is the refusal.
+      - type: set-variable
+        name: program-ok
+        settings:
+          name: programOk
+          # No type check, unlike the path guard in call-admin-api, and the
+          # difference is not an oversight: `in` over a list answers false for a
+          # value of any type, while `startsWith` on a non-string is `no such
+          # overload` — an error, not a false. One needs the check to fail
+          # closed and the other does not, so adding it here would be an
+          # assertion that never fires.
+          value: 'has(body.program) && body.program in ["curl", "jq", "find"]'
+
+      - type: if
+        name: can-run
+        condition: vars.programOk
+        then:
+          process:
+            # The chosen binary is a variable rather than an expression on the
+            # block for the same reason the request method is one in
+            # call-admin-api: a value in vars is one a test can assert on and a
+            # log can show, and this ternary's fall-through was a real bug once.
+            - type: set-variable
+              name: pick-program
+              settings:
+                name: programBin
+                value: >-
+                  body.program == "curl" ? env.AGENT_CURL_BIN
+                    : body.program == "jq" ? env.AGENT_JQ_BIN
+                    : env.AGENT_FIND_BIN
+
+            - type: cli-run
+              name: run-program
+              program: vars.programBin
+              args: >-
+                (body.program == "curl" ? ["--max-time", env.AGENT_HTTP_MAX_TIME] : [])
+                  + (has(body.args) ? body.args : [])
+              stdin: 'has(body.stdin) ? body.stdin : ""'
+              allow:
+                - ${AGENT_CURL_BIN}
+                - ${AGENT_JQ_BIN}
+                - ${AGENT_FIND_BIN}
+              env: [PATH, HOME]
+              workDir: ${AGENT_WORKSPACE}
+              timeout: ${AGENT_CLI_TIMEOUT}
+              onExit: continue
+        else:
+          process:
+            # Shaped like a command that ran and failed, because that is a
+            # shape the model already knows how to read: it recovers from a
+            # non-zero exit with a message on stderr several times a day.
+            - type: set-payload
+              name: refuse-program
+              settings:
+                value: >-
+                  {
+                    "exitCode": 2,
+                    "stdout": "",
+                    "stderr": "run_command: no such program. Available: curl, jq, find."
+                  }
 
   # Move the operator's browser, and say so on the stream.
   - name: navigate

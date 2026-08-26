@@ -34,7 +34,10 @@ COPY --from=editor /usr/local/bin/dolphin /usr/local/bin/dolphin
 # The suite lives beside the definition, exactly as it does in the repository —
 # `octo run` skips `_test.yaml`, so the two can share a directory without the
 # runtime ever loading the suite.
-COPY config_test.yaml /etc/octo/integrations/config_test.yaml
+# A glob rather than a list: a suite is per-flow, so a new flow worth testing is
+# a new file, and naming them one by one here means the day someone adds one the
+# build succeeds and the suite silently does not run it.
+COPY *_test.yaml /etc/octo/integrations/
 
 # dolphin finds the runtime through this. Setting it is an override rather than a
 # hint: dolphin fails when it is set and wrong instead of falling through, which

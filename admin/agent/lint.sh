@@ -242,6 +242,13 @@ else:
     # clause — and "matches" alone would have been satisfied by any regex at all,
     # which is the sort of assertion that reads as coverage and is not.
     for clause, why in [
+        # These two come first and are load-bearing in a way the rest are not: an
+        # absent key is `no such key` and a non-string is `no such overload`, both
+        # evaluation ERRORS rather than a false. Without them a call that merely
+        # omits the argument fails the block instead of taking the refusal branch,
+        # so the model gets a transport error where a sentence was owed.
+        ("has(body.path)", "a call that omits the path (it would error, not refuse)"),
+        ("type(body.path) == string", "a path that is not a string (it would error, not refuse)"),
         ('body.path.startsWith("/api")', "the path prefix"),
         ('!body.path.startsWith("//")', "a protocol-relative path reaching another host"),
         ('!body.path.contains("..")', "a .. segment escaping the prefix"),
@@ -263,6 +270,43 @@ else:
     condition = gate.get("condition", "")
     if "vars.pathOk" not in condition or 'vars.operatorToken != ""' not in condition:
         problems.append("admin_api must call only with a token AND a path that passed the guard")
+
+# --- run_command names a program it has, or refuses ---------------------------
+#
+# Not a security check — the allow list is a guardrail and the flow says so at
+# length. This is a correctness one. The block picks its binary with a ternary
+# that tests for curl, then for jq, and lets EVERYTHING ELSE fall through to
+# find, so before the guard `program: "bash"` quietly ran find with the model's
+# arguments. The enum in the tool's inputSchema is advice to the model and not a
+# refusal, so the guard is the only thing that answers such a call honestly.
+run_blocks = implementation("run_command")
+program_guard = next(
+    (
+        block.get("settings", {})
+        for block in run_blocks
+        if block.get("type") == "set-variable"
+        and block.get("settings", {}).get("name") == "programOk"
+    ),
+    None,
+)
+if program_guard is None:
+    problems.append("run_command has no program guard; an unknown program would run as find")
+else:
+    expression = program_guard.get("value", "")
+    # has() spelled out for the same reason it is in the path guard: an absent
+    # key is an evaluation error rather than a false.
+    for clause, why in [
+        ("has(body.program)", "a call that omits the program (it would error, not refuse)"),
+        ('body.program in ["curl", "jq", "find"]', "a program the image does not carry"),
+    ]:
+        if clause not in expression:
+            problems.append(f"run_command's program guard no longer refuses {why}")
+
+    # ...and the guard has to gate the run, not merely be computed beside it.
+    run_gate = next((b for b in run_blocks if b.get("type") == "if"), None)
+    if run_gate is None or "vars.programOk" not in run_gate.get("condition", ""):
+        problems.append("run_command must run a program only after the guard passed")
+
 
 # --- the operator's token never reaches the model -----------------------------
 #

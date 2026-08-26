@@ -234,6 +234,29 @@ cases:
     spies:
       call-admin-api.can-call[then].admin-call: { count: 0 }
 
+  # A missing key is an evaluation ERROR in CEL rather than a false — `no such
+  # key: path`. So without the presence check these two failed the block instead
+  # of taking the refusal branch, and the model got a transport error to interpret
+  # where it should have got a sentence it could act on. `required` in the tool's
+  # inputSchema is advice to the model, not a runtime refusal.
+  - name: a call with no path at all is refused, not an evaluation error
+    input:
+      data: { method: GET }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  - name: a path that is not a string is refused
+    input:
+      data: { path: 42 }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
   # Not a guard but the same shape: the agent called directly, outside the panel,
   # has no operator to act as. Answered from a check so the model gets a sentence
   # rather than a transport error to interpret.

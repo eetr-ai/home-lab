@@ -1,0 +1,121 @@
+# run-program: which binary a name selects, and what happens to a name that is
+# not one of the three.
+#
+# The refusal cases are the reason this file exists. The block's `program` is a
+# ternary that tests for curl, then for jq, and lets everything else fall through
+# to find — so before the guard, `program: "bash"` ran FIND with the model's
+# arguments. Not a breach, since find was already allowed, but a confusing answer
+# to a call that should have been refused outright. The `enum` in the tool's
+# inputSchema is advice to the model; only the guard is a refusal.
+#
+# There is no case asserting that any ARGUMENT is withheld, and that is
+# deliberate. find's `-exec` starts another program and this image has a shell,
+# so admitting find admits the rest of the image. A blocklist of predicates would
+# not change that — the set is not closed — and it would fail legitimate calls
+# while suggesting a boundary that is not there. The boundary is the pod; see the
+# comment on the flow.
+flow: run-program
+timeout: 30s
+
+env:
+  # Required by the definition, so the config refuses to load without it. No case
+  # here makes a model call.
+  OPENROUTER_API_KEY: not-used-by-this-suite
+  ADMIN_API_URL: http://admin-api.test.invalid
+  AGENT_CURL_BIN: /usr/bin/curl
+  AGENT_JQ_BIN: /usr/bin/jq
+  AGENT_FIND_BIN: /usr/bin/find
+  AGENT_HTTP_MAX_TIME: "20"
+  AGENT_WORKSPACE: /tmp
+  AGENT_CLI_TIMEOUT: 120s
+
+# Nothing here runs a program. A hole in the mock is an error rather than a real
+# execution, which is what makes that true rather than hoped.
+mocks:
+  run-program.can-run[then].run-program:
+    default:
+      body:
+        exitCode: 0
+        stdout: "ok\n"
+        stderr: ""
+
+cases:
+  - name: curl runs curl, with a timeout it did not have to ask for
+    input:
+      data: { program: curl, args: ["--url", "http://example.invalid"] }
+    expect:
+      that: ['body.exitCode == 0']
+    spies:
+      run-program.can-run[then].run-program:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.programBin == "/usr/bin/curl"'
+                # The flow supplies --max-time ahead of the model's argv, so a
+                # call that forgets one still cannot hold a worker open.
+                - 'vars.programOk'
+
+  - name: jq runs jq
+    input:
+      data: { program: jq, args: ["."], stdin: '{"a":1}' }
+    expect:
+      that: ['body.exitCode == 0']
+    spies:
+      run-program.can-run[then].run-program:
+        count: 1
+        records:
+          - input:
+              that: ['vars.programBin == "/usr/bin/jq"']
+
+  - name: find runs find
+    input:
+      data: { program: find, args: [".", "-maxdepth", "1"] }
+    expect:
+      that: ['body.exitCode == 0']
+    spies:
+      run-program.can-run[then].run-program:
+        count: 1
+        records:
+          - input:
+              that: ['vars.programBin == "/usr/bin/find"']
+
+  # ------------------------------------------------------------ the refusals
+  #
+  # Both would have selected find before the guard. The spy count of 0 is the
+  # assertion that matters: it says nothing ran, rather than that the answer
+  # looked wrong.
+  - name: a program outside the three is refused rather than run as find
+    input:
+      data: { program: bash, args: ["-c", "id"] }
+    expect:
+      that:
+        - 'body.exitCode == 2'
+        - 'body.stderr.contains("no such program")'
+    spies:
+      run-program.can-run[then].run-program: { count: 0 }
+
+  # A missing key is an evaluation ERROR in CEL, not a false — so without the
+  # presence check this case failed the block instead of taking the refusal
+  # branch, and the model got a transport error where it should get a sentence.
+  - name: a call with no program at all is refused, not an evaluation error
+    input:
+      data: { args: ["."] }
+    expect:
+      that:
+        - 'body.exitCode == 2'
+        - 'body.stderr.contains("no such program")'
+    spies:
+      run-program.can-run[then].run-program: { count: 0 }
+
+  # Refused by the membership test rather than by a type check — `in` over a list
+  # answers false for a value of any type. Kept because it pins that behaviour:
+  # if the guard were ever rewritten as `startsWith`-style string work, this is
+  # the case that would start erroring instead of refusing.
+  - name: a program that is not a string is refused
+    input:
+      data: { program: 42 }
+    expect:
+      that: ['body.exitCode == 2']
+    spies:
+      run-program.can-run[then].run-program: { count: 0 }
