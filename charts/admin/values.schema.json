@@ -26,8 +26,16 @@
         },
         "api": {
           "type": "object",
-          "required": ["image", "replicas", "resources", "route"],
+          "required": ["image", "replicas", "resources", "route", "oidc"],
           "properties": {
+            "oidc": {
+              "type": "object",
+              "required": ["issuer"],
+              "properties": {
+                "issuer": { "type": "string", "pattern": "^https://" },
+                "audience": { "type": "string" }
+              }
+            },
             "image": {
               "type": "object",
               "required": ["repository", "tag", "pullPolicy"],

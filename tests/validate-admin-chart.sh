@@ -40,6 +40,11 @@ if grep -q 'imagePullSecrets:' "$output_file"; then
 fi
 render --set admin.imagePullSecrets[0].name=some-secret | grep -q 'name: some-secret'
 
+# The API refuses to start without an issuer, so a chart that does not supply one
+# produces a CrashLoopBackOff rather than an unauthenticated API. Assert the wiring
+# exists, so that failure is caught here instead of in the cluster.
+grep -q 'name: ADMIN_OIDC_ISSUER' "$output_file"
+
 # A moving tag cannot say which build is running, and the chart's appVersion is
 # what release-please keeps in step with the images.
 if grep -qE 'image: .*:latest"?$' "$output_file"; then
