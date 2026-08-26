@@ -33,8 +33,6 @@ type fakeRepo struct {
 	// What a query returns, so a test can check the service passes it through
 	// rather than reshaping it.
 	queryResult QueryResult
-	// noQueryCredential stands in for a panel with no read-only role configured.
-	noQueryCredential bool
 }
 
 func newFakeRepo() *fakeRepo {
@@ -61,9 +59,6 @@ func (f *fakeRepo) AlterDatabaseOwner(_ context.Context, name, owner string) err
 }
 
 func (f *fakeRepo) Query(_ context.Context, database, sql string) (QueryResult, error) {
-	if f.noQueryCredential {
-		return QueryResult{}, ErrQueryUnavailable
-	}
 	f.lastQuery = database + ":" + sql
 	return f.queryResult, f.err
 }
@@ -598,20 +593,5 @@ func TestUpdateRoleRefusesASuperuser(t *testing.T) {
 	}
 	if len(repo.altered) != 0 {
 		t.Errorf("a refused update still reached the server: %v", repo.altered)
-	}
-}
-
-// With no read-only credential the console refuses rather than falling back to
-// the superuser pool. Running submitted SQL as the superuser is the exact thing
-// the separate credential exists to prevent, so the fallback must not exist —
-// and a test is how it stays that way.
-func TestQueryRefusesWithoutItsOwnCredential(t *testing.T) {
-	repo := newFakeRepo()
-	repo.noQueryCredential = true
-
-	_, err := NewService(repo).Query(t.Context(), "app", "SELECT 1")
-
-	if !errors.Is(err, ErrQueryUnavailable) {
-		t.Fatalf("Query error = %v, want %v", err, ErrQueryUnavailable)
 	}
 }

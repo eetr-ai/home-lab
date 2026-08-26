@@ -113,20 +113,6 @@ func registerPostgres(ctx context.Context, mux *stdhttp.ServeMux, logger *slog.L
 		return nil, err
 	}
 
-	// The query console runs submitted SQL, so it does not run it as the
-	// superuser the rest of this slice connects as. Dropping privileges inside
-	// that session is not a boundary — a submitted RESET ROLE undoes it — so the
-	// console needs its own non-superuser credential, and is simply not served
-	// without one. See internal/postgres/query.go and databases/README.md.
-	if queryDSN := os.Getenv("ADMIN_POSTGRES_QUERY_DSN"); queryDSN != "" {
-		if err := repo.WithQueryCredential(queryDSN); err != nil {
-			return nil, err
-		}
-		logger.Info("serving the PostgreSQL query console")
-	} else {
-		logger.Warn("ADMIN_POSTGRES_QUERY_DSN is unset; the PostgreSQL query console is not served")
-	}
-
 	postgres.NewHandler(postgres.NewService(repo)).Register(mux)
 	logger.Info("serving the PostgreSQL endpoints")
 	return repo.Close, nil

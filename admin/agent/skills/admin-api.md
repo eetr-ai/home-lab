@@ -63,7 +63,7 @@ choose. A verb says nothing about whether a call changes anything:
 
 | Path | |
 | --- | --- |
-| `POST /api/postgres/databases/{db}/query` | Run a read-only statement. Body `{"sql": "..."}`. It runs as a separate, deliberately non-superuser credential, and answers 503 where that is not configured. |
+| `POST /api/postgres/databases/{db}/query` | Run a read-only statement. Body `{"sql": "..."}`. It runs as the panel's own superuser, inside a read-only transaction that is rolled back. |
 | `POST /api/mongo/databases/{db}/find` | Read documents from a collection. |
 
 ## What changes something

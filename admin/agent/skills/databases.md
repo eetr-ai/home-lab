@@ -34,16 +34,11 @@ You can run statements: `POST /api/postgres/databases/{db}/query`, body
 `{"sql": "..."}`. It is a POST that only reads, which is why a verb is not a
 proxy for "destructive" and why the method is yours to choose.
 
-Two things about it are worth knowing before you report a result.
-
-It runs as a **separate credential** from the one the panel manages databases
-with, and deliberately not a superuser — dropping privileges inside a superuser
-session is not a boundary, because a submitted `RESET ROLE` undoes it. So the
-console can see less than the rest of the panel can, and a permission error there
-is not a permission error everywhere.
-
-Where that credential is not configured, the console is not served at all and the
-route answers 503. That means "not set up here", not "the query failed".
+It runs as the **same superuser** the panel manages databases with, so it sees
+everything the rest of the panel sees; a permission error there is a real one.
+What stops a statement changing anything is the server: it runs inside a `READ
+ONLY` transaction that is always rolled back, under a statement timeout, one
+statement per request. Write it as a `SELECT` and expect a refusal if you do not.
 
 ## MongoDB
 

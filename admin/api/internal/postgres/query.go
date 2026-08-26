@@ -26,37 +26,50 @@ const (
 
 // Query runs one read-only statement against a database and returns its rows.
 //
-// It runs over a *separate connection*, authenticated as a role that is not a
-// superuser. That is the boundary, and it is the only thing here that is one.
+// It runs as the same account the rest of this slice connects as — the panel's
+// administrative credential — over a short-lived connection to the named
+// database. There is no second credential: the panel is given a superuser so it
+// can administer the server, and the console is one more thing it does with it.
 //
-// The obvious cheaper design — keep the superuser pool and drop privileges for
-// the transaction with SET LOCAL ROLE — does not work, and it is worth writing
-// down why, because it looks like it does. SET ROLE is reversible by whoever
-// authenticated: verified against PostgreSQL 18, a submitted `RESET ROLE` (or
-// `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END $$`) restored superuser
-// inside the read-only transaction, after which
-// `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` ran and left a file owned by
-// the postgres user on the database host. session_user is what SET ROLE resets
-// to, so nothing done inside a session can lower that floor.
+// What bounds a statement here is therefore not authority but shape:
 //
-// With a genuinely non-superuser login, all four of those escapes leave
-// current_user unchanged, and pg_read_file and COPY TO PROGRAM are both refused
-// as permission errors. Also verified rather than assumed.
+//   - a READ ONLY transaction that is always rolled back, so every INSERT,
+//     UPDATE, DELETE and DDL is refused by the server;
+//   - statement_timeout, so a runaway query is killed by the server rather than
+//     abandoned by the client;
+//   - pgx's extended protocol, asked for by name rather than inherited, so one
+//     statement goes per message and `SELECT 1; DROP TABLE t` is refused rather
+//     than run as two.
 //
-// The READ ONLY transaction and the statement timeout remain, as the second
-// layer: the query role should hold no write privileges, but a role gains grants
-// over time and this does not depend on that staying true. Neither is the
-// boundary on its own — a read-only transaction refuses writes and DDL and does
-// not refuse COPY TO PROGRAM.
+// Be clear about what that does not bound. A superuser session reaches outside
+// the database: `COPY (SELECT 1) TO PROGRAM ...` runs a shell command as the
+// server's own user, and a READ ONLY transaction does not refuse it, because it
+// is not a database write. Nor can the session lower its own floor, by either
+// route: SET ROLE changes current_user and RESET ROLE puts it back, while SET
+// SESSION AUTHORIZATION changes session_user as well and RESET SESSION
+// AUTHORIZATION still puts that back — PostgreSQL keeps the identity the
+// connection actually authenticated as, and it is a superuser. So a submitted
+// statement that appears to give up privilege is undone by the next one.
+// Verified against PostgreSQL 18.
+//
+// How far that reaches is a property of the deployment rather than of this code.
+// The home lab runs PostgreSQL in an unprivileged container with one bind mount
+// for its data directory (databases/postgres.compose.yaml), so it is the
+// container and that directory, not root on the machine hosting it. Somewhere
+// that ran the server on the host directly, it would be the host.
+//
+// That is the deliberate position: the caller is already authenticated as an
+// operator and the same account already creates and drops databases, roles and
+// users through the endpoints next to this one. If that ever stops being true —
+// a panel with viewers as well as operators, or a server not in a container of
+// its own — this is the endpoint to give its own non-superuser login, and the
+// two verified facts above are why nothing inside the session would substitute
+// for one.
 //
 // No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
-// and DO blocks all defeat one — the DO block above is the demonstration — and a
-// single miss would be the whole boundary.
+// and DO blocks all defeat one, and a check here would suggest a boundary that
+// the paragraph above says plainly is not there.
 func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResult, error) {
-	if r.queryConfig == nil {
-		return QueryResult{}, ErrQueryUnavailable
-	}
-
 	// One deadline over the whole operation, before anything opens a socket.
 	// statement_timeout is set after connecting and bounds only execution, so on
 	// its own it leaves both ends unbounded: a connection to an unresponsive
@@ -65,7 +78,7 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	ctx, cancel := context.WithTimeout(ctx, queryDeadline)
 	defer cancel()
 
-	conn, err := r.connectAsQueryRole(ctx, database)
+	conn, err := r.connectTo(ctx, database)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -95,9 +108,20 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	}
 
 	started := time.Now()
-	// One statement per message, because pgx uses the extended protocol: verified
-	// that "SELECT 1; DROP TABLE t" is refused rather than run as two.
-	rows, err := tx.Query(ctx, sql)
+	// One statement per message, because this asks for the extended protocol
+	// rather than inheriting whatever the connection defaults to: verified that
+	// "SELECT 1; DROP TABLE t" is refused rather than run as two.
+	//
+	// Named here and not left to the default, because the default is not this
+	// package's to decide. `connectTo` copies the pool's config, the pool parses
+	// the DSN, and pgx reads `default_query_exec_mode` out of a connection string
+	// — `simple_protocol` among the values it accepts. Under that mode the whole
+	// string goes to the server as one Query message and runs as many statements,
+	// so `COMMIT; INSERT ...` would end the read-only transaction above and
+	// persist what followed, with the deferred Rollback left nothing to undo. A
+	// bound that a deployment's DSN can switch off is not one of the three this
+	// function claims to have.
+	rows, err := tx.Query(ctx, sql, pgx.QueryExecModeExec)
 	if err != nil {
 		// The server's own message, which is the useful part: a syntax error names
 		// the position, and a refusal names what it would not run.
@@ -111,26 +135,6 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	}
 	result.ElapsedMs = time.Since(started).Milliseconds()
 	return result, nil
-}
-
-// connectAsQueryRole opens a connection to one database as the query credential.
-func (r *Repository) connectAsQueryRole(ctx context.Context, database string) (*pgx.Conn, error) {
-	if _, err := quoteIdentifier(database); err != nil {
-		return nil, err
-	}
-
-	config := r.queryConfig.ConnConfig.Copy()
-	config.Database = database
-
-	conn, err := pgx.ConnectConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("connect to database %q for a query: %w", database, err)
-	}
-	if err := verifyStringsAreConforming(ctx, conn); err != nil {
-		_ = conn.Close(ctx)
-		return nil, err
-	}
-	return conn, nil
 }
 
 // collectRows reads a result set into strings, stopping at the row cap.
