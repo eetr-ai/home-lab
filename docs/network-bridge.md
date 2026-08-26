@@ -20,9 +20,12 @@ placeholder below before running a command.
 
 ## Configure the bridge
 
-Merge this structure into the host's existing Netplan configuration. Do not
-replace unrelated Wi-Fi or management configuration. `eno1` is an example
-physical interface name, and the MAC is intentionally invalid:
+Save this structure in a dedicated, later-sorting file such as
+`/etc/netplan/60-libvirt-bridge.yaml`, or merge it into the host's existing
+Netplan configuration. Netplan merges all YAML files lexically, so the later
+file disables DHCP on the physical port without replacing unrelated Wi-Fi or
+management configuration. `eno1` is an example physical interface name, and
+the MAC is intentionally invalid:
 
 ```yaml
 network:
@@ -44,24 +47,34 @@ network:
       accept-ra: true
       dhcp4-overrides:
         route-metric: 100
-      parameters:
-        stp: false
-        forward-delay: 0
+      dhcp6-overrides:
+        route-metric: 100
 ```
 
 Giving `br0` the physical interface MAC preserves the router's host reservation.
 The physical port carries frames only; all host IP configuration belongs on the
-bridge.
+bridge. With the `networkd` renderer, DHCPv4 and DHCPv6 overrides must contain
+the same keys and values when both protocols are enabled. The bridge's default
+parameters are sufficient for this single-port libvirt bridge; specifying
+custom bridge parameters also prevents `netplan try` from promising rollback.
 
 Validate syntax and apply with automatic rollback:
 
 ```bash
+sudo chmod 0600 /etc/netplan/60-libvirt-bridge.yaml
 sudo netplan generate
 sudo netplan try --timeout 120
 ```
 
+Omit the `chmod` command when the structure was merged into a differently named
+existing file; all Netplan configuration containing connection details should
+still be readable and writable only by root.
+
 Confirm the new connection from a separate terminal before accepting the
-configuration. Then verify:
+configuration. If `netplan try` says that the virtual-device change cannot be
+reverted, do not switch to `netplan apply` over the host's only SSH connection.
+Run `sudo netplan apply` from the tested local or management console instead.
+Then verify:
 
 ```bash
 ip -brief link show br0

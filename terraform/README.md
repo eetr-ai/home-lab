@@ -89,6 +89,33 @@ The VM receives its address from the LAN DHCP server. Terraform records the
 expected reservation; verify the observed address in the router before running
 Ansible.
 
+## Recover a partial domain creation
+
+If libvirt defines the domains but cannot start them, for example because the
+configured host bridge is absent, the provider may leave shut-off domain
+definitions that were never recorded in Terraform state. A later apply then
+reports that each domain already exists.
+
+First confirm that the affected domains are shut off and absent from state:
+
+```bash
+terraform state list
+ssh LIBVIRT_HOST virsh -c qemu:///system list --all
+```
+
+Only in that specific partial-creation state, remove the orphaned definitions
+without removing their separately managed storage:
+
+```bash
+ssh LIBVIRT_HOST \
+  'virsh -c qemu:///system undefine k8s-cp-1 --nvram &&
+   virsh -c qemu:///system undefine k8s-worker-1 --nvram &&
+   virsh -c qemu:///system undefine k8s-worker-2 --nvram'
+```
+
+Never add `--remove-all-storage`; the node disks and cloud-init volumes remain
+Terraform-managed. Verify the bridge, create a fresh plan, and apply again.
+
 ## Optional temporary NAT mode
 
 The stack retains NAT support for disposable tests:

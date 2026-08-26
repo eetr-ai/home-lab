@@ -183,7 +183,9 @@ cd ..
 The playbook installs pinned Kubernetes v1.36.4 packages and containerd,
 initializes the control plane only when required, joins unconfigured workers,
 and fetches the administrator kubeconfig to the ignored
-`ansible/artifacts/admin.conf`.
+`ansible/artifacts/admin.conf`. It also installs `kubectl` on every Kubernetes
+VM and makes `$HOME/.kube/config` the default for the VM administrator on the
+control plane.
 
 Run the same playbook a second time. It must not reinitialize the control plane
 or rejoin workers. See the [Ansible guide](ansible/README.md) for its security
@@ -202,6 +204,11 @@ helm upgrade --install cilium oci://quay.io/cilium/charts/cilium \
 
 ./scripts/validate-cluster.sh
 ```
+
+The operator laptop remains the primary administration endpoint. To install
+the pinned client and make this kubeconfig the default on the physical
+virtualization host as well, follow the optional
+[server kubectl guide](docs/server-kubectl.md).
 
 The validation requires three Ready v1.36.4 nodes, waits for Cilium, runs its
 connectivity test, and proves a test Secret is stored in etcd through the

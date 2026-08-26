@@ -54,6 +54,9 @@ sudo exportfs -v
 systemctl is-active nfs-server
 ```
 
+`sudo exportfs -rav` is sufficient after changing an export. Restarting the NFS
+server does not repair a stale server address or client ACL.
+
 ## Verify from one Kubernetes node
 
 Replace the documentation address and path with ignored local values:
@@ -76,6 +79,50 @@ The platform chart creates `nfs-client` as the default StorageClass. Its
 reclaim policy is deliberately `Delete`, with archival disabled. Deleting a
 PVC therefore deletes its provisioned directory and data. Back up important
 data before deleting a claim.
+
+## Migrate from libvirt NAT to the LAN bridge
+
+The libvirt NAT gateway address is reachable only while the guests use that
+private network. After moving the Kubernetes domains to `br0`, update both the
+server export clients and the ignored platform values to use the bridged
+addresses:
+
+```yaml
+nfs-provisioner:
+  nfs:
+    server: NFS_SERVER_LAN_ADDRESS
+    path: /export/kubernetes
+```
+
+Replace the old NAT client range in `/etc/exports.d/kubernetes.exports` with
+the reserved node LAN addresses (or their narrowly scoped subnet), then run:
+
+```bash
+sudo exportfs -rav
+sudo exportfs -v
+```
+
+Prove TCP port 2049 and a read/write NFSv4.1 mount from a worker before changing
+Kubernetes resources. A provisioner pod stuck in `ContainerCreating` usually
+reports the underlying mount error in `kubectl describe pod` events.
+
+The chart's bootstrap PV records the NFS server in an immutable field. During a
+fresh installation with no provisioned application data, discard the failed
+bootstrap PV and PVC after correcting the export and ignored Helm values:
+
+```bash
+kubectl -n platform-system scale \
+  deployment/nfs-subdir-external-provisioner --replicas=0
+kubectl -n platform-system wait --for=delete pod \
+  --selector=app=nfs-provisioner --timeout=2m
+kubectl -n platform-system delete \
+  pvc/pvc-nfs-subdir-external-provisioner
+kubectl delete pv/pv-nfs-subdir-external-provisioner
+```
+
+Rerun `scripts/install-platform.sh` to recreate them. Do not use this cleanup
+as a general migration procedure after workloads contain durable data; plan and
+back up that migration explicitly.
 
 Direct LAN ingress is a separate topology decision. Do not infer a LAN address,
 bridge, load balancer, or host-forwarding configuration from this generic
