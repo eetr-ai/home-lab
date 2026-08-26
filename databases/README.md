@@ -219,19 +219,28 @@ What bounds a submitted statement is therefore its shape, not its authority:
 - pgx's extended protocol carries one statement per message, so
   `SELECT 1; DROP TABLE x` is refused rather than run as two.
 
-And be plain about what none of that bounds. A superuser session can reach
-outside the database: `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` runs a
-shell command as the `postgres` user on the database host, and the `READ ONLY`
-transaction does not refuse it, because it is not a database write. Nor can the
-session lower its own floor — `SET ROLE` is reversible by whoever authenticated,
-so a submitted `RESET ROLE` (or `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END
-$$`) restores it and `session_user` never changes. Both checked against
-PostgreSQL 18. **Access to the console is access to the database host**, on the
-same footing as the passwords readable on `eetr01`.
+And be plain about what none of that bounds. A superuser session reaches outside
+the database: `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` runs a shell
+command as the `postgres` user, and the `READ ONLY` transaction does not refuse
+it, because it is not a database write. Nor can the session lower its own floor —
+`SET ROLE` is reversible by whoever authenticated, so a submitted `RESET ROLE`
+(or `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END $$`) restores it and
+`session_user` never changes. Both checked against PostgreSQL 18.
 
-If the panel ever grows viewers as well as operators, this is the endpoint to
-give its own login, and the two facts above are why nothing done inside the
-session would substitute for one:
+What that reaches here is the container, not the machine. PostgreSQL runs
+unprivileged in one, with a single bind mount for its data directory and no
+Docker socket, so the blast radius is that container's filesystem and the data
+under `DATABASE_DATA_DIR` — which is the same data the credential already grants
+through SQL. It is not root on `eetr01`, and it would be a different judgement on
+a server installed on the host directly.
+
+**Access to the console is therefore access to the database's container**, which
+is a step past "read the tables" and a step short of the machine. Worth knowing;
+accepted deliberately for a single-operator panel.
+
+If that changes — viewers as well as operators, or PostgreSQL moved out of its
+container — this is the endpoint to give its own login, and the two facts above
+are why nothing done inside the session would substitute for one:
 
 ```sql
 CREATE ROLE panel_query LOGIN PASSWORD 'generate-a-long-one'

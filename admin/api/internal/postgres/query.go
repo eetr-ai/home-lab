@@ -40,21 +40,26 @@ const (
 //   - pgx's extended protocol, one statement per message, so
 //     `SELECT 1; DROP TABLE t` is refused rather than run as two.
 //
-// Be clear about what that does not bound. A superuser session can reach outside
-// the database — `COPY (SELECT 1) TO PROGRAM ...` runs a shell command on the
-// database host, and a READ ONLY transaction does not refuse it, because it is
-// not a database write. Nor can the session lower its own floor: SET ROLE is
+// Be clear about what that does not bound. A superuser session reaches outside
+// the database: `COPY (SELECT 1) TO PROGRAM ...` runs a shell command as the
+// server's own user, and a READ ONLY transaction does not refuse it, because it
+// is not a database write. Nor can the session lower its own floor — SET ROLE is
 // reversible by whoever authenticated, so a submitted RESET ROLE undoes it and
-// session_user stays the superuser. Verified against PostgreSQL 18, both of
-// them. Whoever the panel lets in can do, through this console, anything the
-// panel's database account can do on that host.
+// session_user stays the superuser. Verified against PostgreSQL 18, both.
+//
+// How far that reaches is a property of the deployment rather than of this code.
+// The home lab runs PostgreSQL in an unprivileged container with one bind mount
+// for its data directory (databases/postgres.compose.yaml), so it is the
+// container and that directory, not root on the machine hosting it. Somewhere
+// that ran the server on the host directly, it would be the host.
 //
 // That is the deliberate position: the caller is already authenticated as an
 // operator and the same account already creates and drops databases, roles and
 // users through the endpoints next to this one. If that ever stops being true —
-// a panel with viewers as well as operators — this is the endpoint to give its
-// own non-superuser login, and the two verified facts above are why nothing
-// inside the session would substitute for one.
+// a panel with viewers as well as operators, or a server not in a container of
+// its own — this is the endpoint to give its own non-superuser login, and the
+// two verified facts above are why nothing inside the session would substitute
+// for one.
 //
 // No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
 // and DO blocks all defeat one, and a check here would suggest a boundary that

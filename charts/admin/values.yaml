@@ -61,7 +61,7 @@ admin:
     # The superuser the panel administers the server as. It also runs the
     # read-only query console — there is no second credential, so access to the
     # panel is access to whatever that account can do, up to and including the
-    # database host. databases/README.md says exactly what that means.
+    # container the server runs in. databases/README.md says what that means.
     postgres:
       enabled: false
       secret:

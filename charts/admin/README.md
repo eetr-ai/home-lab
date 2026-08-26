@@ -115,7 +115,7 @@ those servers carry no TLS by design, which `databases/README.md` documents.
 
 There is no second credential for the query consoles: they run as these accounts
 too, so whoever may open the panel may run SQL as a PostgreSQL superuser — which
-reaches the database host, not only the database. `databases/README.md` says
+reaches the server's container, not only the database. `databases/README.md` says
 exactly how far that goes and what to do if the panel ever has viewers as well as
 operators.
 
