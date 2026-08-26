@@ -14,9 +14,14 @@ version: '3'
 # `task check` renders the manifests and CI validates them.
 #
 # Module taskfiles live next to the code they drive and are imported under a
-# namespace as each module lands, following the same layout the rest of the
-# repository uses. Today the repository is infrastructure only, so the namespaces
-# below are the infrastructure ones.
+# namespace, so `task admin-api:test` runs the API's tests from anywhere in the
+# tree. The unprefixed tasks below are the infrastructure ones.
+
+# Module taskfiles live next to the code they drive.
+includes:
+  admin-api:
+    taskfile: ./admin/api/Taskfile.yml
+    dir: ./admin/api
 
 vars:
   # Pinned so a local run and a CI run resolve the same tool. These match the
@@ -35,17 +40,19 @@ tasks:
     silent: true
 
   lint:
-    desc: Run every static check (Terraform formatting, shell, Ansible, Helm)
+    desc: Run every static check (Terraform, shell, Ansible, Helm, Go)
     cmds:
       - task: terraform:fmt:check
       - task: terraform:validate
       - task: shell:lint
       - task: ansible:syntax
       - task: helm:lint
+      - task: admin-api:lint
 
   test:
-    desc: Run the repository regression tests
+    desc: Run the module tests and the repository regression tests
     cmds:
+      - task: admin-api:test
       - task: tests:inventory
       - task: tests:databases
       - task: tests:chart
@@ -55,6 +62,11 @@ tasks:
     cmds:
       - task: lint
       - task: test
+
+  build:
+    desc: Build every module
+    cmds:
+      - task: admin-api:build
 
   # --- Terraform ------------------------------------------------------------
 
@@ -87,10 +99,15 @@ tasks:
         fi
 
   terraform:validate:
-    desc: Validate the libvirt root module without touching a backend
+    desc: Validate every Terraform root module without touching a backend
     cmds:
+      # Each root module is initialized and validated on its own. `terraform fmt`
+      # is recursive but `validate` is not, so a module missing from this list is
+      # format-checked and never actually validated.
       - terraform -chdir=terraform init -backend=false
       - terraform -chdir=terraform validate
+      - terraform -chdir=terraform/gcp init -backend=false
+      - terraform -chdir=terraform/gcp validate
 
   # --- Ansible --------------------------------------------------------------
 

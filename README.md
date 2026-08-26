@@ -323,6 +323,26 @@ Confirm that:
 - no key, token, kubeconfig, state, or unencrypted Secret appears in Git, CI,
   Terraform state, Ansible logs, or Helm values.
 
+## Releasing the admin panel
+
+The [admin panel](admin/) is versioned independently of the infrastructure around
+it. release-please reads the Conventional Commit history and keeps a release pull
+request open; merging it tags `admin-vX.Y.Z`. That tag fires the Cloud Build
+trigger declared in [terraform/gcp](terraform/gcp/README.md), which builds the
+images and publishes them to Artifact Registry under the tag's version.
+
+Commits touching only `ansible/`, `terraform/`, or `charts/platform/` are outside
+the released package, so infrastructure work never moves the panel's version.
+
+To exercise the pipeline without cutting a release:
+
+```bash
+gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=dev-local .
+```
+
+Installing a published version into the cluster stays a deliberate `helm upgrade`,
+not something a tag does on its own.
+
 ## Rebuild and recovery boundaries
 
 - Preserve the secretbox key and durable NFS data before replacing nodes.
@@ -339,6 +359,8 @@ Confirm that:
 
 ```text
 .
+├── admin/            # The in-cluster administration panel
+│   └── api/          # Go API server managing the databases and reading the cluster
 ├── ansible/          # Kubernetes-node configuration and kubeadm bootstrap
 ├── docs/             # Architecture, operations, and recovery guides
 ├── charts/           # Cluster platform and repository-owned Helm charts
@@ -346,7 +368,7 @@ Confirm that:
 ├── cloud-init/       # Cloud-init examples and learning artifacts
 ├── databases/        # Private host PostgreSQL and MongoDB services
 ├── scripts/          # Small, idempotent operational helpers
-├── terraform/        # libvirt VMs and infrastructure integrations
+├── terraform/        # libvirt VMs, and the Google Cloud build and registry
 └── tests/            # Repository regression fixtures and checks
 ```
 
