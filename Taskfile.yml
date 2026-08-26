@@ -1,0 +1,187 @@
+version: '3'
+
+# Task definitions for this repository.
+#
+# Every check that CI runs is defined here rather than in the workflow, so the
+# command you run locally and the command that gates a pull request cannot drift.
+# The workflow calls these targets; it does not repeat their command lines.
+#
+# One exception, and it is deliberate: CI validates the rendered manifests with
+# kubeconform as a container action. Running it from a task would mean `docker
+# run`, which follows whichever Docker context happens to be active — and this
+# repository's own database module tells you to point that at the server. A task
+# that quietly ran in the wrong place is worse than one honest exception, so
+# `task check` renders the manifests and CI validates them.
+#
+# Module taskfiles live next to the code they drive and are imported under a
+# namespace as each module lands, following the same layout the rest of the
+# repository uses. Today the repository is infrastructure only, so the namespaces
+# below are the infrastructure ones.
+
+vars:
+  # Pinned so a local run and a CI run resolve the same tool. These match the
+  # versions the workflow installs; bumping one means bumping both.
+  ANSIBLE_CORE_VERSION: 2.21.3
+  HELM_VERSION: v4.1.1
+  # The Kubernetes version the cluster is pinned to. Rendering against it catches
+  # a template that relies on an API this cluster does not serve.
+  KUBE_VERSION: '1.36.0'
+
+tasks:
+  default:
+    desc: List the available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  lint:
+    desc: Run every static check (Terraform formatting, shell, Ansible, Helm)
+    cmds:
+      - task: terraform:fmt:check
+      - task: terraform:validate
+      - task: shell:lint
+      - task: ansible:syntax
+      - task: helm:lint
+
+  test:
+    desc: Run the repository regression tests
+    cmds:
+      - task: tests:inventory
+      - task: tests:databases
+      - task: tests:chart
+
+  check:
+    desc: Everything a pull request has to pass
+    cmds:
+      - task: lint
+      - task: test
+
+  # --- Terraform ------------------------------------------------------------
+
+  terraform:fmt:
+    desc: Format every Terraform file in the repository
+    cmds:
+      - terraform fmt -recursive
+
+  terraform:fmt:check:
+    desc: Fail if any Terraform file is unformatted
+    cmds:
+      # Recursive from the root on purpose: it covers every root module, including
+      # ones added later, without this task needing to know they exist.
+      #
+      # Ignored files are dropped from the result. `terraform fmt` walks the working
+      # tree, so a local checkout with a real terraform.tfvars fails a check that CI
+      # — which only ever sees tracked files — passes. Filtering here is what keeps
+      # the local and CI answers the same.
+      - |
+        unformatted=$(terraform fmt -check -list -recursive || true)
+        remaining=""
+        for file in $unformatted; do
+          git check-ignore -q "$file" || remaining="$remaining$file\n"
+        done
+        if [ -n "$remaining" ]; then
+          printf 'Unformatted Terraform files:\n'
+          printf "$remaining"
+          printf 'Run `task terraform:fmt` to fix them.\n'
+          exit 1
+        fi
+
+  terraform:validate:
+    desc: Validate the libvirt root module without touching a backend
+    cmds:
+      - terraform -chdir=terraform init -backend=false
+      - terraform -chdir=terraform validate
+
+  # --- Ansible --------------------------------------------------------------
+
+  ansible:syntax:
+    desc: Syntax-check the bootstrap playbook against the example inventory
+    dir: ansible
+    preconditions:
+      - sh: command -v ansible-playbook
+        msg: 'ansible-playbook not found. Install it with: python3 -m pip install ansible-core=={{.ANSIBLE_CORE_VERSION}}'
+    cmds:
+      - ansible-playbook -i inventory/hosts.example.yml playbooks/bootstrap.yml --syntax-check
+
+  # --- Shell ----------------------------------------------------------------
+
+  shell:lint:
+    desc: Run shellcheck over every shell script in the repository
+    preconditions:
+      - sh: command -v shellcheck
+        msg: 'shellcheck not found. Install it with: brew install shellcheck'
+    cmds:
+      # Repository-wide, so a script added under any directory is covered without
+      # this list needing maintenance.
+      - find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -r shellcheck
+
+  # --- Helm -----------------------------------------------------------------
+
+  helm:deps:
+    desc: Add the pinned upstream chart repositories and build the platform dependencies
+    preconditions:
+      - sh: command -v helm
+        msg: 'helm not found. Install {{.HELM_VERSION}} or newer with: brew install helm'
+    cmds:
+      - helm repo add traefik https://traefik.github.io/charts --force-update
+      - helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/ --force-update
+      - helm dependency build charts/platform
+
+  helm:lint:
+    desc: Lint the platform chart against its example values
+    deps: [helm:deps]
+    cmds:
+      - helm lint charts/platform --values charts/platform/values.local.yaml.example
+
+  helm:template:
+    desc: Render the platform chart to rendered-platform.yaml
+    deps: [helm:deps]
+    cmds:
+      - task: tests:chart
+
+  # --- Repository regression tests -------------------------------------------
+
+  tests:inventory:
+    desc: Test that the Ansible inventory renders from Terraform output
+    cmds:
+      - ./tests/render-ansible-inventory.sh
+
+  tests:databases:
+    desc: Validate the PostgreSQL and MongoDB Compose projects
+    cmds:
+      - ./tests/validate-databases.sh
+
+  tests:chart:
+    desc: Render the platform chart and assert the properties the cluster depends on
+    deps: [helm:deps]
+    env:
+      KUBE_VERSION: '{{.KUBE_VERSION}}'
+    cmds:
+      - ./tests/validate-platform-chart.sh
+    generates:
+      - rendered-platform.yaml
+
+  # --- Cluster operations ----------------------------------------------------
+  #
+  # Thin wrappers so the operational entry points are discoverable from
+  # `task --list` alongside the checks. The scripts remain the implementation.
+
+  platform:install:
+    desc: 'Install the platform chart (task platform:install -- --values charts/platform/values.local.yaml)'
+    cmds:
+      - ./scripts/install-platform.sh {{.CLI_ARGS}}
+
+  platform:validate:
+    desc: Validate the installed platform (set PLATFORM_TEST_URL)
+    cmds:
+      - ./scripts/validate-platform.sh
+
+  cluster:validate:
+    desc: Validate the Kubernetes cluster
+    cmds:
+      - ./scripts/validate-cluster.sh
+
+  inventory:render:
+    desc: Render the Ansible inventory from Terraform output
+    cmds:
+      - ./scripts/render-ansible-inventory.sh {{.CLI_ARGS}}
