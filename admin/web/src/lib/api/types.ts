@@ -105,45 +105,81 @@ export interface CreateMongoUser {
 }
 
 // ── Kubernetes ──────────────────────────────────────────────────────────────
+//
+// In cluster-types.ts, re-exported here so a caller has one place to import wire
+// types from regardless of which half of the API they came from.
 
-export interface Namespace {
-	name: string;
-	status: string;
-	/** RFC 3339. */
-	createdAt: string;
+export type {
+	ClusterEvent,
+	ClusterNode,
+	ClusterService,
+	ClusterSummary,
+	Condition,
+	Filesystem,
+	Namespace,
+	NodeSummary,
+	Pod,
+	PodSummary,
+	Resources,
+	Scale,
+	Storage,
+	StorageSummary,
+	Volume,
+	VolumeClaim,
+	Workload,
+	WorkloadDetail,
+	WorkloadSummary,
+} from "./cluster-types";
+
+// ── Editing and querying ────────────────────────────────────────────────────
+
+/** The desired state of a PostgreSQL role. Omitting the password leaves it. */
+export interface UpdatePostgresRole {
+	canLogin: boolean;
+	canCreateDatabase: boolean;
+	canCreateRole: boolean;
+	/** -1 for unlimited, which is PostgreSQL's own default. */
+	connectionLimit: number;
+	password?: string;
 }
 
-export interface Workload {
-	name: string;
-	namespace: string;
-	/** Deployment, StatefulSet, DaemonSet. */
-	kind: string;
-	ready: number;
-	desired: number;
-	images: string[];
-	createdAt: string;
+/** The desired state of a PostgreSQL database. Only the owner can change. */
+export interface UpdatePostgresDatabase {
+	owner: string;
 }
 
-export interface Pod {
-	name: string;
-	namespace: string;
-	node: string;
-	phase: string;
-	/** A summarized state — "Running", "CrashLoopBackOff", "Init:1/2", … */
-	status: string;
-	/** Containers ready over containers total, e.g. "1/2". */
-	ready: string;
-	restarts: number;
-	createdAt: string;
+/** The desired state of a MongoDB user. Omitting the password leaves it. */
+export interface UpdateMongoUser {
+	roles: MongoRole[];
+	password?: string;
 }
 
-export interface ClusterEvent {
-	namespace: string;
-	/** The involved object, as "Kind/name". */
-	object: string;
-	type: string;
-	reason: string;
-	message: string;
-	count: number;
-	lastSeen: string;
+/** A read-only SQL statement. */
+export interface QueryRequest {
+	sql: string;
+}
+
+export interface QueryResult {
+	columns: string[];
+	/** Values already rendered as text; NULL is the literal string "NULL". */
+	rows: string[][];
+	/** The result was cut at the row cap — a partial answer, said to be one. */
+	truncated: boolean;
+	elapsedMs: number;
+}
+
+/** A MongoDB find. Each part is a document, so nothing is parsed as syntax. */
+export interface FindRequest {
+	collection: string;
+	filter?: Record<string, unknown>;
+	projection?: Record<string, unknown>;
+	sort?: Record<string, unknown>;
+	limit?: number;
+}
+
+export interface FindResult {
+	/** Extended-JSON strings, one per document. */
+	documents: string[];
+	truncated: boolean;
+	elapsedMs: number;
 }

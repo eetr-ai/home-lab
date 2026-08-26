@@ -30,6 +30,106 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/postgres/roles", h.listRoles)
 	mux.HandleFunc("POST /api/postgres/roles", h.createRole)
 	mux.HandleFunc("DELETE /api/postgres/roles/{role}", h.dropRole)
+	mux.HandleFunc("PUT /api/postgres/roles/{role}", h.updateRole)
+	mux.HandleFunc("PUT /api/postgres/databases/{database}", h.updateDatabase)
+	mux.HandleFunc("POST /api/postgres/databases/{database}/query", h.query)
+}
+
+// updateRole sets a role's flags, connection limit, and optionally its password.
+//
+//	@Summary		Update a role
+//	@Description	The whole desired state, not a set of changes: every attribute is written,
+//	@Description	including the negative form, because ALTER ROLE leaves an unmentioned one
+//	@Description	alone. An empty password leaves the existing one in place; a supplied one
+//	@Description	is converted to a SCRAM verifier before it reaches the server.
+//	@Tags			postgres
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			role	path		string						true	"Role name"
+//	@Param			request	body		postgres.UpdateRoleRequest	true	"The desired state"
+//	@Success		200		{object}	postgres.Role
+//	@Failure		400		{object}	http.ErrorBody
+//	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
+//	@Failure		404		{object}	http.ErrorBody
+//	@Router			/api/postgres/roles/{role} [put]
+func (h *Handler) updateRole(w http.ResponseWriter, r *http.Request) {
+	var request UpdateRoleRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	role, err := h.service.UpdateRole(r.Context(), r.PathValue("role"), request)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, role)
+}
+
+// updateDatabase reassigns a database to another role.
+//
+//	@Summary		Update a database
+//	@Description	Only the owner. Encoding cannot be changed after creation, and a rename
+//	@Description	would break every connection string pointing at it.
+//	@Tags			postgres
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path	string							true	"Database name"
+//	@Param			request		body	postgres.UpdateDatabaseRequest	true	"The desired owner"
+//	@Success		204
+//	@Failure		400	{object}	http.ErrorBody
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Failure		404	{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database} [put]
+func (h *Handler) updateDatabase(w http.ResponseWriter, r *http.Request) {
+	var request UpdateDatabaseRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	if err := h.service.UpdateDatabase(r.Context(), r.PathValue("database"), request); err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusNoContent, nil)
+}
+
+// query runs one read-only statement against a database.
+//
+//	@Summary		Run a read-only query
+//	@Description	POST because the statement goes in the body — it is a read, not a change.
+//	@Description	Runs as the panel's own administrative account, on a connection to the named
+//	@Description	database. What bounds it is a READ ONLY transaction that is always rolled
+//	@Description	back, a statement timeout, and one statement per request — not a lesser
+//	@Description	privilege, so a caller reaches whatever that account reaches. Results are
+//	@Description	capped at 200 rows and the statement at 15 seconds.
+//	@Tags			postgres
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string					true	"Database to run against"
+//	@Param			request		body		postgres.QueryRequest	true	"The statement"
+//	@Success		200			{object}	postgres.QueryResult
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		422			{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database}/query [post]
+func (h *Handler) query(w http.ResponseWriter, r *http.Request) {
+	var request QueryRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	result, err := h.service.Query(r.Context(), r.PathValue("database"), request.SQL)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
 }
 
 // listDatabases returns every database on the server.
@@ -233,6 +333,12 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
 	case errors.Is(err, ErrProtected):
 		httpx.Error(w, http.StatusForbidden, "protected", err.Error())
+	case errors.Is(err, ErrQueryFailed):
+		// 422 rather than 400: the request was well-formed and the statement was
+		// the thing the server would not accept. The message is PostgreSQL's own,
+		// which names the syntax position or the write it refused — and that is the
+		// whole value of a query console.
+		httpx.Error(w, http.StatusUnprocessableEntity, "query_failed", err.Error())
 	default:
 		slog.Error("postgres request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")

@@ -55,3 +55,45 @@ type CreateUserRequest struct {
 	// to; an empty Database on a role means the database the user is created in.
 	Roles []Role `json:"roles"`
 }
+
+// UpdateUserRequest is the desired state of a user.
+//
+// Roles and, optionally, a password. The whole role set rather than a set of
+// grants and revocations: MongoDB's updateUser replaces the array outright, and
+// the panel edits from a form showing the current roles, so it knows all of them.
+type UpdateUserRequest struct {
+	Roles []Role `json:"roles"`
+	// Password, when set, replaces the existing one. Empty leaves it alone — a
+	// password cannot be read back, so an edit form that omits it means "unchanged"
+	// rather than "remove".
+	Password string `json:"password,omitempty"`
+}
+
+// FindRequest asks for documents from one collection.
+//
+// A find, not a command. Filter, projection and sort are the parts of a query an
+// operator reaches for when looking at data, and each is a document rather than a
+// string — so nothing here is parsed as syntax.
+type FindRequest struct {
+	Collection string `json:"collection"`
+	// Filter is a MongoDB query document. Empty matches everything.
+	Filter map[string]any `json:"filter,omitempty"`
+	// Projection selects fields. Empty returns whole documents.
+	Projection map[string]any `json:"projection,omitempty"`
+	// Sort orders the results, e.g. {"createdAt": -1}.
+	Sort map[string]any `json:"sort,omitempty"`
+	// Limit caps the documents returned, up to the server-side maximum.
+	Limit int64 `json:"limit,omitempty"`
+}
+
+// FindResult is what a find returned.
+type FindResult struct {
+	// Documents are rendered as extended-JSON strings, one per document. The panel
+	// displays them; carrying BSON's types faithfully through JSON would mean a
+	// type map to keep current for no gain.
+	Documents []string `json:"documents"`
+	// Truncated reports that the result was cut at the limit, so the panel can say
+	// so rather than presenting a partial answer as the whole one.
+	Truncated bool  `json:"truncated"`
+	ElapsedMs int64 `json:"elapsedMs"`
+}

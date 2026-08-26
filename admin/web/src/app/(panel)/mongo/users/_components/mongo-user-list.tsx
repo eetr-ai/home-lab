@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, UserRound } from "lucide-react";
+import { Pencil, Plus, Trash2, UserRound } from "lucide-react";
 import { dropUser } from "@/app/actions/mongo";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
@@ -9,6 +9,7 @@ import { ScopePicker } from "../../../_components/scope-picker";
 import { useRowDelete } from "../../../_components/use-row-delete";
 import type { MongoUser } from "@/lib/api/types";
 import { CreateMongoUserPanel } from "./create-mongo-user-panel";
+import { EditMongoUserPanel } from "./edit-mongo-user-panel";
 
 export function MongoUserList({
 	databases,
@@ -23,6 +24,7 @@ export function MongoUserList({
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
+	const [editing, setEditing] = useState<MongoUser | null>(null);
 	const rowDelete = useRowDelete(setError);
 
 	const create = (
@@ -78,13 +80,19 @@ export function MongoUserList({
 									onCancel={rowDelete.cancel}
 								/>
 							) : (
-								<IconButton
-									variant="danger"
-									aria-label={`Drop ${user.name}`}
-									onClick={() => rowDelete.ask(user.name)}
-								>
-									<Trash2 className="h-4 w-4" />
-								</IconButton>
+								/* Pencil then Trash2, per the UX guidelines' row-action order. */
+								<div className="flex items-center justify-end gap-1">
+									<IconButton aria-label={`Edit ${user.name}`} onClick={() => setEditing(user)}>
+										<Pencil className="h-4 w-4" />
+									</IconButton>
+									<IconButton
+										variant="danger"
+										aria-label={`Drop ${user.name}`}
+										onClick={() => rowDelete.ask(user.name)}
+									>
+										<Trash2 className="h-4 w-4" />
+									</IconButton>
+								</div>
 							)}
 						</Td>
 					</tr>
@@ -96,6 +104,14 @@ export function MongoUserList({
 				database={selected}
 				databases={databases}
 				onClose={() => setCreating(false)}
+			/>
+			{/* Keyed by user, so opening a different one starts from its own roles
+			    rather than from whatever was last edited. */}
+			<EditMongoUserPanel
+				key={editing?.name}
+				user={editing}
+				databases={databases}
+				onClose={() => setEditing(null)}
 			/>
 		</>
 	);

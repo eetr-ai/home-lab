@@ -6,6 +6,8 @@ const tabs = [
 	{ href: "/kubernetes/workloads", label: "Workloads" },
 	{ href: "/kubernetes/pods", label: "Pods" },
 	{ href: "/kubernetes/events", label: "Events" },
+	{ href: "/kubernetes/nodes", label: "Nodes" },
+	{ href: "/kubernetes/storage", label: "Storage" },
 ];
 
 export default function KubernetesLayout({ children }: { children: React.ReactNode }) {
@@ -14,7 +16,7 @@ export default function KubernetesLayout({ children }: { children: React.ReactNo
 			<PageHeader
 				icon={Boxes}
 				title="Kubernetes"
-				description="What is running on the cluster. Read-only — changes belong in this repository's Helm releases."
+				description="What is running on the cluster. Workloads can be restarted and scaled; what they are belongs in this repository's Helm releases."
 			/>
 			<SectionTabs tabs={tabs} />
 			{children}

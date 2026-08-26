@@ -1,8 +1,8 @@
 # Admin panel chart
 
 Installs the in-cluster administration panel: the Go API that manages the host
-PostgreSQL and MongoDB services and reads the cluster, and the web panel an
-operator signs in to.
+PostgreSQL and MongoDB services and reads the cluster, the web panel an operator
+signs in to, and — optionally — the assistant that answers questions about it.
 
 It is a separate chart from [platform](../platform/README.md) rather than a
 section of it. The platform chart installs the cluster's shared services and its
@@ -23,10 +23,13 @@ repository has a cohesive set of configurable Kubernetes resources.
 | `Deployment/admin-web` | The panel. No ServiceAccount token: it asks the API |
 | `Service/admin-web` | ClusterIP on port 80 |
 | `HTTPRoute/admin-web` | Enabled — a panel nobody can reach is not a panel |
+| `Deployment/admin-agent` | **Disabled by default.** One replica, `Recreate` — see below |
+| `Service/admin-agent` | ClusterIP on port 80. No route: the panel proxies to it |
+| `PersistentVolumeClaim/admin-agent-data` | The agent's memory and workspace, on the NFS class |
 
-The two images always carry the same version. One release tag builds both and
-publishes the chart, so `admin.api.image.tag` and `admin.web.image.tag` should
-match.
+The images always carry the same version. One release tag builds all three and
+publishes the chart, so `admin.api.image.tag`, `admin.web.image.tag` and
+`admin.agent.image.tag` should match.
 
 The templates are folded by component rather than by resource kind, the same way
 the Go code is:
@@ -34,8 +37,9 @@ the Go code is:
 ```text
 templates/
   _helpers.tpl
-  api/   deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml
-  web/   deployment.yaml service.yaml httproute.yaml
+  api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml
+  web/    deployment.yaml service.yaml httproute.yaml
+  agent/  deployment.yaml service.yaml pvc.yaml
 ```
 
 Helm walks the directory, so nesting costs nothing and everything one half of the
@@ -109,6 +113,12 @@ The credentials are the ones `databases/.env` holds — the single superuser acc
 each server has. `sslmode=disable` and the plain MongoDB URI are correct here:
 those servers carry no TLS by design, which `databases/README.md` documents.
 
+There is no second credential for the query consoles: they run as these accounts
+too, so whoever may open the panel may run SQL as a PostgreSQL superuser — which
+reaches the server's container, not only the database. `databases/README.md` says
+exactly how far that goes and what to do if the panel ever has viewers as well as
+operators.
+
 Prefer `--from-file` over `--from-literal` if you would rather the connection
 string not enter your shell history.
 
@@ -155,18 +165,149 @@ detection answers that by revoking the whole family.
 ### Reading the cluster
 
 On by default, and it needs no credential: in the cluster the pod's own
-ServiceAccount is one. The chart creates a **read-only** ClusterRole and binds it.
+ServiceAccount is one. The chart creates a ClusterRole and binds it.
 
 Cluster-wide, because the panel's job is to say what is running everywhere and a
 Role per namespace would mean editing the chart whenever a namespace is added.
-Read-only, because the panel does not change workloads — that is what the
-repository's Helm releases and `kubectl` are for, and an API that could scale or
-delete would need a far more careful answer to "who is allowed to" than "whoever
-can sign in". `tests/validate-admin-chart.sh` fails the build if a write verb ever
-appears in that role.
+
+`tests/validate-admin-chart.sh` pins every `(resource, verb)` pair the role grants
+and fails the build on any it does not expect — scoped to the rule that granted
+it, so it can tell `get` on `nodes` from `get` on `nodes/proxy`, or `patch` on
+`deployments/scale` from `patch` on `secrets`. Adding a grant means adding the
+pair there in the same change.
+
+### Changing workloads
+
+The role is not read-only any more. It holds four write pairs and no others:
+
+| resource | verb | for |
+| --- | --- | --- |
+| `apps/deployments` | `patch` | rollout restart |
+| `apps/statefulsets` | `patch` | rollout restart |
+| `apps/deployments/scale` | `update` | replica count |
+| `apps/statefulsets/scale` | `update` | replica count |
+
+Neither operation can create or delete anything, and both are things that already
+happen without the panel. What a workload *is* still comes from this repository's
+Helm releases.
+
+**Read this before adding another write verb.** `patch` on a Deployment is patch
+on *any field of it*. RBAC grants verbs on resources and has no way to express
+"only this annotation", so anyone who can reach the restart endpoint could, in
+principle, change any Deployment's image, env, `securityContext`, or
+ServiceAccount. What actually confines it to a restart is one function in the Go
+code — `restartPatch` in `internal/kube/scale.go` — not this role.
+
+Two consequences follow, and both are worth acting on:
+
+- **Set `admin.web.writeEmails`.** An unset allowlist permits every operator who
+  can sign in, and the API itself does not authorize per endpoint at all — any
+  valid token can restart anything. The allowlist in the panel is the only gate.
+- **A `ValidatingAdmissionPolicy`** restricting this ServiceAccount's Deployment
+  patches to the `restartedAt` annotation path is the real fix. It is not here
+  yet; this note is the record that it should be.
+
+DaemonSets are read but never written. One is sized by the nodes it matches, so
+there is no scale subresource to update, and a section that could restart what it
+cannot resize would be a confusing half-capability.
 
 Set `admin.api.kubernetes.enabled=false` to serve neither the endpoints nor the
 role — for running the API somewhere with no cluster to read.
+
+### Live CPU and memory
+
+The dashboard's usage figures come from `metrics.k8s.io`, which is served by
+metrics-server — an optional component the platform chart installs. The grant for
+it is unconditional and harmless without it: the panel treats a metrics API that
+does not answer as a missing reading, and the dashboard says so for that one
+figure rather than failing. Capacity and reservations are read from the core API
+and are unaffected.
+
+On k3s, which bundles its own metrics-server, set `metrics-server.enabled=false`
+in the platform chart instead of installing a second one — two aggregated API
+servers cannot both back the same group.
+
+### Node disk usage
+
+Off by default, and the one grant here worth a deliberate decision.
+
+Node disk usage is in neither the Kubernetes API nor metrics-server, so the only
+source is the kubelet's own stats endpoint, reached through the API server's node
+proxy. Setting `admin.api.kubernetes.nodeStats.enabled=true` adds `get` on
+`nodes/proxy` and sets `ADMIN_KUBERNETES_NODE_STATS` on the pod. That verb reaches
+every read endpoint a kubelet serves, including the one that returns files under
+`/var/log` on the host. It does **not** permit exec or attach — those need
+`create` on the same subresource, which the chart never grants.
+
+Left off, the nodes page reports every other figure and shows the node's
+ephemeral-storage allocatable in place of a usage reading, labelled as the
+capacity it is.
+
+### The assistant
+
+Off by default, and it costs money per answer, so turning it on is a decision.
+It needs one Secret:
+
+```bash
+kubectl -n admin create secret generic admin-agent-llm \
+  --from-literal=apiKey=sk-or-...
+```
+
+...and then `admin.agent.enabled: true` with an image tag. Everything else has a
+default: `admin.agent.model` (an OpenRouter model id, vendor-prefixed —
+`deepseek/deepseek-v4-flash`), `admin.agent.reasoning`, and
+`admin.agent.storage.{className,size}`.
+
+Three things about it are worth understanding before you run it.
+
+**It runs exactly one replica, and that is not an oversight.** The agent is an
+[Octo](https://juancavallotti.github.io/octo/) app on Octo's standalone runtime,
+whose object store — the agent's memory and its remembered facts — is a map held
+in the process and serialized to `OCTO_STORAGE_DIR`. It is read once at startup
+and written back a namespace at a time, so two replicas would each answer from
+their own copy and each overwrite the other's file. That is also why the
+Deployment is `Recreate`: a rolling update runs two pods for a few seconds, which
+is the same problem for a shorter time. Sharing the store across replicas needs
+the runtime's Kubernetes services provider, which needs the whole Octo platform.
+
+The claim is `ReadWriteMany` on `nfs-client` anyway, and for a different reason:
+the store has to be where the pod lands, so a pod rescheduled onto another node
+has to find it. RWX is also what keeps raising the replica count a values change
+once there is somewhere shared to put the store, rather than a storage migration
+as well. **Note the class's reclaim policy: deleting this PVC deletes the
+conversations with it.**
+
+**It calls the API as whoever is asking.** The panel's own route handler attaches
+the signed-in operator's bearer token to every chat request, and the agent's
+`admin_api` tool sends it on. So there is no service identity, no
+client-credentials grant and no standing token — and the agent can do exactly what
+that operator could do from the panel itself, which is the point of doing it this
+way.
+
+**That includes changing things**, and it is worth deciding on rather than
+discovering: restarting and scaling workloads, creating and dropping databases and
+roles, running statements. An earlier version pinned the tool to `GET`, which
+withheld half of what the agent is for while withholding nothing an operator could
+not already do — the panel's own query consoles are POSTs, so a verb is not a
+proxy for "destructive". The prompt and the skills carry the manners instead: say
+what you are about to do first, one change at a time, never guess an identifier
+for a destructive call, and offer the page when there is no hurry.
+
+If you want it narrower than the operator is, the place for that is the token —
+`admin.web.writeEmails` decides who may open the drawer at all, and per-endpoint
+authorization would belong in the API rather than in the agent's definition, which
+anyone who can reach the image can edit.
+
+**It is a privileged pod.** It carries `curl`, `jq` and GNU `find`, and a
+workspace it can write to, because an assistant that can fetch a health endpoint
+and read the JSON back is worth more than one that can only describe how. The
+allow list on those tools keeps the ordinary path predictable; it is not a
+boundary. The boundary is the pod: it holds the OpenRouter key, it reaches
+anything it can route to, and it carries **no ServiceAccount token at all**. If
+its network reach matters on your cluster, a NetworkPolicy is the control.
+
+The drawer is gated by `admin.web.writeEmails` — the same allowlist every other
+change goes through. An operator given the panel read-only sees no launcher.
 
 ## Install
 

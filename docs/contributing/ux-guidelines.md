@@ -209,6 +209,38 @@ says exactly what is true: this link is the page you are on.
 Local-state tabs, if a section ever needs them, *are* an ARIA tablist and should
 carry the full semantics.
 
+## The assistant drawer
+
+The one surface here that is neither a page nor an overlay. It is a **third column
+of the signed-in shell's flex row** (`src/app/(panel)/layout.tsx`), so opening it
+narrows the page rather than covering it, and the page beside it stays live and
+clickable.
+
+That is not a styling preference. The agent navigates — asking it to take you to a
+workload and watching the page change beside the answer that caused it is the
+reason the drawer is in the shell at all — and a surface that covers the page
+cannot show you that.
+
+So it is **not** a `SidePanel` and must not be rebuilt as one. No portal, no
+scrim, no focus trap, no scroll lock, and deliberately not `role="dialog"
+aria-modal="true"`: every one of those tells a screen-reader user the page behind
+is inert, and it is not. Escape does not close it either, for the same reason. It
+carries `aria-label` and nothing else, and it is `inert` while collapsed — the
+width animates, so the content stays laid out, and a zero-width column full of
+focusable controls would otherwise be a tab stop into nothing.
+
+It stays mounted once opened and collapses to `w-0`, which is what lets an answer
+in flight finish arriving while it is closed.
+
+**`react-markdown` and `remark-gfm` are a deliberate exception** to the rule
+below about third-party libraries. They are a renderer, not a component library:
+nothing about the panel's look comes from them, every element they emit is
+styled by `src/components/agent/markdown.tsx` with the same role tokens as
+everything else, and `react-markdown` builds React elements rather than HTML — so
+nothing reaches `dangerouslySetInnerHTML`. That last part is the point rather
+than a bonus, because the agent's answers are generated partly from text other
+people wrote: pod logs, event messages, whatever `curl` fetched.
+
 ## Overlays
 
 `SidePanel` is for **multi-field** create and edit forms. A single-field entity
@@ -284,7 +316,8 @@ this pattern — and the reducer, being a pure function, is exactly the kind of 
   Headless UI, framer-motion). Status messaging is inline banners; overlays are
   the first-party `SidePanel` and `ConfirmDialog`.
 - New third-party UI component libraries. Tailwind plus `lucide-react` is the
-  stack.
+  stack. (`react-markdown` and `remark-gfm` are the one exception, and the
+  [assistant drawer](#the-assistant-drawer) says why.)
 - Raw Tailwind color ramps, `rounded-xl`, and `border-brand-muted` as a default
   border — all three fail lint.
 - Emojis in UI copy.

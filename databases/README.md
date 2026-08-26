@@ -197,3 +197,81 @@ to start.
   root or docker-group access on the host is database access.
 - `pgcrypto` provides SQL cryptographic functions only. It does not encrypt
   PostgreSQL files, backups, or connections.
+
+## The admin panel's query console
+
+The panel's PostgreSQL query console runs submitted SQL, and it runs it as the
+same account the panel administers the server with: the superuser above. There
+is no second credential to configure — the console is served wherever
+`ADMIN_POSTGRES_DSN` is.
+
+That is a decision about who the panel is for. Whoever reaches it is already
+authenticated as an operator and already creates and drops databases, roles and
+users through the pages beside the console. A separate login would not have
+narrowed that; it would only have narrowed this one endpoint, at the cost of a
+second password to rotate.
+
+What bounds a submitted statement is therefore its shape, not its authority:
+
+- It runs in a `READ ONLY` transaction that is always rolled back, so every
+  `INSERT`, `UPDATE`, `DELETE`, and DDL is refused by the server.
+- `SET LOCAL statement_timeout`, so a runaway query is killed by the server.
+- The query asks for pgx's extended protocol by name rather than inheriting the
+  connection's default, so it carries one statement per message and
+  `SELECT 1; DROP TABLE x` is refused rather than run as two. Asked for by name
+  because pgx reads `default_query_exec_mode` out of a connection string, and a
+  DSN setting `simple_protocol` would otherwise hand the whole text to the
+  server as one message — where `COMMIT; INSERT ...` ends the read-only
+  transaction and keeps what follows.
+
+And be plain about what none of that bounds. A superuser session reaches outside
+the database: `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` runs a shell
+command as the `postgres` user, and the `READ ONLY` transaction does not refuse
+it, because it is not a database write. Nor can the session lower its own floor:
+neither route out of the superuser is one-way. `SET ROLE` changes `current_user`, and a submitted
+`RESET ROLE` (or `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END $$`) restores
+it while `session_user` never changes at all. `SET SESSION AUTHORIZATION` does
+change `session_user` — and `RESET SESSION AUTHORIZATION` puts that back too,
+because PostgreSQL keeps the identity the connection authenticated as. All
+checked against PostgreSQL 18.
+
+What that reaches here is the container, not the machine. PostgreSQL runs
+unprivileged in one, with a single bind mount for its data directory and no
+Docker socket, so the blast radius is that container's filesystem and the data
+under `DATABASE_DATA_DIR` — which is the same data the credential already grants
+through SQL. It is not root on `eetr01`, and it would be a different judgement on
+a server installed on the host directly.
+
+**Access to the console is therefore access to the database's container**, which
+is a step past "read the tables" and a step short of the machine. Worth knowing;
+accepted deliberately for a single-operator panel.
+
+If that changes — viewers as well as operators, or PostgreSQL moved out of its
+container — this is the endpoint to give its own login, and the two facts above
+are why nothing done inside the session would substitute for one:
+
+```sql
+CREATE ROLE panel_query LOGIN PASSWORD 'generate-a-long-one'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT pg_read_all_data TO panel_query;
+```
+
+No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
+and `DO` blocks all defeat one, and a check would suggest a boundary that the
+paragraphs above say plainly is not there.
+
+MongoDB is a different shape. There is no read-only transaction to lean on, so
+the boundary is what the panel offers: `find` and nothing else — not `aggregate`,
+which can write through `$out` and `$merge`, and not `runCommand`. It also
+refuses `$where`, `$function`, and `$accumulator` at any depth in a query
+document. Checked against MongoDB 7: the server permits all three on a root
+connection, including a `$where` nested inside an `$and`, so the panel's check is
+the only thing refusing them.
+
+They are a smaller problem than the PostgreSQL one, and worth describing
+accurately: `$where` runs in the server's sandboxed JavaScript engine with no
+`require`, `process`, `fs`, or `db` in scope, so it is not a route to the host.
+What it is is a forced collection scan and a core occupied until the query
+deadline — an unbounded loop inside one ran for the full `maxTimeMS` before being
+killed. Enough to refuse from a panel button; not the same class of problem as a
+shell on the database host.

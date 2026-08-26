@@ -105,3 +105,25 @@ nfs-provisioner:
     archiveOnDelete: false
     onDelete: delete
     allowVolumeExpansion: true
+
+metrics-server:
+  # Serves metrics.k8s.io, which is where the admin panel's dashboard reads live
+  # CPU and memory from. Set to false on a cluster that already has one — k3s
+  # bundles it — since two aggregated API servers cannot both back the same group.
+  enabled: true
+  fullnameOverride: metrics-server
+  # One replica: this is a dashboard input, not something the cluster's own
+  # scheduling depends on, and a gap in it costs a blank tile.
+  replicas: 1
+  args:
+    # The kubelets here serve their metrics endpoint with a self-signed
+    # certificate that no cluster CA issued, which is the norm for a kubeadm or
+    # k3s node and the reason a default install reports every node as unreachable.
+    - --kubelet-insecure-tls
+    - --kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 192Mi

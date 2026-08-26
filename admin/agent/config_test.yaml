@@ -1,0 +1,270 @@
+# call-admin-api: the path guard, the request it builds, and the reply it reads.
+#
+# This suite exists because of a trade that was forced rather than chosen. The tool
+# was a `rest-dynamic` block, where `pathPrefix` was a refusal in the runtime —
+# unreachable from the model by construction. That block refuses a rendered
+# Authorization header (juancavallotti/octo#378) and the connector's own auth is
+# fixed at startup, so a per-operator credential has nowhere to go and the tool had
+# to become curl.
+#
+# The prefix is now a CEL guard over a string the model chose. That is a worse
+# place for it, and this is the compensation: every way out of the base URL gets a
+# case, and the curl block is mocked so no case can make a request.
+#
+# The METHOD is deliberately unrestricted and there is no case asserting otherwise.
+# A verb is not a proxy for "destructive" here — the panel's SQL console reads
+# through a POST — and the agent calls with the asking operator's own token, so
+# what it may do is what they may do. The cases below prove the method and the body
+# reach curl correctly, not that either is withheld.
+flow: call-admin-api
+timeout: 30s
+
+env:
+  # Declared required by the definition, so the whole config refuses to load
+  # without it — every case, not only one that would reason. No case here makes a
+  # model call; this is what lets the config load at all.
+  OPENROUTER_API_KEY: not-used-by-this-suite
+  ADMIN_API_URL: http://admin-api.test.invalid
+  AGENT_CURL_BIN: /usr/bin/curl
+  AGENT_HTTP_MAX_TIME: "20"
+  AGENT_WORKSPACE: /tmp
+  AGENT_CLI_TIMEOUT: 120s
+
+# The token is a variable rather than part of the body, which is the whole point
+# of it arriving on a header — so every case seeds it the way the chat flow would.
+inputs:
+  nodes:
+    data: { path: /api/kubernetes/nodes }
+    vars: { operatorToken: test-token }
+  with query:
+    data: { path: /api/kubernetes/namespaces/admin/pods, query: { container: web } }
+    vars: { operatorToken: test-token }
+
+# No case reaches the network. A hole here is an error rather than a real request,
+# which is what makes "nothing in this file calls anything" true rather than hoped.
+#
+# The address names the branch because the block is inside one: a target under a
+# composite has to be reached through it, `can-call[then].admin-call`.
+mocks:
+  call-admin-api.can-call[then].admin-call:
+    default:
+      body:
+        exitCode: 0
+        stdout: "{\"items\":[]}\n200\n"
+        stderr: ""
+
+cases:
+  - name: a path under /api is called, with the operator's token
+    input: nodes
+    expect:
+      body: { status: "200", body: '{"items":[]}', error: "" }
+    spies:
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          # The credential goes to curl on stdin and never in argv: a process's
+          # arguments are readable from the process list, and argv is what a trace
+          # records.
+          - input:
+              that:
+                - 'vars.adminUrl == "http://admin-api.test.invalid/api/kubernetes/nodes"'
+                # No method given, so it is a GET. The default lives in the flow
+                # rather than in the schema, and this is what says so.
+                - 'vars.requestMethod == "GET"'
+                - 'vars.requestBody == ""'
+                # A token with nothing to escape passes through unchanged, which is
+                # the ordinary case and the one that would break if the escaping
+                # were wrong in the other direction.
+                - 'vars.curlToken == "test-token"'
+
+  # The panel's SQL console is a POST that only reads, which is the whole reason
+  # the method is the model's to choose. This proves the verb and the body reach
+  # curl, and that the body is escaped for its config format rather than for a
+  # shell — there is no shell.
+  - name: a POST carries a JSON body, escaped for curl's config
+    input:
+      data:
+        method: POST
+        path: /api/postgres/databases/app/query
+        body: { sql: 'select "id" from t where name = ''x''' }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.status == "200"']
+    spies:
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          - input:
+              that:
+                # Unescaping is the assertion, and it is a stronger one than
+                # checking for escaped quotes: undoing the two replacements in the
+                # opposite order has to give back exactly the JSON that went in. An
+                # unescaped quote would end the value in curl's config and turn the
+                # rest of the body into directives; a double-escaped backslash would
+                # arrive at the API as a different string than the model wrote.
+                - 'vars.requestBody.replace("\\\"", "\"").replace("\\\\", "\\") == toJson(body.body)'
+                - 'vars.requestBody.contains("select")'
+
+  - name: a DELETE is issued as one
+    input:
+      data: { method: DELETE, path: /api/postgres/databases/scratch }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.status == "200"']
+    spies:
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          - input:
+              that: ['vars.requestMethod == "DELETE"']
+
+  # The credential is escaped for curl's config format exactly as the body is. A
+  # JWT is base64url and dots, so this changes nothing today — which is the point:
+  # the value comes from an external identity provider, nothing here constrains its
+  # alphabet, and an unescaped quote would end the header's value and turn what
+  # follows into curl directives built out of a credential.
+  - name: a token carrying a quote cannot break out of curl's config
+    input:
+      data: { path: /api/kubernetes/nodes }
+      vars: { operatorToken: 'ab"cd\ef' }
+    expect:
+      that: ['body.status == "200"']
+    spies:
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.curlToken == "ab\\\"cd\\\\ef"'
+                # ...and unescaping gives back exactly what arrived, so the API
+                # receives the token the operator actually holds.
+                - 'vars.curlToken.replace("\\\"", "\"").replace("\\\\", "\\") == vars.operatorToken'
+
+  - name: query parameters are encoded onto the URL
+    input: with query
+    expect:
+      that: ['body.status == "200"']
+    spies:
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          - input:
+              that: ['vars.adminUrl.endsWith("/pods?container=web")']
+
+  # The trailing newline is the bug this case exists for. cli-run hands back stdout
+  # with one, so splitting the raw string leaves a final empty element: the status
+  # reads as "" and the code stays stuck on the end of the body. It is a wrong
+  # answer rather than a failure, which is exactly the kind that survives review.
+  - name: the status is split off even though stdout ends in a newline
+    input: nodes
+    mocks:
+      call-admin-api.can-call[then].admin-call:
+        default:
+          body: { exitCode: 0, stdout: "{\"ok\":true}\n404\n", stderr: "" }
+    expect:
+      body: { status: "404", body: '{"ok":true}', error: "" }
+
+  - name: a response with no body is a status and nothing else
+    input: nodes
+    mocks:
+      call-admin-api.can-call[then].admin-call:
+        default:
+          body: { exitCode: 0, stdout: "204\n", stderr: "" }
+    expect:
+      body: { status: "204", body: "", error: "" }
+
+  - name: curl failing is reported rather than read as an empty body
+    input: nodes
+    mocks:
+      call-admin-api.can-call[then].admin-call:
+        default:
+          body: { exitCode: 7, stdout: "", stderr: "could not connect" }
+    expect:
+      that:
+        - 'body.error.contains("could not connect")'
+        - 'body.status == ""'
+
+  # ---------------------------------------------------------------- the guard
+  #
+  # Each of these is a way out of the base URL that pathPrefix used to close. The
+  # spy count of 0 is the assertion that matters: it says the request was never
+  # made, rather than that the answer looked wrong.
+  - name: a path outside /api is refused
+    input:
+      data: { path: /healthz }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  - name: a protocol-relative path cannot reach another host
+    input:
+      data: { path: "//evil.example/api" }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  - name: a dot-dot segment cannot escape the prefix
+    input:
+      data: { path: "/api/../../etc/passwd" }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  - name: a scheme cannot be smuggled in
+    input:
+      data: { path: "/api:8080@evil.example" }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  - name: whitespace cannot split the URL into another curl argument
+    input:
+      data: { path: "/api/nodes -o /tmp/x" }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  # A missing key is an evaluation ERROR in CEL rather than a false — `no such
+  # key: path`. So without the presence check these two failed the block instead
+  # of taking the refusal branch, and the model got a transport error to interpret
+  # where it should have got a sentence it could act on. `required` in the tool's
+  # inputSchema is advice to the model, not a runtime refusal.
+  - name: a call with no path at all is refused, not an evaluation error
+    input:
+      data: { method: GET }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  - name: a path that is not a string is refused
+    input:
+      data: { path: 42 }
+      vars: { operatorToken: test-token }
+    expect:
+      that: ['body.error.contains("refused")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }
+
+  # Not a guard but the same shape: the agent called directly, outside the panel,
+  # has no operator to act as. Answered from a check so the model gets a sentence
+  # rather than a transport error to interpret.
+  - name: no operator token means no call at all
+    input:
+      data: { path: /api/kubernetes/nodes }
+      vars: { operatorToken: "" }
+    expect:
+      that: ['body.error.contains("no operator token")']
+    spies:
+      call-admin-api.can-call[then].admin-call: { count: 0 }

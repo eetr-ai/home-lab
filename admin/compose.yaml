@@ -14,6 +14,11 @@ name: home-lab-admin
 # The cluster section is off by default: reading it needs either a ServiceAccount
 # or a kubeconfig, and a container has neither. Mount one in if you want it — see
 # the commented block on the api service.
+#
+# All three services come up together, so `admin/.env` needs an OPENROUTER_API_KEY
+# as well — `task dev` says so rather than starting a stack with a dead assistant
+# in it. In the cluster the agent is a deliberate opt-in; locally it is part of
+# the thing you are working on.
 
 services:
   api:
@@ -25,6 +30,7 @@ services:
       ADMIN_POSTGRES_DSN: ${ADMIN_POSTGRES_DSN:-}
       ADMIN_MONGO_URI: ${ADMIN_MONGO_URI:-}
       ADMIN_KUBERNETES_DISABLED: ${ADMIN_KUBERNETES_DISABLED:-true}
+      ADMIN_KUBERNETES_NODE_STATS: ${ADMIN_KUBERNETES_NODE_STATS:-false}
     ports:
       # Published as well as reachable on the compose network, so `npm run dev`
       # in admin/web can talk to this API without the panel container running.
@@ -61,9 +67,55 @@ services:
       # Service name, not localhost: this call is made by the panel's server, which
       # is inside the compose network.
       ADMIN_API_URL: http://api:8090
+      # Unset unless the agent profile is up, which is what makes the launcher
+      # render nothing — the same signal the chart gives it in the cluster.
+      AGENT_URL: ${AGENT_URL:-}
     ports:
       - "3000:3000"
     depends_on:
       - api
     restart: unless-stopped
     logging: *logging
+
+  # The assistant. The one service here that spends money to answer, which is why
+  # the chart leaves it off by default and why `task dev` checks for a key before
+  # bringing the stack up at all.
+  agent:
+    build:
+      context: ./agent
+    environment:
+      # `:-` and not `:?`, which would be the obvious choice and is wrong here:
+      # compose interpolates the whole file before it selects profiles, so a
+      # required variable on this service would fail a plain `task dev` that never
+      # wanted the agent. Octo declares it required and says so at startup, which
+      # is a clearer message anyway and only reaches somebody who asked for this.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek/deepseek-v4-flash}
+      LLM_REASONING: ${LLM_REASONING:-medium}
+      # Service name, not localhost: the agent calls the API from inside the
+      # compose network, exactly as it does from inside the cluster.
+      ADMIN_API_URL: http://api:8090
+      # The two halves of the volume below. In the cluster these are one NFS claim;
+      # here they are one named volume, so a restart keeps the conversation and the
+      # workspace the same way a rescheduled pod does.
+      AGENT_WORKSPACE: /data/workspace
+      OCTO_STORAGE_DIR: /data/store
+    volumes:
+      - agent-data:/data
+    ports:
+      # Loopback only, unlike the other two. They are published on every interface
+      # because each refuses an anonymous caller — the API wants a bearer token and
+      # the panel wants a session. This one has no authentication of its own: the
+      # panel attaching the operator's token is the whole of its access control, so
+      # anything that can reach this port can spend the provider key.
+      #
+      # Published at all so `npm run dev` in admin/web can reach it on
+      # AGENT_URL=http://localhost:8080 without the panel container running.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  agent-data:

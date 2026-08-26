@@ -8,5 +8,8 @@ dependencies:
 - name: nfs-subdir-external-provisioner
   repository: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
   version: 4.0.18
-digest: sha256:75d7db3a1c5195eb05c51bec286334add90ededa50246df84dac3ad31b1411a5
-generated: "2026-08-25T00:23:37.363362-07:00"
+- name: metrics-server
+  repository: https://kubernetes-sigs.github.io/metrics-server/
+  version: 3.13.0
+digest: sha256:2d0d42490d24b4bdc5911de4c8ea7d683e952b83c4375332344a9c599513aaf4
+generated: "2026-08-26T01:20:22.539214-07:00"
