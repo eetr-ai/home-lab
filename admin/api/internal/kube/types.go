@@ -36,10 +36,13 @@ type Pod struct {
 	Status string `json:"status"`
 	// Ready counts containers, not pods: "1/2" is a running pod that is not
 	// serving, which is the case worth seeing.
-	Ready     string    `json:"ready"`
-	Restarts  int32     `json:"restarts"`
-	Node      string    `json:"node"`
-	CreatedAt time.Time `json:"createdAt"`
+	Ready    string `json:"ready"`
+	Restarts int32  `json:"restarts"`
+	Node     string `json:"node"`
+	// Containers names each one, which a log request must do when there is more
+	// than one. Init containers are included, last.
+	Containers []string  `json:"containers"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Event is one cluster event, which is where the reason for a stuck pod lives.
@@ -219,4 +222,77 @@ type StorageSummary struct {
 	// CapacityBytes counts only bound claims. An unbound claim has no capacity
 	// yet, and counting what it asked for would report space that does not exist.
 	CapacityBytes int64 `json:"capacityBytes"`
+}
+
+// The workload kinds this reports and, for two of them, acts on.
+const (
+	KindDeployment  = "Deployment"
+	KindStatefulSet = "StatefulSet"
+	KindDaemonSet   = "DaemonSet"
+)
+
+// Scale is a workload's replica count: what was asked for, and what there is.
+type Scale struct {
+	// Replicas is the desired count — what the controller was told to run.
+	Replicas int32 `json:"replicas"`
+	// Current is how many exist right now, which lags Replicas during a rollout.
+	Current int32 `json:"current"`
+}
+
+// ClusterService is one Kubernetes Service — the thing that gives a workload an
+// address.
+//
+// Not named Service, because this slice already has one: the layer between the
+// handler and the repository. Prefixing the DTO rather than renaming that keeps
+// every slice's three layers spelled the same way.
+type ClusterService struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	// Type is ClusterIP, NodePort, LoadBalancer, or ExternalName.
+	Type      string `json:"type"`
+	ClusterIP string `json:"clusterIP"`
+	// Ports are rendered as "80→8080/TCP", which is the form that answers what
+	// the caller connects to and what the container is listening on.
+	Ports    []string `json:"ports"`
+	Selector []string `json:"selector"`
+}
+
+// WorkloadDetail is everything one workload's page shows, in one round trip.
+//
+// Assembled here rather than left to the caller because the pieces are found by
+// following the workload's own selector, and a client doing that would have to
+// know how Kubernetes labels relate to each other.
+type WorkloadDetail struct {
+	Workload Workload `json:"workload"`
+	// Scale is absent for a DaemonSet, which has no replica count to set.
+	Scale *Scale `json:"scale,omitempty"`
+	// Replicas is what the controller reports beyond ready — updated and
+	// available, which is how a rollout that has stalled is told from one that is
+	// merely in progress.
+	Updated   int32 `json:"updated"`
+	Available int32 `json:"available"`
+	// Conditions are the controller's own, which carry the reason a rollout is
+	// stuck when the replica counts only show that it is.
+	Conditions []Condition      `json:"conditions"`
+	Pods       []Pod            `json:"pods"`
+	Services   []ClusterService `json:"services"`
+	Claims     []VolumeClaim    `json:"claims"`
+	// Events are scoped to this workload and its pods, most recent first.
+	Events []Event `json:"events"`
+}
+
+// Condition is one controller condition.
+type Condition struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+	// LastTransition is when it last changed, which is what says whether a
+	// failing condition is new or has been there all along.
+	LastTransition time.Time `json:"lastTransition"`
+}
+
+// ScaleRequest is what a caller sends to change a replica count.
+type ScaleRequest struct {
+	Replicas int32 `json:"replicas"`
 }

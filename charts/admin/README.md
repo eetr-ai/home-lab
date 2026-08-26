@@ -155,19 +155,51 @@ detection answers that by revoking the whole family.
 ### Reading the cluster
 
 On by default, and it needs no credential: in the cluster the pod's own
-ServiceAccount is one. The chart creates a **read-only** ClusterRole and binds it.
+ServiceAccount is one. The chart creates a ClusterRole and binds it.
 
 Cluster-wide, because the panel's job is to say what is running everywhere and a
 Role per namespace would mean editing the chart whenever a namespace is added.
-Read-only, because the panel does not change workloads — that is what the
-repository's Helm releases and `kubectl` are for, and an API that could scale or
-delete would need a far more careful answer to "who is allowed to" than "whoever
-can sign in".
 
 `tests/validate-admin-chart.sh` pins every `(resource, verb)` pair the role grants
 and fails the build on any it does not expect — scoped to the rule that granted
-it, so it can tell `get` on `nodes` from `get` on `nodes/proxy`. Adding a read
-means adding the pair there in the same change. Write verbs are refused outright.
+it, so it can tell `get` on `nodes` from `get` on `nodes/proxy`, or `patch` on
+`deployments/scale` from `patch` on `secrets`. Adding a grant means adding the
+pair there in the same change.
+
+### Changing workloads
+
+The role is not read-only any more. It holds four write pairs and no others:
+
+| resource | verb | for |
+| --- | --- | --- |
+| `apps/deployments` | `patch` | rollout restart |
+| `apps/statefulsets` | `patch` | rollout restart |
+| `apps/deployments/scale` | `update` | replica count |
+| `apps/statefulsets/scale` | `update` | replica count |
+
+Neither operation can create or delete anything, and both are things that already
+happen without the panel. What a workload *is* still comes from this repository's
+Helm releases.
+
+**Read this before adding another write verb.** `patch` on a Deployment is patch
+on *any field of it*. RBAC grants verbs on resources and has no way to express
+"only this annotation", so anyone who can reach the restart endpoint could, in
+principle, change any Deployment's image, env, `securityContext`, or
+ServiceAccount. What actually confines it to a restart is one function in the Go
+code — `restartPatch` in `internal/kube/scale.go` — not this role.
+
+Two consequences follow, and both are worth acting on:
+
+- **Set `admin.web.writeEmails`.** An unset allowlist permits every operator who
+  can sign in, and the API itself does not authorize per endpoint at all — any
+  valid token can restart anything. The allowlist in the panel is the only gate.
+- **A `ValidatingAdmissionPolicy`** restricting this ServiceAccount's Deployment
+  patches to the `restartedAt` annotation path is the real fix. It is not here
+  yet; this note is the record that it should be.
+
+DaemonSets are read but never written. One is sized by the nodes it matches, so
+there is no scale subresource to update, and a section that could restart what it
+cannot resize would be a confusing half-capability.
 
 Set `admin.api.kubernetes.enabled=false` to serve neither the endpoints nor the
 role — for running the API somewhere with no cluster to read.

@@ -35,6 +35,60 @@
                 },
                 "type": "object"
             },
+            "kube.ClusterService": {
+                "properties": {
+                    "clusterIP": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "ports": {
+                        "description": "Ports are rendered as \"80→8080/TCP\", which is the form that answers what\nthe caller connects to and what the container is listening on.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "selector": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "type": {
+                        "description": "Type is ClusterIP, NodePort, LoadBalancer, or ExternalName.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Condition": {
+                "properties": {
+                    "lastTransition": {
+                        "description": "LastTransition is when it last changed, which is what says whether a\nfailing condition is new or has been there all along.",
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Event": {
                 "properties": {
                     "count": {
@@ -171,6 +225,14 @@
             },
             "kube.Pod": {
                 "properties": {
+                    "containers": {
+                        "description": "Containers names each one, which a log request must do when there is more\nthan one. Init containers are included, last.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "createdAt": {
                         "type": "string"
                     },
@@ -233,6 +295,28 @@
                         "type": "integer"
                     },
                     "pods": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Scale": {
+                "description": "Scale is absent for a DaemonSet, which has no replica count to set.",
+                "properties": {
+                    "current": {
+                        "description": "Current is how many exist right now, which lags Replicas during a rollout.",
+                        "type": "integer"
+                    },
+                    "replicas": {
+                        "description": "Replicas is the desired count — what the controller was told to run.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.ScaleRequest": {
+                "properties": {
+                    "replicas": {
                         "type": "integer"
                     }
                 },
@@ -399,6 +483,61 @@
                     },
                     "ready": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.WorkloadDetail": {
+                "properties": {
+                    "available": {
+                        "type": "integer"
+                    },
+                    "claims": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.VolumeClaim"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "conditions": {
+                        "description": "Conditions are the controller's own, which carry the reason a rollout is\nstuck when the replica counts only show that it is.",
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Condition"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "events": {
+                        "description": "Events are scoped to this workload and its pods, most recent first.",
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Event"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pods": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Pod"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "scale": {
+                        "$ref": "#/components/schemas/kube.Scale"
+                    },
+                    "services": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.ClusterService"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "updated": {
+                        "description": "Replicas is what the controller reports beyond ready — updated and\navailable, which is how a rollout that has stalled is told from one that is\nmerely in progress.",
+                        "type": "integer"
+                    },
+                    "workload": {
+                        "$ref": "#/components/schemas/kube.Workload"
                     }
                 },
                 "type": "object"
@@ -822,6 +961,124 @@
                 ]
             }
         },
+        "/api/kubernetes/namespaces/{namespace}/pods/{pod}/logs": {
+            "get": {
+                "description": "Plain text, chunked, flushed per line. With follow=true the response stays\nopen and new lines arrive as they are written; closing the connection ends\nit at the API server too. previous=true reads the last terminated\ninstance, which is where the reason for a CrashLoopBackOff lives.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pod name",
+                        "in": "path",
+                        "name": "pod",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Container; required when the pod has more than one",
+                        "in": "query",
+                        "name": "container",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep the stream open",
+                        "in": "query",
+                        "name": "follow",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Lines of history first (default 200, max 5000)",
+                        "in": "query",
+                        "name": "tail",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Read the last terminated instance",
+                        "in": "query",
+                        "name": "previous",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the log"
+                    },
+                    "400": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Stream a pod's log",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
         "/api/kubernetes/namespaces/{namespace}/workloads": {
             "get": {
                 "description": "Deployments, StatefulSets, and DaemonSets as one list. The question is\nwhat is running, not which kind of controller runs it.",
@@ -887,6 +1144,307 @@
                     }
                 ],
                 "summary": "List workloads",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}": {
+            "get": {
+                "description": "The workload with its pods, the services that reach them, the volume\nclaims they mount, and the events about any of it — in one call, because\nthe pieces are found by following the workload's own selector and a\nclient doing that would need to know how Kubernetes labels relate.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Deployment, StatefulSet, or DaemonSet",
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workload name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.WorkloadDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a workload",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/restart": {
+            "post": {
+                "description": "Stamps the pod template's restartedAt annotation, the same mechanism\n`kubectl rollout restart` uses, so the controller replaces its pods under\nits own rollout strategy. Nothing is deleted. Deployments and\nStatefulSets only.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Deployment or StatefulSet",
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workload name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Restart a workload",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale": {
+            "put": {
+                "description": "Sets the desired replica count through the scale subresource. Deployments\nand StatefulSets only: a DaemonSet's count comes from how many nodes it\nmatches, so there is nothing to set.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Deployment or StatefulSet",
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workload name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kube.ScaleRequest",
+                                        "summary": "request",
+                                        "description": "Desired replicas"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Desired replicas",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Scale a workload",
                 "tags": [
                     "kubernetes"
                 ]

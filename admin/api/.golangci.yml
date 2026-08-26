@@ -68,6 +68,16 @@ linters:
       min-complexity: 4
     lll:
       line-length: 120
+    ireturn:
+      # labels.Selector is Kubernetes' own interface and there is no concrete type
+      # to hand back in its place — LabelSelectorAsSelector returns the interface.
+      # Allowing it by name keeps the rule meaningful for this module's own types.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - k8s\.io/apimachinery/pkg/labels\.Selector
     interfacebloat:
       # A slice's persistence port legitimately has one method per operation, and
       # three related entities reach a dozen quickly. Splitting one port into three

@@ -155,6 +155,14 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 		return err
 	}
 
+	// A second client with no request deadline, for log streaming only. The one
+	// above bounds every request at twenty seconds, which is right for a list and
+	// fatal for a follow stream.
+	streamClient, err := kube.NewStreamClientset()
+	if err != nil {
+		return err
+	}
+
 	// The metrics client is built unconditionally and used only if it answers.
 	// metrics-server is an optional cluster component, so its absence has to be a
 	// missing reading on the dashboard rather than a panel that will not start.
@@ -173,7 +181,7 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 		logger.Info("reading node disk usage from the kubelet")
 	}
 
-	repo := kube.NewRepository(clientset, metrics, nodeStats)
+	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
 	kube.NewHandler(kube.NewService(repo)).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
 	return nil
