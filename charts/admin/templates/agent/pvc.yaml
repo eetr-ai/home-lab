@@ -1,0 +1,31 @@
+{{- if .Values.admin.agent.enabled }}
+# The agent's memory and its workspace.
+#
+# Octo's standalone runtime keeps its object store in a map and serializes it to
+# OCTO_STORAGE_DIR — loaded once at startup, then written back a namespace at a
+# time. So this volume is what makes a conversation survive a restart, and on the
+# NFS class it is what lets the pod come back on a different node and still find
+# it.
+#
+# ReadWriteMany for that reason rather than for concurrency: the Deployment runs
+# one replica and says why. RWX is what keeps raising it a values change and a
+# shared KV store away, rather than a storage migration as well.
+#
+# Note the reclaim policy this class installs with: deleting this PVC deletes the
+# data with it. See docs/nfs-server.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: admin-agent-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-agent
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.admin.agent.storage.className | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.admin.agent.storage.size }}
+{{- end }}

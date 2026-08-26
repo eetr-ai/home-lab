@@ -116,6 +116,32 @@ Such a component imports UI primitives by module rather than through the barrel,
 for the reason [ux-guidelines.md](ux-guidelines.md) gives under "The component
 library".
 
+## The third module: `admin/agent`
+
+The assistant is neither a slice of the API nor part of the panel. It is an
+[Octo](https://juancavallotti.github.io/octo/) app — one `config.yaml`, some
+Markdown skills, and a Dockerfile — deployed by the same chart and built by the
+same release tag. See [admin/agent/README.md](../../admin/agent/README.md).
+
+The seam is worth stating because it is easy to put something on the wrong side
+of it:
+
+- **Anything the agent may *do*** is a tool in `config.yaml`. Not an endpoint in
+  the API, not an action in the panel.
+- **Anything the agent should *know*** is a skill under `admin/agent/skills/`,
+  loaded on demand — not another paragraph of prompt, which is paid for on every
+  model call.
+- **Anything the browser does with the answer** is in
+  `admin/web/src/components/agent/`, and the boundary lives there rather than in
+  the definition. `parseNavigateEvent` is the example: the agent asks to navigate,
+  and what it is actually allowed to navigate to is decided by the panel, whatever
+  the definition says.
+
+The panel reaches it through a **route handler**, not an action, for the reason
+stated below: it streams. The handler is also the trust boundary — it authorizes,
+overwrites the identity in the request body, and attaches the operator's token —
+so it plays exactly the part an action plays elsewhere.
+
 ## Where new code goes
 
 | You are adding | It goes in |
@@ -125,6 +151,8 @@ library".
 | Something two slices both need | a shared package under `internal/` — never a cross-slice import |
 | A new client-state domain in the UI | a reducer module built with `@eetr/react-reducer-utils` |
 | A typed REST client | `@eetr/ts-rest-utils`; do not hand-roll a second fetch abstraction |
+| Something the assistant may do | a tool in `admin/agent/config.yaml` |
+| Something the assistant should know | a skill under `admin/agent/skills/`, and a line in the agent's `skills:` list |
 
 ## Complete refactors over compatibility shims
 

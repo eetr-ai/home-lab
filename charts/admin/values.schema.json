@@ -11,7 +11,8 @@
         "imagePullSecrets",
         "gateway",
         "api",
-        "web"
+        "web",
+        "agent"
       ],
       "properties": {
         "imagePullSecrets": {
@@ -170,6 +171,80 @@
             "replicas": {
               "type": "integer",
               "minimum": 1
+            },
+            "resources": {
+              "type": "object"
+            }
+          }
+        },
+        "agent": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "model",
+            "reasoning",
+            "secret",
+            "storage",
+            "image",
+            "resources"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9-]+/[A-Za-z0-9._-]+(:[A-Za-z0-9-]+)?$",
+              "description": "A vendor-prefixed OpenRouter model id, e.g. deepseek/deepseek-v4-flash. There is no bare model name there."
+            },
+            "reasoning": {
+              "enum": [
+                "default",
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ],
+              "description": "Reasoning effort. The connector validates this at startup, so an unlisted value is a pod that will not start."
+            },
+            "secret": {
+              "type": "object",
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "storage": {
+              "type": "object",
+              "required": [
+                "className",
+                "size"
+              ],
+              "properties": {
+                "className": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(Mi|Gi|Ti)$"
+                }
+              }
+            },
+            "image": {
+              "$ref": "#/$defs/image"
             },
             "resources": {
               "type": "object"

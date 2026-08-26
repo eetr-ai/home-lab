@@ -1,7 +1,7 @@
 # Copy to charts/admin/values.local.yaml, which is ignored, and replace the
 # placeholders with the real registry path, hostname, and the version you intend
-# to run. The two images always carry the same version — one release tag builds
-# both — so the tags below should match.
+# to run. The images always carry the same version — one release tag builds them
+# all — so the tags below should match.
 
 admin:
   api:
@@ -17,4 +17,15 @@ admin:
     clientId: YOUR_ADMIN_PANEL_CLIENT_ID
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-web
+      tag: "0.1.0"
+
+  # The assistant. Off by default in values.yaml, because it costs money per
+  # answer and needs a provider key. Before enabling it:
+  #
+  #   kubectl -n admin create secret generic admin-agent-llm \
+  #     --from-literal=apiKey=sk-or-...
+  agent:
+    enabled: true
+    image:
+      repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-agent
       tag: "0.1.0"
