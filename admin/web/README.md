@@ -79,7 +79,7 @@ with hot reload against it:
 
 ```bash
 task dev
-docker compose -f admin/compose.yaml stop web
+DOCKER_CONTEXT=default docker compose -f admin/compose.yaml stop web
 ADMIN_API_URL=http://localhost:8090 task admin-web:dev
 ```
 

@@ -16,15 +16,27 @@ const options: { value: Theme; label: string; icon: typeof Sun }[] = [
 	{ value: "dark", label: "Dark", icon: Moon },
 ];
 
+/**
+ * Remembered in memory for this page view when storage is unavailable. Without
+ * it a browser blocking site data applies the chosen theme but keeps reporting
+ * "system", so the control snaps back and reads as broken.
+ */
+let inMemoryTheme: Theme | null = null;
+
+/** Record the choice outside the component, where mutating it is not a render effect. */
+function rememberTheme(next: Theme): void {
+	inMemoryTheme = next;
+}
+
 /** The stored preference, or "system" when there is none or it is unrecognized. */
 function readTheme(): Theme {
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
-		return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+		if (stored === "light" || stored === "dark" || stored === "system") return stored;
 	} catch {
 		// Storage can throw outright when the browser blocks site data.
-		return "system";
 	}
+	return inMemoryTheme ?? "system";
 }
 
 function subscribe(onChange: () => void): () => void {
@@ -64,6 +76,7 @@ export function ThemeSwitcher() {
 	}, [theme]);
 
 	function choose(next: Theme) {
+		rememberTheme(next);
 		try {
 			localStorage.setItem(STORAGE_KEY, next);
 		} catch {

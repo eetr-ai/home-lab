@@ -1,5 +1,10 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+
+// Not __dirname: this file is an ES module, where that binding does not exist.
+// It happens to work while Vite pre-bundles the config, which is not a promise.
+const configDir = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
 	test: {
@@ -18,7 +23,7 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			"@": path.resolve(__dirname, "./src"),
+			"@": path.resolve(configDir, "src"),
 		},
 	},
 });

@@ -30,7 +30,19 @@ export interface RefreshDeps {
 	fetch: typeof globalThis.fetch;
 	/** Epoch seconds. */
 	now: () => number;
+	/** Overridden in tests; defaults to {@link EXCHANGE_TIMEOUT_MS}. */
+	timeoutMs?: number;
 }
+
+/**
+ * How long one exchange may take.
+ *
+ * A deadline rather than patience: the single-flight entry below is keyed on the
+ * refresh token, so an exchange that never settles is not one slow request — it
+ * is every later refresh of that session waiting on the same stuck promise, for
+ * as long as the process lives.
+ */
+export const EXCHANGE_TIMEOUT_MS = 10_000;
 
 export type RefreshOutcome = { ok: true; tokens: TokenSet } | { ok: false; error: string };
 
@@ -71,48 +83,76 @@ async function exchangeOnce(
 		refresh_token: refreshToken,
 	});
 
-	let res: Response;
+	const deadline = new AbortController();
+	const timer = setTimeout(() => deadline.abort(), deps.timeoutMs ?? EXCHANGE_TIMEOUT_MS);
+
 	try {
-		res = await deps.fetch(deps.tokenEndpoint, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/x-www-form-urlencoded",
-				// client_secret_basic. eetr-auth registers this panel as a confidential
-				// client, and the header keeps the secret out of anything that logs a
-				// request body.
-				Authorization: `Basic ${basicCredentials(deps.clientId, deps.clientSecret)}`,
-			},
-			body: body.toString(),
-		});
-	} catch (err) {
-		return { ok: false, error: `token refresh failed: ${(err as Error).message}` };
-	}
+		let res: Response;
+		try {
+			res = await deps.fetch(deps.tokenEndpoint, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+					// client_secret_basic. eetr-auth registers this panel as a confidential
+					// client, and the header keeps the secret out of anything that logs a
+					// request body.
+					Authorization: `Basic ${basicCredentials(deps.clientId, deps.clientSecret)}`,
+				},
+				body: body.toString(),
+				signal: deadline.signal,
+			});
+		} catch (err) {
+			return { ok: false, error: `token refresh failed: ${(err as Error).message}` };
+		}
 
-	if (!res.ok) {
-		return { ok: false, error: `token refresh rejected (${res.status})` };
-	}
+		if (!res.ok) {
+			return { ok: false, error: `token refresh rejected (${res.status})` };
+		}
 
-	let parsed: TokenResponse;
-	try {
-		parsed = (await res.json()) as TokenResponse;
-	} catch {
-		return { ok: false, error: "token refresh returned a body that is not JSON" };
-	}
-	if (!parsed.access_token) {
-		return { ok: false, error: "token refresh returned no access token" };
-	}
+		let parsed: TokenResponse;
+		try {
+			// Inside the deadline on purpose: a response whose headers arrive and whose
+			// body never does would otherwise hang here instead.
+			parsed = (await res.json()) as TokenResponse;
+		} catch {
+			return { ok: false, error: "token refresh returned a body that is not JSON" };
+		}
+		if (!parsed.access_token) {
+			return { ok: false, error: "token refresh returned no access token" };
+		}
 
-	return { ok: true, tokens: nextTokenSet(previous, parsed, deps.now()) };
+		return { ok: true, tokens: nextTokenSet(previous, parsed, deps.now()) };
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /**
- * Base64 of `client_id:client_secret`, per RFC 6749 §2.3.1.
+ * Base64 of `client_id:client_secret`, per RFC 6749 §2.3.1 — which requires both
+ * halves to be form-urlencoded *before* they are joined and encoded.
+ *
+ * Matching that matters for a reason beyond conformance: Auth.js performs the
+ * other half of this exchange, and its oauth4webapi encodes the credentials
+ * exactly this way when it redeems the authorization code. Skipping the encoding
+ * here would mean sign-in and refresh presenting different credentials for the
+ * same secret — working for one and failing for the other, which is a far worse
+ * thing to debug than either failing outright.
  *
  * `btoa` rather than `Buffer`, because this module is reachable from the
- * edge-safe auth config where `Buffer` may not exist. Both are ASCII here — the
- * client id and secret come from eetr-auth, which issues neither with non-ASCII
- * characters.
+ * edge-safe auth config where `Buffer` may not exist. Percent-encoding first also
+ * guarantees the input is ASCII, which `btoa` requires.
  */
 function basicCredentials(clientId: string, clientSecret: string): string {
-	return btoa(`${clientId}:${clientSecret}`);
+	return btoa(`${formUrlEncode(clientId)}:${formUrlEncode(clientSecret)}`);
+}
+
+/**
+ * `application/x-www-form-urlencoded` encoding of one value, per RFC 6749
+ * Appendix B: `encodeURIComponent`, plus the characters it leaves alone that the
+ * form encoding does not, and a space as `+`.
+ */
+function formUrlEncode(value: string): string {
+	return encodeURIComponent(value)
+		.replace(/[-_.!~*'()]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+		.replace(/%20/g, "+");
 }

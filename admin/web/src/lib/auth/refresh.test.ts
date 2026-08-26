@@ -47,8 +47,10 @@ describe("refreshTokenSet", () => {
 		const headers = new Headers(init.headers);
 		// client_secret_basic: the secret travels in the Authorization header, never
 		// in the form body, so it stays out of any access log that records one.
+		// Both halves are form-urlencoded first, which is why the hyphen appears as
+		// %2D — see the encoding test below.
 		expect(headers.get("Authorization")).toBe(
-			`Basic ${Buffer.from("admin-panel:s3cret").toString("base64")}`,
+			`Basic ${Buffer.from("admin%2Dpanel:s3cret").toString("base64")}`,
 		);
 		const form = new URLSearchParams(init.body as string);
 		expect(form.get("grant_type")).toBe("refresh_token");
@@ -129,6 +131,55 @@ describe("refreshTokenSet", () => {
 		]);
 
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	// RFC 6749 §2.3.1 form-urlencodes both halves before joining and Base64-encoding
+	// them. The expectation below is not hand-derived: it is byte-for-byte what
+	// Auth.js's own oauth4webapi produces for these credentials when it redeems the
+	// authorization code. If the two ever disagree, sign-in and refresh present
+	// different credentials for the same secret.
+	it("encodes credentials the way Auth.js encodes them for the same exchange", async () => {
+		const fetchImpl = vi.fn(async () =>
+			jsonResponse(200, { access_token: "new-access", expires_in: 3600 }),
+		);
+
+		await refreshTokenSet(previous("rt-8"), {
+			...deps(fetchImpl),
+			clientId: "admin panel",
+			clientSecret: "s:cret/+= ~ok",
+		});
+
+		const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+		expect(new Headers(init.headers).get("Authorization")).toBe(
+			"Basic YWRtaW4rcGFuZWw6cyUzQWNyZXQlMkYlMkIlM0QrJTdFb2s=",
+		);
+	});
+
+	// An exchange that never settles is not one slow request: the single-flight
+	// entry is keyed on the refresh token, so it would strand every later refresh
+	// of that session on the same stuck promise for the life of the process.
+	it("gives up on a token endpoint that never answers, and frees the token", async () => {
+		const stalled = vi.fn(
+			(_url: string, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+				}),
+		);
+		const answered = vi.fn(async () =>
+			jsonResponse(200, { access_token: "new-access", expires_in: 3600 }),
+		);
+
+		const timedOut = await refreshTokenSet(previous("rt-9"), {
+			...deps(stalled as unknown as RefreshDeps["fetch"]),
+			timeoutMs: 5,
+		});
+		expect(timedOut.ok).toBe(false);
+
+		// The next refresh of the same token must reach the network rather than
+		// join the abandoned exchange.
+		const after = await refreshTokenSet(previous("rt-9"), deps(answered));
+		expect(after.ok).toBe(true);
+		expect(answered).toHaveBeenCalledTimes(1);
 	});
 
 	it("starts a fresh exchange once the previous one has settled", async () => {
