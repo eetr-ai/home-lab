@@ -19,4 +19,10 @@ var (
 	ErrWeakPassword = errors.New("weak password")
 	// ErrInvalidRole reports a role this panel will not grant.
 	ErrInvalidRole = errors.New("invalid role")
+	// ErrQueryFailed reports a query the server refused. It carries MongoDB's own
+	// message, which names the offending operator — the useful part.
+	ErrQueryFailed = errors.New("query failed")
+	// ErrInvalidQuery reports a query this panel will not send — one carrying an
+	// operator that executes code on the server.
+	ErrInvalidQuery = errors.New("invalid query")
 )

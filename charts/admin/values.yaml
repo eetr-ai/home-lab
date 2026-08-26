@@ -44,12 +44,38 @@ admin:
     # read-only ClusterRole below is created with it.
     kubernetes:
       enabled: true
+      # Node disk usage, read from each kubelet's stats endpoint.
+      #
+      # Off by default, and it is the one grant here worth a deliberate decision.
+      # Disk usage is not in the Kubernetes API and metrics-server reports only CPU
+      # and memory, so the only source is the kubelet — which means `get` on the
+      # nodes/proxy subresource, and that also opens the kubelet's other read
+      # endpoints, including the one that serves files under /var/log on the host.
+      #
+      # Left off, the panel reports every other node figure and shows the node's
+      # allocatable ephemeral storage in place of a usage reading, labelled as the
+      # scheduling ceiling it is. Nothing else changes.
+      nodeStats:
+        enabled: false
 
     postgres:
       enabled: false
       secret:
         name: admin-postgres
         key: dsn
+      # The credential the read-only query console runs submitted SQL as.
+      #
+      # Separate from the one above and deliberately not a superuser: dropping
+      # privileges inside a superuser session is not a boundary, because a
+      # submitted `RESET ROLE` undoes it and `COPY ... TO PROGRAM` then runs
+      # shell commands on the database host. Off means the console is not served,
+      # which is the right default. databases/README.md has the two statements
+      # that create the role.
+      query:
+        enabled: false
+        secret:
+          name: admin-postgres-query
+          key: dsn
     mongo:
       enabled: false
       secret:

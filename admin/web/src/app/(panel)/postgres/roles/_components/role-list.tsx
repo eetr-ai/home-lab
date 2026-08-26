@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Plus, Trash2, Users } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { dropRole } from "@/app/actions/postgres";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
 import { useRowDelete } from "../../../_components/use-row-delete";
 import type { PostgresRole } from "@/lib/api/types";
 import { CreateRolePanel } from "./create-role-panel";
+import { EditRolePanel } from "./edit-role-panel";
 
 /** A tick or nothing. A column of "yes"/"no" is harder to scan than one of ticks. */
 function Flag({ on, label }: { on: boolean; label: string }) {
@@ -27,6 +28,7 @@ export function RoleList({
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
+	const [editing, setEditing] = useState<PostgresRole | null>(null);
 	const rowDelete = useRowDelete(setError);
 
 	const create = (
@@ -89,13 +91,22 @@ export function RoleList({
 									onCancel={rowDelete.cancel}
 								/>
 							) : (
-								<IconButton
-									variant="danger"
-									aria-label={`Drop ${role.name}`}
-									onClick={() => rowDelete.ask(role.name)}
-								>
-									<Trash2 className="h-4 w-4" />
-								</IconButton>
+								/* Pencil then Trash2, per the UX guidelines' row-action order. */
+								<div className="flex items-center justify-end gap-1">
+									<IconButton
+										aria-label={`Edit ${role.name}`}
+										onClick={() => setEditing(role)}
+									>
+										<Pencil className="h-4 w-4" />
+									</IconButton>
+									<IconButton
+										variant="danger"
+										aria-label={`Drop ${role.name}`}
+										onClick={() => rowDelete.ask(role.name)}
+									>
+										<Trash2 className="h-4 w-4" />
+									</IconButton>
+								</div>
 							)}
 						</Td>
 					</tr>
@@ -103,6 +114,9 @@ export function RoleList({
 			/>
 
 			<CreateRolePanel open={creating} onClose={() => setCreating(false)} />
+			{/* Keyed by role, so opening a different one starts from its own values
+			    rather than from whatever was last edited. */}
+			<EditRolePanel key={editing?.name} role={editing} onClose={() => setEditing(null)} />
 		</>
 	);
 }

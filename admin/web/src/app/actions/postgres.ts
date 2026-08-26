@@ -10,6 +10,9 @@ import type {
 	PostgresDatabase,
 	PostgresExtension,
 	PostgresRole,
+	QueryResult,
+	UpdatePostgresDatabase,
+	UpdatePostgresRole,
 } from "@/lib/api/types";
 
 /**
@@ -83,4 +86,37 @@ export async function installExtension(
 		if (result.ok) revalidatePath(SECTION, "layout");
 		return result;
 	});
+}
+
+export async function updateRole(
+	name: string,
+	request: UpdatePostgresRole,
+): Promise<ActionResult<PostgresRole>> {
+	const result = await withWrite(() => postgres.updateRole(name, request));
+	if (result.ok) revalidatePath("/postgres", "layout");
+	return result;
+}
+
+export async function updateDatabase(
+	name: string,
+	request: UpdatePostgresDatabase,
+): Promise<ActionResult<void>> {
+	const result = await withWrite(() => postgres.updateDatabase(name, request));
+	if (result.ok) revalidatePath("/postgres", "layout");
+	return result;
+}
+
+/**
+ * Run a read-only statement.
+ *
+ * withRead, not withWrite: this is a read, and the server is what guarantees it —
+ * the statement runs in a READ ONLY transaction that is always rolled back.
+ * Requiring write access for a SELECT would gate the wrong thing while doing
+ * nothing about what it was meant to protect.
+ */
+export async function runQuery(
+	database: string,
+	sql: string,
+): Promise<ActionResult<QueryResult>> {
+	return withRead(() => postgres.runQuery(database, sql));
 }

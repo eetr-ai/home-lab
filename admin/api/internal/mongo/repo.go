@@ -164,22 +164,13 @@ func (r *Repository) UserExists(ctx context.Context, database, name string) (boo
 
 // CreateUser creates a user in one database.
 func (r *Repository) CreateUser(ctx context.Context, database string, req CreateUserRequest) error {
-	roles := make(bson.A, 0, len(req.Roles))
-	for _, role := range req.Roles {
-		on := role.Database
-		if on == "" {
-			on = database
-		}
-		roles = append(roles, bson.D{{Key: "role", Value: role.Name}, {Key: "db", Value: on}})
-	}
-
 	// The password travels as a BSON field rather than inside a command string,
 	// and the driver negotiates SCRAM-SHA-256 with the server, so it is not
 	// stored as given. Nothing here logs the command.
 	command := bson.D{
 		{Key: "createUser", Value: req.Name},
 		{Key: "pwd", Value: req.Password},
-		{Key: "roles", Value: roles},
+		{Key: "roles", Value: roleDocuments(database, req.Roles)},
 	}
 	if err := r.client.Database(database).RunCommand(ctx, command).Err(); err != nil {
 		return fmt.Errorf("create user %q in %q: %w", req.Name, database, err)
@@ -221,4 +212,45 @@ func (r *Repository) CurrentUser(ctx context.Context) (string, error) {
 		return "", errors.New("the MongoDB connection is not authenticated")
 	}
 	return result.AuthInfo.AuthenticatedUsers[0].User, nil
+}
+
+// UpdateUser replaces a user's roles and, when one is given, its password.
+//
+// updateUser replaces the roles array outright rather than merging, which is why
+// the service sends the whole desired set.
+func (r *Repository) UpdateUser(ctx context.Context, database, name string, req UpdateUserRequest) error {
+	command := bson.D{
+		{Key: "updateUser", Value: name},
+		{Key: "roles", Value: roleDocuments(database, req.Roles)},
+	}
+	if req.Password != "" {
+		// The password travels as a BSON field rather than inside a command
+		// string, and the driver negotiates SCRAM-SHA-256 with the server, so it is
+		// not stored as given. Nothing here logs the command.
+		command = append(command, bson.E{Key: "pwd", Value: req.Password})
+	}
+
+	if err := r.client.Database(database).RunCommand(ctx, command).Err(); err != nil {
+		return fmt.Errorf("update user %q in %q: %w", name, database, err)
+	}
+	return nil
+}
+
+// roleDocuments renders a role set for a createUser or updateUser command.
+//
+// A role with no database applies to the one the user lives in, which is what
+// MongoDB means by an unqualified role.
+func roleDocuments(database string, roles []Role) bson.A {
+	documents := make(bson.A, 0, len(roles))
+	for _, role := range roles {
+		on := role.Database
+		if on == "" {
+			on = database
+		}
+		documents = append(documents, bson.D{
+			{Key: "role", Value: role.Name},
+			{Key: "db", Value: on},
+		})
+	}
+	return documents
 }

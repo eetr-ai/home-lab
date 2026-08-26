@@ -17,4 +17,13 @@ var (
 	ErrProtected = errors.New("protected")
 	// ErrWeakPassword reports a role password below the minimum length.
 	ErrWeakPassword = errors.New("weak password")
+	// ErrQueryFailed reports a query the server refused. It carries the server's
+	// own message, which is the useful part — a syntax error names the position,
+	// and a read-only refusal names the statement kind.
+	ErrQueryFailed = errors.New("query failed")
+	// ErrQueryUnavailable reports a query console with no credential to run as.
+	// It is a refusal rather than a fallback to the superuser pool: running a
+	// submitted statement as the superuser is exactly what the separate
+	// credential exists to prevent.
+	ErrQueryUnavailable = errors.New("the query console is not configured")
 )

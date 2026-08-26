@@ -35,6 +35,60 @@
                 },
                 "type": "object"
             },
+            "kube.ClusterService": {
+                "properties": {
+                    "clusterIP": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "ports": {
+                        "description": "Ports are rendered as \"80→8080/TCP\", which is the form that answers what\nthe caller connects to and what the container is listening on.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "selector": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "type": {
+                        "description": "Type is ClusterIP, NodePort, LoadBalancer, or ExternalName.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Condition": {
+                "properties": {
+                    "lastTransition": {
+                        "description": "LastTransition is when it last changed, which is what says whether a\nfailing condition is new or has been there all along.",
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Event": {
                 "properties": {
                     "count": {
@@ -61,6 +115,21 @@
                 },
                 "type": "object"
             },
+            "kube.Filesystem": {
+                "description": "Filesystem is the node's root disk. Nil unless node stats are switched on:\nreading them needs a grant on the kubelet that the panel does not hold by\ndefault. See charts/admin/templates/api/rbac.yaml.",
+                "properties": {
+                    "availableBytes": {
+                        "type": "integer"
+                    },
+                    "capacityBytes": {
+                        "type": "integer"
+                    },
+                    "usedBytes": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Namespace": {
                 "properties": {
                     "createdAt": {
@@ -75,8 +144,95 @@
                 },
                 "type": "object"
             },
+            "kube.Node": {
+                "properties": {
+                    "allocatable": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "capacity": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "filesystem": {
+                        "$ref": "#/components/schemas/kube.Filesystem"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "os": {
+                        "type": "string"
+                    },
+                    "pressure": {
+                        "description": "Pressure lists the conditions that are true right now and should not be —\nMemoryPressure, DiskPressure, PIDPressure. Empty is the healthy case.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "requested": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "roles": {
+                        "description": "Roles come from the node-role.kubernetes.io/* labels, which is the only\nplace Kubernetes records them.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "status": {
+                        "description": "Status is the summary an operator reads first: Ready, NotReady, or\nReady,SchedulingDisabled for a cordoned node, which the conditions alone do\nnot say.",
+                        "type": "string"
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.NodeSummary": {
+                "properties": {
+                    "allocatable": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "pressure": {
+                        "description": "Pressure counts nodes reporting any pressure condition.",
+                        "type": "integer"
+                    },
+                    "ready": {
+                        "type": "integer"
+                    },
+                    "requested": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Pod": {
                 "properties": {
+                    "containers": {
+                        "description": "Containers names each one, which a log request must do when there is more\nthan one. Init containers are included, last.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "createdAt": {
                         "type": "string"
                     },
@@ -101,6 +257,200 @@
                         "type": "integer"
                     },
                     "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.PodSummary": {
+                "properties": {
+                    "failed": {
+                        "type": "integer"
+                    },
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "restarts": {
+                        "type": "integer"
+                    },
+                    "running": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Resources": {
+                "description": "Usage is the sum over the nodes that reported one, and is meaningless\nunless Summary.MetricsAvailable is true — a sum of nothing is zero, and\nzero is also what a genuinely idle cluster reports. This is a plain value\nrather than the pointer Node.Usage is because a total has one flag covering\nit, where a per-node reading has to say which nodes were measured.\n\nEven with MetricsAvailable true, a node that metrics-server has not sampled\nyet contributes nothing, so this can understate a cluster that is still\nwarming up.",
+                "properties": {
+                    "cpuMillis": {
+                        "type": "integer"
+                    },
+                    "ephemeralBytes": {
+                        "type": "integer"
+                    },
+                    "memoryBytes": {
+                        "type": "integer"
+                    },
+                    "pods": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Scale": {
+                "description": "Scale is absent for a DaemonSet, which has no replica count to set.",
+                "properties": {
+                    "current": {
+                        "description": "Current is how many exist right now, which lags Replicas during a rollout.",
+                        "type": "integer"
+                    },
+                    "replicas": {
+                        "description": "Replicas is the desired count — what the controller was told to run.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.ScaleRequest": {
+                "properties": {
+                    "replicas": {
+                        "description": "A pointer so absent can be told from zero. int32 would make `{}` decode to\n0, and 0 is a legitimate replica count — so a request that named no count\nat all would scale the workload down to nothing. Scaling to zero has to be\nsomething the caller asked for.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Storage": {
+                "properties": {
+                    "claims": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.VolumeClaim"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "volumes": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Volume"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "kube.StorageSummary": {
+                "properties": {
+                    "capacityBytes": {
+                        "description": "CapacityBytes counts only bound claims. An unbound claim has no capacity\nyet, and counting what it asked for would report space that does not exist.",
+                        "type": "integer"
+                    },
+                    "claims": {
+                        "type": "integer"
+                    },
+                    "unbound": {
+                        "description": "Unbound is every claim that is not Bound, which is Pending and Lost\ntogether. They are counted as one because they mean the same thing to the\noperator — a workload asked for storage and does not have it — and named\nfor what they have in common rather than for the more common of the two.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Summary": {
+                "properties": {
+                    "metricsAvailable": {
+                        "description": "MetricsAvailable reports whether metrics-server answered. When false the\nusage figures are zero because nothing measured them, not because nothing\nis running — a distinction the dashboard has to draw for the operator.",
+                        "type": "boolean"
+                    },
+                    "namespaces": {
+                        "type": "integer"
+                    },
+                    "nodes": {
+                        "$ref": "#/components/schemas/kube.NodeSummary"
+                    },
+                    "pods": {
+                        "$ref": "#/components/schemas/kube.PodSummary"
+                    },
+                    "storage": {
+                        "$ref": "#/components/schemas/kube.StorageSummary"
+                    },
+                    "workloads": {
+                        "$ref": "#/components/schemas/kube.WorkloadSummary"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Volume": {
+                "properties": {
+                    "accessModes": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "capacityBytes": {
+                        "type": "integer"
+                    },
+                    "claim": {
+                        "description": "Claim is the namespace/name this volume is bound to, empty when unbound.",
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "reclaimPolicy": {
+                        "description": "ReclaimPolicy decides what happens to the data when the claim goes away,\nwhich is the field worth seeing before deleting anything.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "storageClass": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.VolumeClaim": {
+                "properties": {
+                    "accessModes": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "capacityBytes": {
+                        "type": "integer"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "requestedBytes": {
+                        "description": "Requested is what the claim asked for and Capacity what it actually got.\nA provisioner may round up, so the two disagreeing is normal rather than a\nfault — but only Capacity says how much space there really is.",
+                        "type": "integer"
+                    },
+                    "status": {
+                        "description": "Status is the claim's phase: Bound, Pending, or Lost. A Pending claim is\nusually the reason a StatefulSet's pod will not start.",
+                        "type": "string"
+                    },
+                    "storageClass": {
+                        "type": "string"
+                    },
+                    "volumeName": {
+                        "description": "VolumeName is the PersistentVolume bound to this claim, empty while pending.",
                         "type": "string"
                     }
                 },
@@ -133,6 +483,73 @@
                         "type": "string"
                     },
                     "ready": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.WorkloadDetail": {
+                "properties": {
+                    "available": {
+                        "type": "integer"
+                    },
+                    "claims": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.VolumeClaim"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "conditions": {
+                        "description": "Conditions are the controller's own, which carry the reason a rollout is\nstuck when the replica counts only show that it is.",
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Condition"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "events": {
+                        "description": "Events are scoped to this workload and its pods, most recent first.",
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Event"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pods": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Pod"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "scale": {
+                        "$ref": "#/components/schemas/kube.Scale"
+                    },
+                    "services": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.ClusterService"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "updated": {
+                        "description": "Replicas is what the controller reports beyond ready — updated and\navailable, which is how a rollout that has stalled is told from one that is\nmerely in progress.",
+                        "type": "integer"
+                    },
+                    "workload": {
+                        "$ref": "#/components/schemas/kube.Workload"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.WorkloadSummary": {
+                "properties": {
+                    "degraded": {
+                        "description": "Degraded is the count with fewer ready replicas than desired, which is the\nnumber that answers \"is anything wrong\" on its own.",
+                        "type": "integer"
+                    },
+                    "total": {
                         "type": "integer"
                     }
                 },
@@ -205,6 +622,53 @@
                 },
                 "type": "object"
             },
+            "mongo.FindRequest": {
+                "properties": {
+                    "collection": {
+                        "type": "string"
+                    },
+                    "filter": {
+                        "additionalProperties": {},
+                        "description": "Filter is a MongoDB query document. Empty matches everything.",
+                        "type": "object"
+                    },
+                    "limit": {
+                        "description": "Limit caps the documents returned, up to the server-side maximum.",
+                        "type": "integer"
+                    },
+                    "projection": {
+                        "additionalProperties": {},
+                        "description": "Projection selects fields. Empty returns whole documents.",
+                        "type": "object"
+                    },
+                    "sort": {
+                        "additionalProperties": {},
+                        "description": "Sort orders the results, e.g. {\"createdAt\": -1}.",
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "mongo.FindResult": {
+                "properties": {
+                    "documents": {
+                        "description": "Documents are rendered as extended-JSON strings, one per document. The panel\ndisplays them; carrying BSON's types faithfully through JSON would mean a\ntype map to keep current for no gain.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "elapsedMs": {
+                        "type": "integer"
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the result was cut at the limit, so the panel can say\nso rather than presenting a partial answer as the whole one.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "mongo.Role": {
                 "properties": {
                     "database": {
@@ -212,6 +676,22 @@
                     },
                     "name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "mongo.UpdateUserRequest": {
+                "properties": {
+                    "password": {
+                        "description": "Password, when set, replaces the existing one. Empty leaves it alone — a\npassword cannot be read back, so an edit form that omits it means \"unchanged\"\nrather than \"remove\".",
+                        "type": "string"
+                    },
+                    "roles": {
+                        "items": {
+                            "$ref": "#/components/schemas/mongo.Role"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -308,6 +788,47 @@
                 },
                 "type": "object"
             },
+            "postgres.QueryRequest": {
+                "properties": {
+                    "sql": {
+                        "description": "SQL is a single read-only statement. It is not parsed or filtered here —\nPostgreSQL enforces the read-only part itself. See Service.Query.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.QueryResult": {
+                "properties": {
+                    "columns": {
+                        "description": "Columns are in the order the statement selected them.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "elapsedMs": {
+                        "description": "ElapsedMs is how long the server took, which is most of what a query is run\nfor when it is being tuned rather than read.",
+                        "type": "integer"
+                    },
+                    "rows": {
+                        "description": "Rows hold values already rendered as strings. The panel displays them and\ndoes not compute on them, and preserving every PostgreSQL type through JSON\nwould mean a type map that has to be kept current for no gain.",
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the result was cut at the row cap, so the panel can\nsay so rather than presenting a partial answer as the whole one.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "postgres.Role": {
                 "properties": {
                     "canCreateDatabase": {
@@ -330,6 +851,36 @@
                         "type": "boolean"
                     },
                     "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.UpdateDatabaseRequest": {
+                "properties": {
+                    "owner": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.UpdateRoleRequest": {
+                "properties": {
+                    "canCreateDatabase": {
+                        "type": "boolean"
+                    },
+                    "canCreateRole": {
+                        "type": "boolean"
+                    },
+                    "canLogin": {
+                        "type": "boolean"
+                    },
+                    "connectionLimit": {
+                        "description": "ConnectionLimit is -1 for unlimited, which is PostgreSQL's own default.",
+                        "type": "integer"
+                    },
+                    "password": {
+                        "description": "Password, when set, replaces the existing one. Never sent as plaintext: a\nSCRAM verifier is derived from it first, the same as on create.",
                         "type": "string"
                     }
                 },
@@ -545,6 +1096,124 @@
                 ]
             }
         },
+        "/api/kubernetes/namespaces/{namespace}/pods/{pod}/logs": {
+            "get": {
+                "description": "Plain text, chunked, flushed per line. With follow=true the response stays\nopen and new lines arrive as they are written; closing the connection ends\nit at the API server too. previous=true reads the last terminated\ninstance, which is where the reason for a CrashLoopBackOff lives.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pod name",
+                        "in": "path",
+                        "name": "pod",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Container; required when the pod has more than one",
+                        "in": "query",
+                        "name": "container",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep the stream open",
+                        "in": "query",
+                        "name": "follow",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Lines of history first (default 200, max 5000)",
+                        "in": "query",
+                        "name": "tail",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Read the last terminated instance",
+                        "in": "query",
+                        "name": "previous",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the log"
+                    },
+                    "400": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Stream a pod's log",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
         "/api/kubernetes/namespaces/{namespace}/workloads": {
             "get": {
                 "description": "Deployments, StatefulSets, and DaemonSets as one list. The question is\nwhat is running, not which kind of controller runs it.",
@@ -610,6 +1279,448 @@
                     }
                 ],
                 "summary": "List workloads",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}": {
+            "get": {
+                "description": "The workload with its pods, the services that reach them, the volume\nclaims they mount, and the events about any of it — in one call, because\nthe pieces are found by following the workload's own selector and a\nclient doing that would need to know how Kubernetes labels relate.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Deployment, StatefulSet, or DaemonSet",
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workload name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.WorkloadDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a workload",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/restart": {
+            "post": {
+                "description": "Stamps the pod template's restartedAt annotation, the same mechanism\n`kubectl rollout restart` uses, so the controller replaces its pods under\nits own rollout strategy. Nothing is deleted. Deployments and\nStatefulSets only.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Deployment or StatefulSet",
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workload name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Restart a workload",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale": {
+            "put": {
+                "description": "Sets the desired replica count through the scale subresource. Deployments\nand StatefulSets only: a DaemonSet's count comes from how many nodes it\nmatches, so there is nothing to set.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Deployment or StatefulSet",
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workload name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kube.ScaleRequest",
+                                        "summary": "request",
+                                        "description": "Desired replicas"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Desired replicas",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Scale a workload",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/nodes": {
+            "get": {
+                "description": "Capacity, what pods have reserved against it, and — when metrics-server\nis installed — what is actually being used. A node whose usage is absent\nreports no reading rather than zero.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/kube.Node"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List nodes",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/storage": {
+            "get": {
+                "description": "Persistent volume claims and the volumes behind them. Both, because a\nreleased volume still holding data appears in neither list alone.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Storage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read storage",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/summary": {
+            "get": {
+                "description": "Counts and totals across nodes, pods, workloads, and storage, in one call\nso the dashboard neither renders nor fails in pieces.\n\nnodes.usage is a sum over the nodes that reported a reading, so it is zero\nboth for an idle cluster and for one nothing measured. metricsAvailable is\nwhat tells those apart: when it is false, treat nodes.usage as absent\nrather than as a measurement of zero.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Summary"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read cluster summary",
                 "tags": [
                     "kubernetes"
                 ]
@@ -1028,6 +2139,93 @@
                 ]
             }
         },
+        "/api/mongo/databases/{database}/find": {
+            "post": {
+                "description": "POST because the query goes in the body — it is a read, not a change. A\nfind and nothing else: aggregate can write through $out and $merge, and\nrunCommand is the whole server. Filters carrying $where, $function, or\n$accumulator are refused at any depth: each runs JavaScript in the server's\nengine, forcing a full collection scan and occupying a core until the\ndeadline. Results are capped at 200 documents and the query at 15 seconds.",
+                "parameters": [
+                    {
+                        "description": "Database to query",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/mongo.FindRequest",
+                                        "summary": "request",
+                                        "description": "The query"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The query",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/mongo.FindResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Find documents",
+                "tags": [
+                    "mongo"
+                ]
+            }
+        },
         "/api/mongo/databases/{database}/users": {
             "get": {
                 "description": "MongoDB scopes a user to the database it was created in, which is where it authenticates.",
@@ -1250,6 +2448,110 @@
                 "tags": [
                     "mongo"
                 ]
+            },
+            "put": {
+                "description": "The whole role set, not a set of grants: MongoDB's updateUser replaces the\narray outright. An empty password leaves the existing one in place.",
+                "parameters": [
+                    {
+                        "description": "Database the user belongs to",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User name",
+                        "in": "path",
+                        "name": "user",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/mongo.UpdateUserRequest",
+                                        "summary": "request",
+                                        "description": "The desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/mongo.User"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a user",
+                "tags": [
+                    "mongo"
+                ]
             }
         },
         "/api/postgres/databases": {
@@ -1451,6 +2753,94 @@
                 "tags": [
                     "postgres"
                 ]
+            },
+            "put": {
+                "description": "Only the owner. Encoding cannot be changed after creation, and a rename\nwould break every connection string pointing at it.",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.UpdateDatabaseRequest",
+                                        "summary": "request",
+                                        "description": "The desired owner"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired owner",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a database",
+                "tags": [
+                    "postgres"
+                ]
             }
         },
         "/api/postgres/databases/{database}/extensions": {
@@ -1602,6 +2992,103 @@
                     }
                 ],
                 "summary": "Install an extension",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}/query": {
+            "post": {
+                "description": "POST because the statement goes in the body — it is a read, not a change.\nRuns over a separate connection authenticated as a non-superuser role, which\nis the boundary: dropping privileges within the panel's own superuser\nsession is reversible by a submitted RESET ROLE. A READ ONLY transaction and\na statement timeout sit behind that. Answers 503 when no such credential is\nconfigured, rather than falling back to the superuser. Results are capped at\n200 rows and the statement at 15 seconds.",
+                "parameters": [
+                    {
+                        "description": "Database to run against",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.QueryRequest",
+                                        "summary": "request",
+                                        "description": "The statement"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The statement",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.QueryResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Run a read-only query",
                 "tags": [
                     "postgres"
                 ]
@@ -1784,6 +3271,101 @@
                     }
                 ],
                 "summary": "Drop a role",
+                "tags": [
+                    "postgres"
+                ]
+            },
+            "put": {
+                "description": "The whole desired state, not a set of changes: every attribute is written,\nincluding the negative form, because ALTER ROLE leaves an unmentioned one\nalone. An empty password leaves the existing one in place; a supplied one\nis converted to a SCRAM verifier before it reaches the server.",
+                "parameters": [
+                    {
+                        "description": "Role name",
+                        "in": "path",
+                        "name": "role",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.UpdateRoleRequest",
+                                        "summary": "request",
+                                        "description": "The desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.Role"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a role",
                 "tags": [
                     "postgres"
                 ]

@@ -28,6 +28,15 @@ export default auth((req) => {
 	if (isPublic(pathname)) return NextResponse.next();
 	if (req.auth && req.auth.error === undefined) return NextResponse.next();
 
+	// A redirect is the right refusal for a navigation and the wrong one for a
+	// fetch: the browser follows it, and the caller gets the sign-in page's HTML
+	// as a 200 it will try to parse. The log viewer would render markup as log
+	// lines, and `res.ok` would be true the whole time. API routes get a status
+	// they can branch on instead.
+	if (pathname.startsWith("/api/")) {
+		return NextResponse.json({ error: "not signed in" }, { status: 401 });
+	}
+
 	// Carry the original path so sign-in returns there rather than to the root.
 	const url = new URL("/", req.nextUrl.origin);
 	url.searchParams.set("callbackUrl", `${pathname}${search}`);

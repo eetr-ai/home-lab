@@ -197,3 +197,67 @@ to start.
   root or docker-group access on the host is database access.
 - `pgcrypto` provides SQL cryptographic functions only. It does not encrypt
   PostgreSQL files, backups, or connections.
+
+## The admin panel's query console
+
+The panel's PostgreSQL query console runs submitted SQL. What stops it from
+doing damage is one thing, and it is worth being precise about which.
+
+**It runs over a separate connection, as a role that is not a superuser.** That
+is the boundary. Everything else is a second layer.
+
+The cheaper design — keep the panel's superuser connection and drop privileges
+per transaction with `SET LOCAL ROLE pg_read_all_data` — *looks* like it works
+and does not. `SET ROLE` is reversible by whoever authenticated, and `session_user`
+stays the superuser. Checked against PostgreSQL 18: inside a `READ ONLY`
+transaction with the role dropped, a submitted `RESET ROLE` (or `SET ROLE NONE`,
+or `DO $$ BEGIN RESET ROLE; END $$`) restored superuser, after which
+`COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` ran and left a file owned by the
+`postgres` user on the database host. With a genuinely non-superuser login, all
+four escapes leave `current_user` unchanged and both `pg_read_file` and
+`COPY … TO PROGRAM` are refused.
+
+Behind that boundary:
+
+- The statement runs in a `READ ONLY` transaction that is always rolled back, so
+  every `INSERT`, `UPDATE`, `DELETE`, and DDL is refused. Not sufficient on its
+  own — it does not refuse `COPY … TO PROGRAM`, which is not a database write.
+- `SET LOCAL statement_timeout`, so a runaway query is killed by the server.
+- pgx's extended protocol carries one statement per message, so
+  `SELECT 1; DROP TABLE x` is refused rather than run as two.
+
+No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
+and `DO` blocks all defeat one — the `DO` block above is the demonstration — and
+a single miss would be the whole boundary.
+
+### Creating the role
+
+```sql
+CREATE ROLE panel_query LOGIN PASSWORD 'generate-a-long-one'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT pg_read_all_data TO panel_query;
+```
+
+`pg_read_all_data` is predefined from PostgreSQL 14 and grants `SELECT` on
+everything and membership in nothing else. Then set `ADMIN_POSTGRES_QUERY_DSN`
+to a connection string for that role.
+
+**Without it the console is not served** — the API answers 503 and says so. It
+does not fall back to the superuser connection, because running submitted SQL as
+the superuser is the exact thing the separate credential exists to prevent.
+
+MongoDB is a different shape. There is no read-only transaction to lean on, so
+the boundary is what the panel offers: `find` and nothing else — not `aggregate`,
+which can write through `$out` and `$merge`, and not `runCommand`. It also
+refuses `$where`, `$function`, and `$accumulator` at any depth in a query
+document. Checked against MongoDB 7: the server permits all three on a root
+connection, including a `$where` nested inside an `$and`, so the panel's check is
+the only thing refusing them.
+
+They are a smaller problem than the PostgreSQL one, and worth describing
+accurately: `$where` runs in the server's sandboxed JavaScript engine with no
+`require`, `process`, `fs`, or `db` in scope, so it is not a route to the host.
+What it is is a forced collection scan and a core occupied until the query
+deadline — an unbounded loop inside one ran for the full `maxTimeMS` before being
+killed. Enough to refuse from a panel button; not the same class of problem as a
+shell on the database host.

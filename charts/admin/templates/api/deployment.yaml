@@ -39,12 +39,23 @@ spec:
             - name: ADMIN_KUBERNETES_DISABLED
               value: "true"
             {{- end }}
+            {{- if and .Values.admin.api.kubernetes.enabled .Values.admin.api.kubernetes.nodeStats.enabled }}
+            - name: ADMIN_KUBERNETES_NODE_STATS
+              value: "true"
+            {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.admin.api.postgres.secret.name }}
                   key: {{ .Values.admin.api.postgres.secret.key }}
+            {{- if .Values.admin.api.postgres.query.enabled }}
+            - name: ADMIN_POSTGRES_QUERY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.api.postgres.query.secret.name }}
+                  key: {{ .Values.admin.api.postgres.query.secret.key }}
+            {{- end }}
             {{- end }}
             {{- if .Values.admin.api.mongo.enabled }}
             - name: ADMIN_MONGO_URI
