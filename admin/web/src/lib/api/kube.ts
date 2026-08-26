@@ -1,6 +1,14 @@
 import { call, seg } from "./http";
 import type { ActionResult } from "./result";
-import type { ClusterEvent, Namespace, Pod, Workload } from "./types";
+import type {
+	ClusterEvent,
+	ClusterNode,
+	ClusterSummary,
+	Namespace,
+	Pod,
+	Storage,
+	Workload,
+} from "./types";
 
 /**
  * The cluster operations. Mirrors admin/api/internal/kube.
@@ -24,4 +32,16 @@ export function listPods(namespace: string): Promise<ActionResult<Pod[]>> {
 
 export function listEvents(namespace: string): Promise<ActionResult<ClusterEvent[]>> {
 	return call<ClusterEvent[]>("GET", `/api/kubernetes/namespaces/${seg(namespace)}/events`);
+}
+
+export function listNodes(): Promise<ActionResult<ClusterNode[]>> {
+	return call<ClusterNode[]>("GET", "/api/kubernetes/nodes");
+}
+
+export function readStorage(): Promise<ActionResult<Storage>> {
+	return call<Storage>("GET", "/api/kubernetes/storage");
+}
+
+export function readSummary(): Promise<ActionResult<ClusterSummary>> {
+	return call<ClusterSummary>("GET", "/api/kubernetes/summary");
 }

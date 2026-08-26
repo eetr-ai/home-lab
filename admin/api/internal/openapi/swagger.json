@@ -61,6 +61,21 @@
                 },
                 "type": "object"
             },
+            "kube.Filesystem": {
+                "description": "Filesystem is the node's root disk. Nil unless node stats are switched on:\nreading them needs a grant on the kubelet that the panel does not hold by\ndefault. See charts/admin/templates/api/rbac.yaml.",
+                "properties": {
+                    "availableBytes": {
+                        "type": "integer"
+                    },
+                    "capacityBytes": {
+                        "type": "integer"
+                    },
+                    "usedBytes": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Namespace": {
                 "properties": {
                     "createdAt": {
@@ -71,6 +86,85 @@
                     },
                     "status": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Node": {
+                "properties": {
+                    "allocatable": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "capacity": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "filesystem": {
+                        "$ref": "#/components/schemas/kube.Filesystem"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "os": {
+                        "type": "string"
+                    },
+                    "pressure": {
+                        "description": "Pressure lists the conditions that are true right now and should not be —\nMemoryPressure, DiskPressure, PIDPressure. Empty is the healthy case.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "requested": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "roles": {
+                        "description": "Roles come from the node-role.kubernetes.io/* labels, which is the only\nplace Kubernetes records them.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "status": {
+                        "description": "Status is the summary an operator reads first: Ready, NotReady, or\nReady,SchedulingDisabled for a cordoned node, which the conditions alone do\nnot say.",
+                        "type": "string"
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.NodeSummary": {
+                "properties": {
+                    "allocatable": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "pressure": {
+                        "description": "Pressure counts nodes reporting any pressure condition.",
+                        "type": "integer"
+                    },
+                    "ready": {
+                        "type": "integer"
+                    },
+                    "requested": {
+                        "$ref": "#/components/schemas/kube.Resources"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "usage": {
+                        "$ref": "#/components/schemas/kube.Resources"
                     }
                 },
                 "type": "object"
@@ -106,6 +200,177 @@
                 },
                 "type": "object"
             },
+            "kube.PodSummary": {
+                "properties": {
+                    "failed": {
+                        "type": "integer"
+                    },
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "restarts": {
+                        "type": "integer"
+                    },
+                    "running": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Resources": {
+                "description": "Usage is the sum over the nodes that reported one, and is meaningless\nunless Summary.MetricsAvailable is true — a sum of nothing is zero, and\nzero is also what a genuinely idle cluster reports. This is a plain value\nrather than the pointer Node.Usage is because a total has one flag covering\nit, where a per-node reading has to say which nodes were measured.\n\nEven with MetricsAvailable true, a node that metrics-server has not sampled\nyet contributes nothing, so this can understate a cluster that is still\nwarming up.",
+                "properties": {
+                    "cpuMillis": {
+                        "type": "integer"
+                    },
+                    "ephemeralBytes": {
+                        "type": "integer"
+                    },
+                    "memoryBytes": {
+                        "type": "integer"
+                    },
+                    "pods": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Storage": {
+                "properties": {
+                    "claims": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.VolumeClaim"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "volumes": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Volume"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "kube.StorageSummary": {
+                "properties": {
+                    "capacityBytes": {
+                        "description": "CapacityBytes counts only bound claims. An unbound claim has no capacity\nyet, and counting what it asked for would report space that does not exist.",
+                        "type": "integer"
+                    },
+                    "claims": {
+                        "type": "integer"
+                    },
+                    "unbound": {
+                        "description": "Unbound is every claim that is not Bound, which is Pending and Lost\ntogether. They are counted as one because they mean the same thing to the\noperator — a workload asked for storage and does not have it — and named\nfor what they have in common rather than for the more common of the two.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Summary": {
+                "properties": {
+                    "metricsAvailable": {
+                        "description": "MetricsAvailable reports whether metrics-server answered. When false the\nusage figures are zero because nothing measured them, not because nothing\nis running — a distinction the dashboard has to draw for the operator.",
+                        "type": "boolean"
+                    },
+                    "namespaces": {
+                        "type": "integer"
+                    },
+                    "nodes": {
+                        "$ref": "#/components/schemas/kube.NodeSummary"
+                    },
+                    "pods": {
+                        "$ref": "#/components/schemas/kube.PodSummary"
+                    },
+                    "storage": {
+                        "$ref": "#/components/schemas/kube.StorageSummary"
+                    },
+                    "workloads": {
+                        "$ref": "#/components/schemas/kube.WorkloadSummary"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Volume": {
+                "properties": {
+                    "accessModes": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "capacityBytes": {
+                        "type": "integer"
+                    },
+                    "claim": {
+                        "description": "Claim is the namespace/name this volume is bound to, empty when unbound.",
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "reclaimPolicy": {
+                        "description": "ReclaimPolicy decides what happens to the data when the claim goes away,\nwhich is the field worth seeing before deleting anything.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "storageClass": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.VolumeClaim": {
+                "properties": {
+                    "accessModes": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "capacityBytes": {
+                        "type": "integer"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "requestedBytes": {
+                        "description": "Requested is what the claim asked for and Capacity what it actually got.\nA provisioner may round up, so the two disagreeing is normal rather than a\nfault — but only Capacity says how much space there really is.",
+                        "type": "integer"
+                    },
+                    "status": {
+                        "description": "Status is the claim's phase: Bound, Pending, or Lost. A Pending claim is\nusually the reason a StatefulSet's pod will not start.",
+                        "type": "string"
+                    },
+                    "storageClass": {
+                        "type": "string"
+                    },
+                    "volumeName": {
+                        "description": "VolumeName is the PersistentVolume bound to this claim, empty while pending.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Workload": {
                 "properties": {
                     "createdAt": {
@@ -133,6 +398,18 @@
                         "type": "string"
                     },
                     "ready": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.WorkloadSummary": {
+                "properties": {
+                    "degraded": {
+                        "description": "Degraded is the count with fewer ready replicas than desired, which is the\nnumber that answers \"is anything wrong\" on its own.",
+                        "type": "integer"
+                    },
+                    "total": {
                         "type": "integer"
                     }
                 },
@@ -610,6 +887,147 @@
                     }
                 ],
                 "summary": "List workloads",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/nodes": {
+            "get": {
+                "description": "Capacity, what pods have reserved against it, and — when metrics-server\nis installed — what is actually being used. A node whose usage is absent\nreports no reading rather than zero.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/kube.Node"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List nodes",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/storage": {
+            "get": {
+                "description": "Persistent volume claims and the volumes behind them. Both, because a\nreleased volume still holding data appears in neither list alone.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Storage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read storage",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/summary": {
+            "get": {
+                "description": "Counts and totals across nodes, pods, workloads, and storage, in one call\nso the dashboard neither renders nor fails in pieces.\n\nnodes.usage is a sum over the nodes that reported a reading, so it is zero\nboth for an idle cluster and for one nothing measured. metricsAvailable is\nwhat tells those apart: when it is false, treat nodes.usage as absent\nrather than as a measurement of zero.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Summary"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read cluster summary",
                 "tags": [
                     "kubernetes"
                 ]

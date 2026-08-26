@@ -25,6 +25,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads", h.listWorkloads)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/pods", h.listPods)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/events", h.listEvents)
+	mux.HandleFunc("GET /api/kubernetes/nodes", h.listNodes)
+	mux.HandleFunc("GET /api/kubernetes/storage", h.readStorage)
+	mux.HandleFunc("GET /api/kubernetes/summary", h.readSummary)
 }
 
 // listNamespaces returns every namespace in the cluster.
@@ -113,6 +116,75 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, events)
+}
+
+// listNodes returns every machine in the cluster.
+//
+//	@Summary		List nodes
+//	@Description	Capacity, what pods have reserved against it, and — when metrics-server
+//	@Description	is installed — what is actually being used. A node whose usage is absent
+//	@Description	reports no reading rather than zero.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{array}		kube.Node
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/nodes [get]
+func (h *Handler) listNodes(w http.ResponseWriter, r *http.Request) {
+	nodes, err := h.service.ListNodes(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, nodes)
+}
+
+// readStorage returns the cluster's persistent storage.
+//
+//	@Summary		Read storage
+//	@Description	Persistent volume claims and the volumes behind them. Both, because a
+//	@Description	released volume still holding data appears in neither list alone.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{object}	kube.Storage
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/storage [get]
+func (h *Handler) readStorage(w http.ResponseWriter, r *http.Request) {
+	storage, err := h.service.ReadStorage(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, storage)
+}
+
+// readSummary returns the overview dashboard's rollup.
+//
+//	@Summary		Read cluster summary
+//	@Description	Counts and totals across nodes, pods, workloads, and storage, in one call
+//	@Description	so the dashboard neither renders nor fails in pieces.
+//	@Description
+//	@Description	nodes.usage is a sum over the nodes that reported a reading, so it is zero
+//	@Description	both for an idle cluster and for one nothing measured. metricsAvailable is
+//	@Description	what tells those apart: when it is false, treat nodes.usage as absent
+//	@Description	rather than as a measurement of zero.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{object}	kube.Summary
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/summary [get]
+func (h *Handler) readSummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := h.service.ReadSummary(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, summary)
 }
 
 // respondError maps this slice's errors to status codes.

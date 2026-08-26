@@ -25,6 +25,7 @@ services:
       ADMIN_POSTGRES_DSN: ${ADMIN_POSTGRES_DSN:-}
       ADMIN_MONGO_URI: ${ADMIN_MONGO_URI:-}
       ADMIN_KUBERNETES_DISABLED: ${ADMIN_KUBERNETES_DISABLED:-true}
+      ADMIN_KUBERNETES_NODE_STATS: ${ADMIN_KUBERNETES_NODE_STATS:-false}
     ports:
       # Published as well as reachable on the compose network, so `npm run dev`
       # in admin/web can talk to this API without the panel container running.

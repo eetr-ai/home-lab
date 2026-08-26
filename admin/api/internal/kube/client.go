@@ -8,6 +8,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 // defaultRequestTimeout bounds a single call to the API server. Kept under the
@@ -65,4 +66,27 @@ func restConfig() (*rest.Config, error) {
 		return nil, fmt.Errorf("read a kubeconfig: %w", err)
 	}
 	return config, nil
+}
+
+// NewMetricsClientset builds a client for the metrics API, when one is wanted.
+//
+// Separate from the main clientset because metrics.k8s.io is served by an
+// optional aggregated API rather than by the API server itself. Building this
+// contacts nothing, so it succeeds on a cluster with no metrics-server; the
+// absence surfaces as a failed read, which the repository degrades to "no
+// reading" rather than to an error.
+func NewMetricsClientset() (*metricsclient.Clientset, error) {
+	config, err := restConfig()
+	if err != nil {
+		return nil, err
+	}
+	if config.Timeout == 0 {
+		config.Timeout = defaultRequestTimeout
+	}
+
+	clientset, err := metricsclient.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("build the Kubernetes metrics client: %w", err)
+	}
+	return clientset, nil
 }

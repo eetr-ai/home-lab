@@ -9,6 +9,9 @@ type repository interface {
 	ListWorkloads(ctx context.Context, namespace string) ([]Workload, error)
 	ListPods(ctx context.Context, namespace string) ([]Pod, error)
 	ListEvents(ctx context.Context, namespace string) ([]Event, error)
+	ListNodes(ctx context.Context) ([]Node, error)
+	ReadStorage(ctx context.Context) (Storage, error)
+	ReadSummary(ctx context.Context) (Summary, error)
 }
 
 // Service reads the cluster.
@@ -57,4 +60,28 @@ func (s *Service) ListEvents(ctx context.Context, namespace string) ([]Event, er
 		return nil, err
 	}
 	return s.repo.ListEvents(ctx, namespace)
+}
+
+// ListNodes returns every machine in the cluster, with what is scheduled against
+// it and what is actually being used.
+//
+// Usage arrives only when metrics-server is installed and has collected a sample.
+// Its absence is reported as a missing reading rather than as a failure: a
+// cluster without it is a normal cluster, and the capacity figures beside it are
+// worth showing on their own.
+func (s *Service) ListNodes(ctx context.Context) ([]Node, error) {
+	return s.repo.ListNodes(ctx)
+}
+
+// ReadStorage returns the cluster's persistent volume claims and volumes.
+func (s *Service) ReadStorage(ctx context.Context) (Storage, error) {
+	return s.repo.ReadStorage(ctx)
+}
+
+// ReadSummary returns the rollup the overview dashboard renders.
+//
+// One call rather than five, because a dashboard that issues a request per tile
+// renders in pieces and fails in pieces.
+func (s *Service) ReadSummary(ctx context.Context) (Summary, error) {
+	return s.repo.ReadSummary(ctx)
 }

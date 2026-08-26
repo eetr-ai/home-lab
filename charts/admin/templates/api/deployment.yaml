@@ -39,6 +39,10 @@ spec:
             - name: ADMIN_KUBERNETES_DISABLED
               value: "true"
             {{- end }}
+            {{- if and .Values.admin.api.kubernetes.enabled .Values.admin.api.kubernetes.nodeStats.enabled }}
+            - name: ADMIN_KUBERNETES_NODE_STATS
+              value: "true"
+            {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
               valueFrom:

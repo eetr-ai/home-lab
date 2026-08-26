@@ -6,6 +6,8 @@ const tabs = [
 	{ href: "/kubernetes/workloads", label: "Workloads" },
 	{ href: "/kubernetes/pods", label: "Pods" },
 	{ href: "/kubernetes/events", label: "Events" },
+	{ href: "/kubernetes/nodes", label: "Nodes" },
+	{ href: "/kubernetes/storage", label: "Storage" },
 ];
 
 export default function KubernetesLayout({ children }: { children: React.ReactNode }) {

@@ -108,43 +108,133 @@ fi
 rbac=$(render --show-only templates/api/rbac.yaml)
 release_role='home-lab-admin-read'
 
-# Every granted verb, normalised out of whichever YAML style the template used —
-# flow (`verbs: ["get"]`) or block (`verbs:` then `- get`). Matching the text as
-# written would pass the moment somebody reformatted the template.
-granted_verbs=$(printf '%s\n' "$rbac" | awk '
-  /^[[:space:]]*verbs:[[:space:]]*\[/ { line=$0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line); print line; next }
-  /^[[:space:]]*verbs:[[:space:]]*$/   { block=1; next }
-  block && /^[[:space:]]*-[[:space:]]/ { line=$0; sub(/^[[:space:]]*-[[:space:]]*/, "", line); print line; next }
-  block                                { block=0 }
-' | tr -d '"'"'"',' | tr ' ' '\n' | sed '/^[[:space:]]*$/d' | sort -u)
+# Every (apiGroup/resource, verb) the ClusterRole grants, scoped to the rule that
+# granted it. The pairing is the whole point: a flat set of verbs cannot tell
+# `get` on nodes from `get` on nodes/proxy, and the day this role holds a write
+# verb it could not tell `patch` on deployments/scale from `patch` on secrets.
+#
+# Both YAML styles the template might use are parsed — flow (`verbs: ["get"]`) and
+# block (`verbs:` then `- get`) — so a reformat does not quietly change what is
+# asserted. Parsing stops at the ClusterRoleBinding, which has no rules of its own
+# but would otherwise contribute to the set.
+extract_pairs() {
+  awk '
+    function items(line,   s) { s = line; sub(/^[^[]*\[/, "", s); sub(/\].*$/, "", s)
+        gsub(/""/, "core", s); gsub(/[",]/, " ", s); return s }
+    function push(arr, s,   i, k, n, parts) { n = 0; k = split(s, parts, /[ \t]+/)
+        for (i = 1; i <= k; i++) if (parts[i] != "") arr[++n] = parts[i]; return n }
+    function flush(   g, r, v) {
+      for (g = 1; g <= ng; g++) for (r = 1; r <= nr; r++) for (v = 1; v <= nv; v++)
+        printf "%s/%s %s\n", grp[g], res[r], vrb[v]
+      ng = 0; nr = 0; nv = 0
+    }
+    /^kind: ClusterRoleBinding$/ { flush(); stop = 1 }
+    stop { next }
+    /^[[:space:]]*-[[:space:]]*apiGroups:[[:space:]]*\[/ {
+        flush(); mode = ""; ng = push(grp, items($0)); next }
+    /^[[:space:]]*-[[:space:]]*apiGroups:[[:space:]]*$/ { flush(); mode = "g"; ng = 0; next }
+    /^[[:space:]]*resources:[[:space:]]*\[/ { mode = ""; nr = push(res, items($0)); next }
+    /^[[:space:]]*verbs:[[:space:]]*\[/     { mode = ""; nv = push(vrb, items($0)); next }
+    /^[[:space:]]*apiGroups:[[:space:]]*$/  { mode = "g"; ng = 0; next }
+    /^[[:space:]]*resources:[[:space:]]*$/  { mode = "r"; nr = 0; next }
+    /^[[:space:]]*verbs:[[:space:]]*$/      { mode = "v"; nv = 0; next }
+    mode != "" && /^[[:space:]]*-[[:space:]]/ {
+        s = $0; sub(/^[[:space:]]*-[[:space:]]*/, "", s); gsub(/"/, "", s)
+        if (s == "") s = "core"
+        if (mode == "g") grp[++ng] = s
+        else if (mode == "r") res[++nr] = s
+        else vrb[++nv] = s
+        next }
+    { mode = "" }
+    END { flush() }
+  ' | LC_ALL=C sort -u
+}
 
-if [[ -z $granted_verbs ]]; then
-  printf 'No verbs found in the rendered ClusterRole. The assertion below would pass on anything.\n' >&2
+# LC_ALL=C on both sides is not cosmetic: nodes/proxy contains a slash, and the
+# default collation on glibc ignores punctuation at the first level — so the two
+# sides could sort differently on a laptop and in CI.
+granted_pairs=$(printf '%s\n' "$rbac" | extract_pairs)
+
+if [[ -z $granted_pairs ]]; then
+  printf 'No rules found in the rendered ClusterRole. The assertion below would pass on anything.\n' >&2
   exit 1
 fi
 
-while read -r verb; do
-  case "$verb" in
-    get | list | watch) ;;
-    *)
-      printf 'The admin ClusterRole must be read-only; it grants %s\n' "$verb" >&2
-      exit 1
-      ;;
-  esac
-done <<<"$granted_verbs"
+# Every pair, spelled out. Each is exercised by a named method in
+# admin/api/internal/kube; a standing grant for anything else is a permission
+# nobody is reviewing. Add one back in the change that reads it.
+expected_pairs=$(LC_ALL=C sort -u <<'PAIRS'
+apps/daemonsets get
+apps/daemonsets list
+apps/daemonsets watch
+apps/deployments get
+apps/deployments list
+apps/deployments watch
+apps/statefulsets get
+apps/statefulsets list
+apps/statefulsets watch
+core/events get
+core/events list
+core/events watch
+core/namespaces get
+core/namespaces list
+core/namespaces watch
+core/nodes get
+core/nodes list
+core/nodes watch
+core/persistentvolumeclaims get
+core/persistentvolumeclaims list
+core/persistentvolumeclaims watch
+core/persistentvolumes get
+core/persistentvolumes list
+core/persistentvolumes watch
+core/pods get
+core/pods list
+core/pods watch
+metrics.k8s.io/nodes get
+metrics.k8s.io/nodes list
+metrics.k8s.io/pods get
+metrics.k8s.io/pods list
+PAIRS
+)
 
-# The resources are pinned too, not just the verbs. Every one of these is read by
-# a named method in admin/api/internal/kube; a standing grant for anything else is
-# a permission nobody is reviewing. Add one back in the change that reads it.
-granted_resources=$(printf '%s\n' "$rbac" | awk '
-  /^[[:space:]]*resources:[[:space:]]*$/   { block=1; next }
-  block && /^[[:space:]]*-[[:space:]]/     { line=$0; sub(/^[[:space:]]*-[[:space:]]*/, "", line); print line; next }
-  block                                    { block=0 }
-' | tr -d '"' | sort -u | tr '\n' ' ')
-expected_resources='daemonsets deployments events namespaces pods statefulsets '
-if [[ $granted_resources != "$expected_resources" ]]; then
-  printf 'The admin ClusterRole grants [%s]; expected [%s].\n' "$granted_resources" "$expected_resources" >&2
-  printf 'If the API now reads something new, add it here in the same change.\n' >&2
+if [[ $granted_pairs != "$expected_pairs" ]]; then
+  printf 'The admin ClusterRole grants a different set of permissions than expected.\n' >&2
+  diff <(printf '%s\n' "$expected_pairs") <(printf '%s\n' "$granted_pairs") >&2 || true
+  printf 'If the API now reads something new, add the pair here in the same change.\n' >&2
+  exit 1
+fi
+
+# Belt and braces, so a mistake in the list above is still caught. These verbs are
+# never right for this role however they are scoped: the panel reads the cluster
+# and creates, deletes, changes, or grants nothing in it.
+forbidden_verbs=' (create|update|patch|delete|deletecollection|bind|escalate|impersonate|\*)$'
+if grep -qE "$forbidden_verbs" <<<"$granted_pairs"; then
+  printf 'The admin ClusterRole grants a verb it must never hold:\n' >&2
+  grep -E "$forbidden_verbs" <<<"$granted_pairs" >&2
+  exit 1
+fi
+
+# ...and no wildcard on either side of a rule.
+if grep -qE '(^\*/|/\*)' <<<"$granted_pairs"; then
+  printf 'The admin ClusterRole uses a wildcard group or resource\n' >&2
+  exit 1
+fi
+
+# Reading node disk usage means reaching the kubelet through the node proxy, which
+# also opens its other read endpoints. That is a deliberate choice, so assert both
+# halves: it is absent by default, and it appears — with `get` and nothing else —
+# only when it is asked for.
+if grep -q 'nodes/proxy' <<<"$granted_pairs"; then
+  printf 'The nodes/proxy grant must not be held by default\n' >&2
+  exit 1
+fi
+
+node_stats_pairs=$(render --set admin.api.kubernetes.nodeStats.enabled=true \
+  --show-only templates/api/rbac.yaml | extract_pairs | grep 'nodes/proxy' || true)
+if [[ $node_stats_pairs != 'core/nodes/proxy get' ]]; then
+  printf 'Enabling node stats must grant get on nodes/proxy and nothing else; it granted [%s]\n' \
+    "$node_stats_pairs" >&2
   exit 1
 fi
 

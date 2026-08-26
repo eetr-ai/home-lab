@@ -30,6 +30,21 @@ func (f *fakeRepo) ListEvents(_ context.Context, namespace string) ([]Event, err
 	return nil, nil
 }
 
+func (f *fakeRepo) ListNodes(context.Context) ([]Node, error) {
+	f.asked = append(f.asked, "nodes")
+	return nil, nil
+}
+
+func (f *fakeRepo) ReadStorage(context.Context) (Storage, error) {
+	f.asked = append(f.asked, "storage")
+	return Storage{}, nil
+}
+
+func (f *fakeRepo) ReadSummary(context.Context) (Summary, error) {
+	f.asked = append(f.asked, "summary")
+	return Summary{}, nil
+}
+
 // A malformed namespace must be refused here rather than sent to the API server,
 // whose reply is a message about DNS label formats that does not say which
 // parameter was wrong.

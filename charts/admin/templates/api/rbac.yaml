@@ -5,18 +5,17 @@ Read-only, cluster-wide.
 Cluster-wide because the panel's job is to say what is running everywhere, and a
 Role per namespace would mean editing this chart whenever a namespace is added.
 Read-only because the panel does not change workloads: that is what the
-repository's Helm releases and kubectl are for, and an API that could scale or
-delete would need a far more careful answer to "who is allowed to" than "whoever
-can sign in".
+repository's Helm releases and kubectl are for.
 
-The verbs here are the whole of it. tests/validate-admin-chart.sh fails the build
-if a write verb ever appears.
+The verbs here are the whole of it, and so are the resources: the list is exactly
+what the API reads, and nothing is granted "in case a later endpoint wants it".
+Services and replicasets were listed here originally and no code ever asked for
+them; a standing grant for something unused is a permission nobody is reviewing.
+Add one back in the same change that reads it.
 
-The resources are the whole of it too, and the list is exactly what the API reads
-— nothing is granted "in case a later endpoint wants it". Services, nodes and
-replicasets were listed here originally and no code ever asked for them; a
-standing grant for something unused is a permission nobody is reviewing. Add one
-back in the same change that reads it.
+tests/validate-admin-chart.sh pins every (resource, verb) pair below and fails the
+build on any it does not expect — including any write verb, which this role holds
+none of.
 */ -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -25,12 +24,21 @@ metadata:
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 rules:
-  # ListNamespaces, ListPods, ListEvents.
+  # ListNamespaces, ListPods, ListEvents, ListNodes, and ReadStorage.
+  #
+  # nodes and the two storage kinds are cluster-scoped and carry no workload data:
+  # a node reports its capacity and its kubelet version, and a volume its size and
+  # what it is bound to. configmaps are deliberately absent — plenty of workloads
+  # keep connection strings and internal hostnames in one, and the panel renders
+  # whatever it reads.
   - apiGroups: [""]
     resources:
       - namespaces
       - pods
       - events
+      - nodes
+      - persistentvolumeclaims
+      - persistentvolumes
     verbs: ["get", "list", "watch"]
   # ListWorkloads, which is these three kinds and no others.
   - apiGroups: ["apps"]
@@ -39,6 +47,33 @@ rules:
       - statefulsets
       - daemonsets
     verbs: ["get", "list", "watch"]
+  # Live CPU and memory, served by metrics-server.
+  #
+  # No watch: the metrics API does not implement one, and granting a verb the
+  # server cannot honour is a permission that only looks like it does something.
+  # The panel treats a failure here as a missing reading rather than an error, so
+  # this grant is harmless on a cluster with no metrics-server installed.
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
+{{- if .Values.admin.api.kubernetes.nodeStats.enabled }}
+  # Node disk usage, which is not in the Kubernetes API at all: the kubelet's own
+  # stats endpoint is the only source, reached through the API server's node proxy.
+  #
+  # This is the widest grant the chart can hold, which is why it is off by default.
+  # `get` on nodes/proxy reaches every read endpoint the kubelet serves, including
+  # /logs — files under /var/log on the host. It does not permit exec or attach:
+  # those need `create` on the same subresource, which is never granted here.
+  #
+  # Switched on by admin.api.kubernetes.nodeStats.enabled, and worth switching off
+  # again if the disk figure stops being worth it.
+  - apiGroups: [""]
+    resources:
+      - nodes/proxy
+    verbs: ["get"]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

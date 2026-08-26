@@ -162,11 +162,44 @@ Role per namespace would mean editing the chart whenever a namespace is added.
 Read-only, because the panel does not change workloads — that is what the
 repository's Helm releases and `kubectl` are for, and an API that could scale or
 delete would need a far more careful answer to "who is allowed to" than "whoever
-can sign in". `tests/validate-admin-chart.sh` fails the build if a write verb ever
-appears in that role.
+can sign in".
+
+`tests/validate-admin-chart.sh` pins every `(resource, verb)` pair the role grants
+and fails the build on any it does not expect — scoped to the rule that granted
+it, so it can tell `get` on `nodes` from `get` on `nodes/proxy`. Adding a read
+means adding the pair there in the same change. Write verbs are refused outright.
 
 Set `admin.api.kubernetes.enabled=false` to serve neither the endpoints nor the
 role — for running the API somewhere with no cluster to read.
+
+### Live CPU and memory
+
+The dashboard's usage figures come from `metrics.k8s.io`, which is served by
+metrics-server — an optional component the platform chart installs. The grant for
+it is unconditional and harmless without it: the panel treats a metrics API that
+does not answer as a missing reading, and the dashboard says so for that one
+figure rather than failing. Capacity and reservations are read from the core API
+and are unaffected.
+
+On k3s, which bundles its own metrics-server, set `metrics-server.enabled=false`
+in the platform chart instead of installing a second one — two aggregated API
+servers cannot both back the same group.
+
+### Node disk usage
+
+Off by default, and the one grant here worth a deliberate decision.
+
+Node disk usage is in neither the Kubernetes API nor metrics-server, so the only
+source is the kubelet's own stats endpoint, reached through the API server's node
+proxy. Setting `admin.api.kubernetes.nodeStats.enabled=true` adds `get` on
+`nodes/proxy` and sets `ADMIN_KUBERNETES_NODE_STATS` on the pod. That verb reaches
+every read endpoint a kubelet serves, including the one that returns files under
+`/var/log` on the host. It does **not** permit exec or attach — those need
+`create` on the same subresource, which the chart never grants.
+
+Left off, the nodes page reports every other figure and shows the node's
+ephemeral-storage allocatable in place of a usage reading, labelled as the
+capacity it is.
 
 ## Install
 

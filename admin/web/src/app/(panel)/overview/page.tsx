@@ -1,55 +1,55 @@
-import { CircleCheck, CircleX, LayoutDashboard } from "lucide-react";
-import { auth } from "@/auth";
-import { describeCaller } from "@/app/actions/identity";
+import { Database, LayoutDashboard, Leaf } from "lucide-react";
+import { readSummary } from "@/app/actions/kube";
+import { listDatabases as listMongoDatabases } from "@/app/actions/mongo";
+import { listDatabases as listPostgresDatabases } from "@/app/actions/postgres";
+import { Banner } from "@/components/ui/banner";
+import { SectionCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card } from "@/components/ui/card";
+import { ClusterSection } from "./_components/cluster-section";
+import { DatabaseStat } from "./_components/database-stat";
+
+export const dynamic = "force-dynamic";
 
 /**
- * The panel's landing page, and its end-to-end proof.
+ * The panel's landing page: what is running, what it is using, and what is wrong.
  *
- * It reports what the API says about the caller. That single round trip exercises
- * everything the rest of the panel depends on — the operator's token was stored
- * in the session, sent as a bearer credential, verified against eetr-auth's
- * published keys, and its subject read back — so when a section is broken, this
- * page says whether the cause is above or below the API.
+ * The rollup across the cluster and both databases happens here rather than in
+ * the API. The Go slices do not import each other — see
+ * docs/contributing/layer-conventions.md — and a dashboard spanning all three is
+ * exactly the change that would tempt one to. The BFF is where a view that
+ * crosses slices belongs.
+ *
+ * Every section reports its own failure rather than one banner standing in for
+ * the page. A database that is down must not blank the cluster tiles: the
+ * dashboard earns its place precisely when something is broken.
  */
 export default async function OverviewPage() {
-	const [caller, session] = await Promise.all([describeCaller(), auth()]);
+	const [cluster, mongo, postgres] = await Promise.all([
+		readSummary(),
+		listMongoDatabases(),
+		listPostgresDatabases(),
+	]);
 
 	return (
-		<main className="flex min-h-screen flex-col p-6">
+		<main className="flex min-h-screen flex-col gap-6 p-6">
 			<PageHeader
 				icon={LayoutDashboard}
 				title="Overview"
-				description="The panel's connection to the admin API."
+				description="What the lab is running, and what it is using to run it."
 			/>
 
-			<Card className="max-w-xl">
-				<h2 className="mb-4 flex items-center gap-2 text-lg font-medium">
-					{caller.ok ? (
-						<CircleCheck className="h-5 w-5 text-success-icon" />
-					) : (
-						<CircleX className="h-5 w-5 text-danger-icon" />
-					)}
-					Admin API
-				</h2>
+			{cluster.ok ? (
+				<ClusterSection summary={cluster.data} />
+			) : (
+				<Banner variant="error" message={cluster.error} />
+			)}
 
-				{caller.ok ? (
-					<dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-						<dt className="text-muted-foreground">Subject</dt>
-						<dd className="truncate font-mono">{caller.data.subject}</dd>
-						<dt className="text-muted-foreground">Email</dt>
-						{/* The API reports the email only when the access token carries the
-						    claim, and eetr-auth puts it in the ID token instead — so the
-						    session is where the panel actually knows it from. */}
-						<dd className="truncate">
-							{caller.data.email || session?.user?.email || "—"}
-						</dd>
-					</dl>
-				) : (
-					<p className="text-sm text-danger-fg">{caller.error}</p>
-				)}
-			</Card>
+			<SectionCard title="Databases" icon={Database}>
+				<div className="grid gap-3 sm:grid-cols-2">
+					<DatabaseStat label="PostgreSQL on disk" icon={Database} result={postgres} />
+					<DatabaseStat label="MongoDB on disk" icon={Leaf} result={mongo} />
+				</div>
+			</SectionCard>
 		</main>
 	);
 }

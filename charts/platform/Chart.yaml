@@ -16,3 +16,13 @@ dependencies:
     alias: nfs-provisioner
     version: 4.0.18
     repository: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+  # Live CPU and memory for the admin panel's dashboard. Nothing else in the
+  # cluster depends on it, so it is conditional: without it the panel reports
+  # capacity and requests and shows usage as unavailable.
+  #
+  # k3s ships a metrics-server of its own. On such a cluster set
+  # metrics-server.enabled to false rather than installing a second one.
+  - name: metrics-server
+    version: 3.13.0
+    repository: https://kubernetes-sigs.github.io/metrics-server/
+    condition: metrics-server.enabled

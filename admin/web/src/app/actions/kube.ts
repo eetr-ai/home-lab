@@ -3,7 +3,15 @@
 import * as kube from "@/lib/api/kube";
 import { withRead } from "./_auth";
 import type { ActionResult } from "@/lib/api/result";
-import type { ClusterEvent, Namespace, Pod, Workload } from "@/lib/api/types";
+import type {
+	ClusterEvent,
+	ClusterNode,
+	ClusterSummary,
+	Namespace,
+	Pod,
+	Storage,
+	Workload,
+} from "@/lib/api/types";
 
 /**
  * The cluster section's actions — reads only, and not because the write ones are
@@ -26,4 +34,16 @@ export async function listPods(namespace: string): Promise<ActionResult<Pod[]>> 
 
 export async function listEvents(namespace: string): Promise<ActionResult<ClusterEvent[]>> {
 	return withRead(() => kube.listEvents(namespace));
+}
+
+export async function listNodes(): Promise<ActionResult<ClusterNode[]>> {
+	return withRead(() => kube.listNodes());
+}
+
+export async function readStorage(): Promise<ActionResult<Storage>> {
+	return withRead(() => kube.readStorage());
+}
+
+export async function readSummary(): Promise<ActionResult<ClusterSummary>> {
+	return withRead(() => kube.readSummary());
 }

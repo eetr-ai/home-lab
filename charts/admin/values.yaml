@@ -44,6 +44,18 @@ admin:
     # read-only ClusterRole below is created with it.
     kubernetes:
       enabled: true
+      # Node disk usage, read from each kubelet's stats endpoint.
+      #
+      # Off by default, and it is the one grant here worth a deliberate decision.
+      # Disk usage is not in the Kubernetes API and metrics-server reports only CPU
+      # and memory, so the only source is the kubelet — which means `get` on the
+      # nodes/proxy subresource, and that also opens the kubelet's other read
+      # endpoints, including the one that serves files under /var/log on the host.
+      #
+      # Left off, the panel reports every other node figure and shows disk as
+      # unavailable. Nothing else changes.
+      nodeStats:
+        enabled: false
 
     postgres:
       enabled: false
