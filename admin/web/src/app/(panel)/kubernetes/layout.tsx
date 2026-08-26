@@ -16,7 +16,7 @@ export default function KubernetesLayout({ children }: { children: React.ReactNo
 			<PageHeader
 				icon={Boxes}
 				title="Kubernetes"
-				description="What is running on the cluster. Read-only — changes belong in this repository's Helm releases."
+				description="What is running on the cluster. Workloads can be restarted and scaled; what they are belongs in this repository's Helm releases."
 			/>
 			<SectionTabs tabs={tabs} />
 			{children}

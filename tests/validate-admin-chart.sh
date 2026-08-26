@@ -101,9 +101,24 @@ if grep -E -A 1 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' <<<"$configured" | grep -q '^ 
   exit 1
 fi
 
-# The panel reads the cluster and does not change it. This is the assertion that
-# holds that true, so it reads the rendered document rather than grepping the whole
-# output: a write verb anywhere in the release would otherwise be invisible, and an
+# The query console's credential is separate from the superuser one and off by
+# default. Without it the API answers 503 rather than running submitted SQL as
+# the superuser, which is the whole reason it is its own value.
+if grep -q 'ADMIN_POSTGRES_QUERY_DSN' <<<"$configured"; then
+  printf 'The query console credential must not be configured by default\n' >&2
+  exit 1
+fi
+
+with_query=$(render --set admin.api.postgres.enabled=true --set admin.api.postgres.query.enabled=true)
+grep -q 'name: ADMIN_POSTGRES_QUERY_DSN' <<<"$with_query"
+if grep -A 1 'ADMIN_POSTGRES_QUERY_DSN$' <<<"$with_query" | grep -q '^ *value:'; then
+  printf 'The query credential was rendered as a literal value\n' >&2
+  exit 1
+fi
+
+# What the panel may do to the cluster. This is the assertion that holds it to
+# exactly that, so it reads the rendered document rather than grepping the whole
+# output: a grant anywhere in the release would otherwise be invisible, and an
 # unrelated ClusterRoleBinding would satisfy a bare `grep -q`.
 rbac=$(render --show-only templates/api/rbac.yaml)
 release_role='home-lab-admin-read'
@@ -169,10 +184,16 @@ apps/daemonsets list
 apps/daemonsets watch
 apps/deployments get
 apps/deployments list
+apps/deployments patch
 apps/deployments watch
+apps/deployments/scale get
+apps/deployments/scale update
 apps/statefulsets get
 apps/statefulsets list
+apps/statefulsets patch
 apps/statefulsets watch
+apps/statefulsets/scale get
+apps/statefulsets/scale update
 core/events get
 core/events list
 core/events watch
@@ -191,6 +212,10 @@ core/persistentvolumes watch
 core/pods get
 core/pods list
 core/pods watch
+core/pods/log get
+core/services get
+core/services list
+core/services watch
 metrics.k8s.io/nodes get
 metrics.k8s.io/nodes list
 metrics.k8s.io/pods get
@@ -205,13 +230,36 @@ if [[ $granted_pairs != "$expected_pairs" ]]; then
   exit 1
 fi
 
-# Belt and braces, so a mistake in the list above is still caught. These verbs are
-# never right for this role however they are scoped: the panel reads the cluster
-# and creates, deletes, changes, or grants nothing in it.
-forbidden_verbs=' (create|update|patch|delete|deletecollection|bind|escalate|impersonate|\*)$'
+# Belt and braces, so a mistake in the expected list above is still caught. These
+# verbs are never right for this role however they are scoped: the panel rolls and
+# resizes what already exists, and brings nothing into being, takes nothing away,
+# and grants nobody anything.
+#
+# `patch` and `update` are not here — they are legitimate now, on exactly the four
+# pairs listed above — which is the whole reason the assertion had to become pairs
+# rather than a flat set of verbs. It could no longer tell `patch` on
+# deployments/scale from `patch` on secrets.
+forbidden_verbs=' (create|delete|deletecollection|bind|escalate|impersonate|\*)$'
 if grep -qE "$forbidden_verbs" <<<"$granted_pairs"; then
   printf 'The admin ClusterRole grants a verb it must never hold:\n' >&2
   grep -E "$forbidden_verbs" <<<"$granted_pairs" >&2
+  exit 1
+fi
+
+# ...and the write verbs it does hold reach only the four workload pairs. Spelled
+# out separately from the list above so that widening that list to, say, secrets
+# still trips this — the two assertions have to be wrong in the same way to pass.
+writable=$(grep -E ' (patch|update)$' <<<"$granted_pairs" | LC_ALL=C sort)
+expected_writable=$(LC_ALL=C sort <<'WRITABLE'
+apps/deployments patch
+apps/deployments/scale update
+apps/statefulsets patch
+apps/statefulsets/scale update
+WRITABLE
+)
+if [[ $writable != "$expected_writable" ]]; then
+  printf 'The admin ClusterRole may write to something unexpected.\n' >&2
+  diff <(printf '%s\n' "$expected_writable") <(printf '%s\n' "$writable") >&2 || true
   exit 1
 fi
 

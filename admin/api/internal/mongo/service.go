@@ -47,7 +47,10 @@ type repository interface {
 	CreateUser(ctx context.Context, database string, req CreateUserRequest) error
 	DropUser(ctx context.Context, database, name string) error
 	UserExists(ctx context.Context, database, name string) (bool, error)
+	UpdateUser(ctx context.Context, database, name string, req UpdateUserRequest) error
 	CurrentUser(ctx context.Context) (string, error)
+
+	Find(ctx context.Context, database string, req FindRequest) (FindResult, error)
 }
 
 // Service manages the databases, collections, and users on the MongoDB server.
@@ -261,4 +264,140 @@ func validateRoles(roles []Role) error {
 		}
 	}
 	return nil
+}
+
+// UpdateUser replaces a user's roles and, when one is given, its password.
+//
+// The account the panel connects as is refused, for the same reason it cannot be
+// dropped: revoking its own roles through a form would lock the panel out of the
+// server it is being used to administer.
+func (s *Service) UpdateUser(
+	ctx context.Context, database, name string, req UpdateUserRequest,
+) (User, error) {
+	if err := validateDatabaseName(database); err != nil {
+		return User{}, err
+	}
+	if err := validateUserName(name); err != nil {
+		return User{}, err
+	}
+	if req.Password != "" && len(req.Password) < minPasswordLength {
+		return User{}, fmt.Errorf("%w: a password must be at least %d characters",
+			ErrWeakPassword, minPasswordLength)
+	}
+	if err := validateRoles(req.Roles); err != nil {
+		return User{}, err
+	}
+
+	current, err := s.repo.CurrentUser(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	// EqualFold, matching the drop path a few functions up. The same invariant
+	// spelled two ways in one file is how a name differing only in case ends up
+	// refused by one and accepted by the other.
+	if strings.EqualFold(current, name) {
+		return User{}, fmt.Errorf(
+			"%w: %q is the account the panel connects as; changing it here could lock the panel out",
+			ErrProtected, name)
+	}
+
+	exists, err := s.repo.UserExists(ctx, database, name)
+	if err != nil {
+		return User{}, err
+	}
+	if !exists {
+		return User{}, fmt.Errorf("%w: no user named %q in %q", ErrNotFound, name, database)
+	}
+
+	if err := s.repo.UpdateUser(ctx, database, name, req); err != nil {
+		return User{}, err
+	}
+	return User{Name: name, Database: database, Roles: req.Roles}, nil
+}
+
+// Find returns documents from one collection.
+//
+// A find and nothing else — no aggregate, which can write through $out and
+// $merge, and no runCommand, which is the whole server. Both are deliberate
+// omissions rather than things not got to yet.
+//
+// The filter is checked for the operators that run server-side JavaScript, and
+// this check is the whole of that boundary: verified against MongoDB 7, the
+// server permits $where, $function, and a $where nested inside an $and on a root
+// connection without complaint. Nothing below this refuses them.
+//
+// What they actually are, having looked rather than assumed: JavaScript in the
+// server's own sandboxed engine, with no require, process, fs, or db in scope —
+// so not a route to the host, unlike the PostgreSQL side's COPY TO PROGRAM. What
+// they are is a way to force a full collection scan and to occupy a core until
+// the query deadline: an unbounded loop in a $where ran for the full maxTimeMS
+// before being killed. That is worth refusing from a panel button, and worth
+// refusing honestly rather than by overstating it.
+//
+// The check is a closed list of operator names read from a typed document, not a
+// pattern match over text, which is why it can be relied on at all.
+func (s *Service) Find(ctx context.Context, database string, req FindRequest) (FindResult, error) {
+	if err := validateDatabaseName(database); err != nil {
+		return FindResult{}, err
+	}
+	if err := validateCollectionName(req.Collection); err != nil {
+		return FindResult{}, err
+	}
+	if err := refuseJavaScript(req.Filter); err != nil {
+		return FindResult{}, err
+	}
+	if err := refuseJavaScript(req.Sort); err != nil {
+		return FindResult{}, err
+	}
+	if err := refuseJavaScript(req.Projection); err != nil {
+		return FindResult{}, err
+	}
+	return s.repo.Find(ctx, database, req)
+}
+
+// javaScriptOperators are the query operators that execute code on the server.
+//
+// $where and $function both run JavaScript with the connection's privileges;
+// $accumulator does the same inside an aggregation and is listed because a filter
+// document is not the only place one can appear. $expr is deliberately absent —
+// it evaluates aggregation expressions, not JavaScript, and is a legitimate part
+// of an ordinary query.
+var javaScriptOperators = []string{"$where", "$function", "$accumulator"}
+
+// refuseJavaScript walks a query document for operators that execute code.
+//
+// Recursive, because these nest: a $where inside an $and inside an $or is the
+// same instruction to the server as one at the top level, and a check that only
+// looked at the outermost keys would be a check in name only.
+func refuseJavaScript(document map[string]any) error {
+	for key, value := range document {
+		if slices.Contains(javaScriptOperators, strings.ToLower(key)) {
+			return fmt.Errorf("%w: %s runs JavaScript on the server and is not permitted here",
+				ErrInvalidQuery, key)
+		}
+		if err := refuseJavaScriptIn(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// refuseJavaScriptIn descends into whatever a value turns out to be.
+//
+// A JSON body decodes into map[string]any and []any, so those two are the whole
+// of what can hold a nested operator.
+func refuseJavaScriptIn(value any) error {
+	switch nested := value.(type) {
+	case map[string]any:
+		return refuseJavaScript(nested)
+	case []any:
+		for _, item := range nested {
+			if err := refuseJavaScriptIn(item); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return nil
+	}
 }

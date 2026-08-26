@@ -63,6 +63,19 @@ admin:
       secret:
         name: admin-postgres
         key: dsn
+      # The credential the read-only query console runs submitted SQL as.
+      #
+      # Separate from the one above and deliberately not a superuser: dropping
+      # privileges inside a superuser session is not a boundary, because a
+      # submitted `RESET ROLE` undoes it and `COPY ... TO PROGRAM` then runs
+      # shell commands on the database host. Off means the console is not served,
+      # which is the right default. databases/README.md has the two statements
+      # that create the role.
+      query:
+        enabled: false
+        secret:
+          name: admin-postgres-query
+          key: dsn
     mongo:
       enabled: false
       secret:

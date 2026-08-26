@@ -1,14 +1,17 @@
 package kube
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 )
 
-// Handler exposes the Kubernetes slice over HTTP. Read-only throughout.
+// Handler exposes the Kubernetes slice over HTTP.
 type Handler struct {
 	service *Service
 }
@@ -18,8 +21,19 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
+// maxStreamDuration caps a single log stream.
+//
+// A forgotten browser tab holds a goroutine here and a connection to the API
+// server for as long as it is open, and neither side has any reason to notice.
+// This is what ends it.
+const maxStreamDuration = 30 * time.Minute
+
 // Register adds the Kubernetes routes to a mux that already requires a verified
-// caller. Every route is a GET, which is the whole surface by design.
+// caller.
+//
+// Almost all of it is GETs. The two exceptions — restart and scale — change how
+// many pods a workload runs and when they last started, and nothing else; see the
+// note on Service.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/namespaces", h.listNamespaces)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads", h.listWorkloads)
@@ -28,6 +42,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/nodes", h.listNodes)
 	mux.HandleFunc("GET /api/kubernetes/storage", h.readStorage)
 	mux.HandleFunc("GET /api/kubernetes/summary", h.readSummary)
+	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/pods/{pod}/logs", h.podLogs)
+	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}",
+		h.readWorkload)
+	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/restart",
+		h.restartWorkload)
+	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale",
+		h.scaleWorkload)
 }
 
 // listNamespaces returns every namespace in the cluster.
@@ -187,6 +208,193 @@ func (h *Handler) readSummary(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, summary)
 }
 
+// readWorkload returns one workload and everything around it.
+//
+//	@Summary		Read a workload
+//	@Description	The workload with its pods, the services that reach them, the volume
+//	@Description	claims they mount, and the events about any of it — in one call, because
+//	@Description	the pieces are found by following the workload's own selector and a
+//	@Description	client doing that would need to know how Kubernetes labels relate.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace"
+//	@Param			kind		path		string	true	"Deployment, StatefulSet, or DaemonSet"
+//	@Param			name		path		string	true	"Workload name"
+//	@Success		200			{object}	kube.WorkloadDetail
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name} [get]
+func (h *Handler) readWorkload(w http.ResponseWriter, r *http.Request) {
+	detail, err := h.service.ReadWorkload(r.Context(),
+		r.PathValue("kind"), r.PathValue("namespace"), r.PathValue("name"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, detail)
+}
+
+// restartWorkload rolls a workload's pods.
+//
+//	@Summary		Restart a workload
+//	@Description	Stamps the pod template's restartedAt annotation, the same mechanism
+//	@Description	`kubectl rollout restart` uses, so the controller replaces its pods under
+//	@Description	its own rollout strategy. Nothing is deleted. Deployments and
+//	@Description	StatefulSets only.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path	string	true	"Namespace"
+//	@Param			kind		path	string	true	"Deployment or StatefulSet"
+//	@Param			name		path	string	true	"Workload name"
+//	@Success		204
+//	@Failure		400	{object}	http.ErrorBody
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Failure		404	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/restart [post]
+func (h *Handler) restartWorkload(w http.ResponseWriter, r *http.Request) {
+	err := h.service.RestartWorkload(r.Context(),
+		r.PathValue("kind"), r.PathValue("namespace"), r.PathValue("name"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusNoContent, nil)
+}
+
+// scaleWorkload sets a workload's replica count.
+//
+//	@Summary		Scale a workload
+//	@Description	Sets the desired replica count through the scale subresource. Deployments
+//	@Description	and StatefulSets only: a DaemonSet's count comes from how many nodes it
+//	@Description	matches, so there is nothing to set.
+//	@Tags			kubernetes
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path	string				true	"Namespace"
+//	@Param			kind		path	string				true	"Deployment or StatefulSet"
+//	@Param			name		path	string				true	"Workload name"
+//	@Param			request		body	kube.ScaleRequest	true	"Desired replicas"
+//	@Success		204
+//	@Failure		400	{object}	http.ErrorBody
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Failure		404	{object}	http.ErrorBody
+//	@Failure		409	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale [put]
+func (h *Handler) scaleWorkload(w http.ResponseWriter, r *http.Request) {
+	var request ScaleRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+	if request.Replicas == nil {
+		// Refused rather than defaulted. Zero is a real replica count, so treating
+		// a missing one as zero would let `{}` take a workload down.
+		httpx.Error(w, http.StatusBadRequest, "invalid_request",
+			"replicas is required; it is the count to scale to")
+		return
+	}
+
+	err := h.service.ScaleWorkload(r.Context(),
+		r.PathValue("kind"), r.PathValue("namespace"), r.PathValue("name"), *request.Replicas)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusNoContent, nil)
+}
+
+// podLogs streams one pod's log.
+//
+//	@Summary		Stream a pod's log
+//	@Description	Plain text, chunked, flushed per line. With follow=true the response stays
+//	@Description	open and new lines arrive as they are written; closing the connection ends
+//	@Description	it at the API server too. previous=true reads the last terminated
+//	@Description	instance, which is where the reason for a CrashLoopBackOff lives.
+//	@Tags			kubernetes
+//	@Produce		plain
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace"
+//	@Param			pod			path		string	true	"Pod name"
+//	@Param			container	query		string	false	"Container; required when the pod has more than one"
+//	@Param			follow		query		boolean	false	"Keep the stream open"
+//	@Param			tail		query		integer	false	"Lines of history first (default 200, max 5000)"
+//	@Param			previous	query		boolean	false	"Read the last terminated instance"
+//	@Success		200			{string}	string	"the log"
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/pods/{pod}/logs [get]
+func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
+	if !clearWriteDeadline(w) {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), maxStreamDuration)
+	defer cancel()
+
+	stream, err := h.service.PodLogs(ctx, r.PathValue("namespace"), r.PathValue("pod"), LogOptions{
+		Container: r.URL.Query().Get("container"),
+		Follow:    r.URL.Query().Has("follow") && r.URL.Query().Get("follow") != "false",
+		Tail:      tailLines(r.URL.Query().Get("tail")),
+		Previous:  r.URL.Query().Has("previous") && r.URL.Query().Get("previous") != "false",
+	})
+	if err != nil {
+		// Nothing has been written yet, so this can still be a status code. It is
+		// the last point at which that is true.
+		respondError(w, err)
+		return
+	}
+	defer func() { _ = stream.Close() }()
+
+	httpx.StreamText(w, r.WithContext(ctx), stream, "pod log stream")
+}
+
+// clearWriteDeadline lifts the server's write timeout for this one response, and
+// reports whether streaming may proceed.
+//
+// The server gives every response thirty seconds to be written, which is right
+// for JSON and wrong for a tail. Clearing it is scoped to this request: net/http
+// sets the deadline per request and reinstalls it before reading the next one off
+// the same connection, so nothing else is weakened.
+//
+// The read deadline needs no such treatment, but only because this route is a
+// bodyless GET — net/http clears that one itself before dispatching such a
+// handler. Making this a POST later would put the deadline back in play with
+// nothing to catch it.
+//
+// A failure here is only reachable if something has begun wrapping the
+// ResponseWriter, in which case the stream would die at thirty seconds with no
+// explanation. Better to refuse than to serve that.
+func clearWriteDeadline(w http.ResponseWriter) bool {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		slog.Error("cannot clear the write deadline for a log stream", slog.Any("error", err))
+		httpx.Error(w, http.StatusInternalServerError, "internal_error",
+			"log streaming is not available on this server")
+		return false
+	}
+	return true
+}
+
+// tailLines reads the tail parameter, leaving the service to apply the default.
+//
+// A malformed value becomes zero rather than an error: the parameter is an
+// optimization, and refusing the whole request over it would be a worse answer
+// than sending the default amount of history.
+func tailLines(raw string) int64 {
+	lines, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return lines
+}
+
 // respondError maps this slice's errors to status codes.
 func respondError(w http.ResponseWriter, err error) {
 	switch {
@@ -194,6 +402,14 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusBadRequest, "invalid_request", err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, ErrUnsupportedKind):
+		httpx.Error(w, http.StatusBadRequest, "invalid_request", err.Error())
+	case errors.Is(err, ErrConflict):
+		// Somebody else changed the workload between this request reading it and
+		// writing it back. Saying so is more useful than retrying silently, which
+		// would let the second operator overwrite the first without either knowing.
+		httpx.Error(w, http.StatusConflict, "conflict",
+			"the workload changed while this request was in flight — try again")
 	case errors.Is(err, ErrForbidden):
 		// Almost always the panel's own ClusterRole binding rather than anything
 		// the caller did, so it says so rather than reading as a 500.

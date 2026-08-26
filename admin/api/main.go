@@ -112,6 +112,21 @@ func registerPostgres(ctx context.Context, mux *stdhttp.ServeMux, logger *slog.L
 	if err != nil {
 		return nil, err
 	}
+
+	// The query console runs submitted SQL, so it does not run it as the
+	// superuser the rest of this slice connects as. Dropping privileges inside
+	// that session is not a boundary — a submitted RESET ROLE undoes it — so the
+	// console needs its own non-superuser credential, and is simply not served
+	// without one. See internal/postgres/query.go and databases/README.md.
+	if queryDSN := os.Getenv("ADMIN_POSTGRES_QUERY_DSN"); queryDSN != "" {
+		if err := repo.WithQueryCredential(queryDSN); err != nil {
+			return nil, err
+		}
+		logger.Info("serving the PostgreSQL query console")
+	} else {
+		logger.Warn("ADMIN_POSTGRES_QUERY_DSN is unset; the PostgreSQL query console is not served")
+	}
+
 	postgres.NewHandler(postgres.NewService(repo)).Register(mux)
 	logger.Info("serving the PostgreSQL endpoints")
 	return repo.Close, nil
@@ -155,6 +170,14 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 		return err
 	}
 
+	// A second client with no request deadline, for log streaming only. The one
+	// above bounds every request at twenty seconds, which is right for a list and
+	// fatal for a follow stream.
+	streamClient, err := kube.NewStreamClientset()
+	if err != nil {
+		return err
+	}
+
 	// The metrics client is built unconditionally and used only if it answers.
 	// metrics-server is an optional cluster component, so its absence has to be a
 	// missing reading on the dashboard rather than a panel that will not start.
@@ -173,7 +196,7 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 		logger.Info("reading node disk usage from the kubelet")
 	}
 
-	repo := kube.NewRepository(clientset, metrics, nodeStats)
+	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
 	kube.NewHandler(kube.NewService(repo)).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
 	return nil

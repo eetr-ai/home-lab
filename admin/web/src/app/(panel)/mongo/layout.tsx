@@ -6,6 +6,7 @@ const tabs = [
 	{ href: "/mongo/databases", label: "Databases" },
 	{ href: "/mongo/collections", label: "Collections" },
 	{ href: "/mongo/users", label: "Users" },
+	{ href: "/mongo/query", label: "Query" },
 ];
 
 export default function MongoLayout({ children }: { children: React.ReactNode }) {
