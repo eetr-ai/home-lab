@@ -40,10 +40,16 @@ func StreamText(w http.ResponseWriter, r *http.Request, stream io.Reader, label 
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	flusher, _ := w.(http.Flusher)
-	if flusher != nil {
-		flusher.Flush()
-	}
+	// Through a ResponseController rather than a direct type assertion on
+	// http.Flusher: a wrapper that forwards Flush only via Unwrap satisfies the
+	// controller and fails the assertion, and the failure mode is a tail that
+	// arrives in batches with nothing to say why. The same reason the log handler
+	// clears its write deadline this way.
+	controller := http.NewResponseController(w)
+	// Errors are ignored on purpose. ErrNotSupported means the chunk stays
+	// buffered, which is a degraded stream rather than a broken one — and there is
+	// no status line left to report it with.
+	_ = controller.Flush()
 
 	buffer := make([]byte, streamChunk)
 	for {
@@ -52,9 +58,7 @@ func StreamText(w http.ResponseWriter, r *http.Request, stream io.Reader, label 
 			if _, writeErr := w.Write(buffer[:read]); writeErr != nil {
 				return
 			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			_ = controller.Flush()
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) && r.Context().Err() == nil {

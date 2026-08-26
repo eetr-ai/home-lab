@@ -26,7 +26,7 @@ func (r *Repository) ReadWorkload(
 		return WorkloadDetail{}, err
 	}
 
-	pods, err := r.podsMatching(ctx, namespace, selector)
+	pods, mounted, err := r.podsMatching(ctx, namespace, selector)
 	if err != nil {
 		return WorkloadDetail{}, err
 	}
@@ -38,7 +38,7 @@ func (r *Repository) ReadWorkload(
 	}
 	detail.Services = services
 
-	claims, err := r.claimsFor(ctx, namespace, pods)
+	claims, err := r.claimsFor(ctx, namespace, mounted)
 	if err != nil {
 		return WorkloadDetail{}, err
 	}
@@ -156,25 +156,37 @@ func selectorOf(selector *metav1.LabelSelector) labels.Selector {
 // Empty() check passes it straight through to List, which reads an empty
 // LabelSelector as "everything". A workload with no selector would then claim
 // every pod in the namespace as its own.
+// It also returns the volume claims those pods mount, gathered from the same
+// listing. The pods carry their own Spec.Volumes and summarizePod discards them,
+// so recovering the claim names any other way meant one Get per pod on every
+// detail page load — and a "the pod vanished between the list and the read" case
+// that now cannot arise.
 func (r *Repository) podsMatching(
 	ctx context.Context, namespace string, selector labels.Selector,
-) ([]Pod, error) {
+) ([]Pod, map[string]struct{}, error) {
+	mounted := map[string]struct{}{}
 	if selector.String() == "" {
-		return []Pod{}, nil
+		return []Pod{}, mounted, nil
 	}
 
 	list, err := r.client.CoreV1().Pods(namespace).
 		List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {
-		return nil, translate(err, "list the workload's pods")
+		return nil, nil, translate(err, "list the workload's pods")
 	}
 
 	pods := make([]Pod, 0, len(list.Items))
 	for i := range list.Items {
-		pods = append(pods, summarizePod(&list.Items[i]))
+		item := &list.Items[i]
+		pods = append(pods, summarizePod(item))
+		for j := range item.Spec.Volumes {
+			if claim := item.Spec.Volumes[j].PersistentVolumeClaim; claim != nil {
+				mounted[claim.ClaimName] = struct{}{}
+			}
+		}
 	}
 	sort.Slice(pods, func(a, b int) bool { return pods[a].Name < pods[b].Name })
-	return pods, nil
+	return pods, mounted, nil
 }
 
 // servicesFor returns the services whose selector reaches this workload's pods.
@@ -250,19 +262,14 @@ func summarizeService(service *corev1.Service) ClusterService {
 	}
 }
 
-// claimsFor returns the volume claims this workload's pods actually mount.
+// claimsFor returns the volume claims named by a workload's pods.
 //
 // From the pods rather than from a StatefulSet's volumeClaimTemplates, because
 // the pods are where both cases meet: a template produces one claim per pod with
 // a generated name, and a Deployment mounts a claim somebody made by hand.
 func (r *Repository) claimsFor(
-	ctx context.Context, namespace string, pods []Pod,
+	ctx context.Context, namespace string, mounted map[string]struct{},
 ) ([]VolumeClaim, error) {
-	if len(pods) == 0 {
-		return []VolumeClaim{}, nil
-	}
-
-	mounted := r.mountedClaimNames(ctx, namespace, pods)
 	if len(mounted) == 0 {
 		return []VolumeClaim{}, nil
 	}
@@ -281,31 +288,6 @@ func (r *Repository) claimsFor(
 	}
 	sort.Slice(claims, func(a, b int) bool { return claims[a].Name < claims[b].Name })
 	return claims, nil
-}
-
-// mountedClaimNames collects the claims named in these pods' volumes.
-//
-// It cannot fail: a pod that could not be read contributes nothing, which is the
-// right answer during a rollout when pods come and go between the list and this.
-func (r *Repository) mountedClaimNames(
-	ctx context.Context, namespace string, pods []Pod,
-) map[string]struct{} {
-	names := make(map[string]struct{})
-	for i := range pods {
-		pod, err := r.client.CoreV1().Pods(namespace).
-			Get(ctx, pods[i].Name, metav1.GetOptions{})
-		if err != nil {
-			// A pod that vanished between the list and this read is normal during a
-			// rollout, and is not a reason to fail the whole page.
-			continue
-		}
-		for j := range pod.Spec.Volumes {
-			if claim := pod.Spec.Volumes[j].PersistentVolumeClaim; claim != nil {
-				names[claim.ClaimName] = struct{}{}
-			}
-		}
-	}
-	return names
 }
 
 // eventsFor returns the events about this workload and its pods.
