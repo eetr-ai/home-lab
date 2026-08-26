@@ -14,3 +14,11 @@ encryption_config_path: /etc/kubernetes/encryption/encryption-config.yaml
 # the repository with -e encryption_key_file=/absolute/path/to/key.
 encryption_key_file: ""
 encryption_key_backup_confirmed: false
+
+# Private container registry the nodes pull from.
+registry_host: us-west1-docker.pkg.dev
+
+# This deliberately has no permissive default, like the encryption key above.
+# Pass an absolute path outside the repository with
+# -e registry_credentials_file=/absolute/path/to/key.json
+registry_credentials_file: ""

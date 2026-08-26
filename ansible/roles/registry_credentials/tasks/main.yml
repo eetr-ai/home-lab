@@ -1,0 +1,69 @@
+---
+# Give every node credentials for the private image registry, so any workload in
+# any namespace can pull without its own imagePullSecret.
+#
+# This is the kubelet's docker configuration, not containerd's. containerd 2.x no
+# longer honors registry.configs.<host>.auth under the transfer service it now
+# uses by default, and hosts.toml carries mirrors and TLS but not credentials. The
+# kubelet reads /var/lib/kubelet/config.json and hands the credential to the CRI
+# on each pull, which works the same regardless of which runtime is underneath.
+#
+# The trade this makes is deliberate: one credential on every node in exchange for
+# not maintaining a copy of it in every namespace. Any pod scheduled here can pull
+# anything the key can read, so the key is read-only and scoped to one repository.
+
+# Supplying no credential is a valid state: a cluster that pulls only public
+# images needs nothing here. The role skips rather than failing, so bootstrap.yml
+# can include it unconditionally.
+- name: Skip when no registry credential is supplied
+  ansible.builtin.meta: end_host
+  when: registry_credentials_file | length == 0
+
+- name: Verify the registry credential file
+  ansible.builtin.stat:
+    path: "{{ registry_credentials_file }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: registry_credential_stat
+
+- name: Require a readable registry credential file
+  ansible.builtin.assert:
+    that:
+      - registry_credential_stat.stat.exists
+      - registry_credential_stat.stat.isreg
+    fail_msg: >-
+      registry_credentials_file must point at a service account key on this
+      machine. Create one with:
+      gcloud iam service-accounts keys create KEY.json --iam-account ACCOUNT
+    quiet: true
+  run_once: true
+
+- name: Ensure the kubelet state directory exists
+  ansible.builtin.file:
+    path: /var/lib/kubelet
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Written from the controller's copy of the key, so the key itself is never
+# copied to a node as a file — only the base64 credential inside this document.
+- name: Install the kubelet registry credentials
+  ansible.builtin.copy:
+    content: >-
+      {{
+        {
+          'auths': {
+            registry_host: {
+              'auth': ('_json_key:' ~ lookup('file', registry_credentials_file)) | b64encode
+            }
+          }
+        } | to_nice_json
+      }}
+    dest: /var/lib/kubelet/config.json
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart kubelet
