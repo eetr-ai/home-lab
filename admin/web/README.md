@@ -73,7 +73,9 @@ task dev
 ```
 
 The panel is then at `http://localhost:3000` and the API at `http://localhost:8090`.
-`task logs` follows them and `task stop` takes them down.
+The [assistant](../agent/README.md) comes up beside them, which is why the file
+above needs an `OPENROUTER_API_KEY`. `task logs` follows all three and `task
+stop` takes them down.
 
 For UI work, the faster loop is to keep the containerised API and run the panel
 with hot reload against it:

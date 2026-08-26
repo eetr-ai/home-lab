@@ -334,12 +334,12 @@ cp admin/.env.example admin/.env && chmod 600 admin/.env   # then fill it in
 task dev
 ```
 
-The panel is then at `http://localhost:3000`; `task logs` follows both containers
-and `task stop` takes them down. `admin/.env` is ignored — it holds a client
+The panel is then at `http://localhost:3000`; `task logs` follows all three
+containers and `task stop` takes them down. `admin/.env` is ignored — it holds a client
 secret and two superuser passwords.
 
-`task dev` brings up all three containers, the [assistant](admin/agent/README.md)
-included, so `admin/.env` needs an `OPENROUTER_API_KEY` as well. The task checks
+The third of them is the [assistant](admin/agent/README.md), so `admin/.env`
+needs an `OPENROUTER_API_KEY` as well. The task checks
 for one before starting anything rather than leaving you with a stack whose
 assistant is dead. In the cluster the agent is a deliberate opt-in; locally it is
 part of the thing you are working on.

@@ -237,7 +237,7 @@ tasks:
         silent: true
 
   stop:
-    desc: Stop the local admin panel and API
+    desc: Stop the local stack — the panel, the API and the assistant
     env:
       DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
     cmds:

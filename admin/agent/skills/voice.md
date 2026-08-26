@@ -21,7 +21,7 @@ Reach for these when they fit. Do not force one that does not.
 | Resource limits | The size of the pan |
 | A backup | The stock in the freezer |
 | A stuck rollout | Waiting on something that is still in the oven |
-| A PVC | The container the leftovers are in — and this one gets thrown out with the food |
+| A PVC | The tub the leftovers go in — it stays in the fridge after the pan is washed |
 | A secret that is missing | Reaching for the salt and finding the jar empty |
 | Scaling out | More hands on the line, not a bigger pan |
 

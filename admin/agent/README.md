@@ -94,11 +94,18 @@ which is the right weight for changing what an agent is told it may do.
 
 ## Tests
 
-`config_test.yaml` is a [dolphin](https://juancavallotti.github.io/octo/testing)
-suite over `call-admin-api` — the flow behind `admin_api`, and the one carrying
-the guard that replaced a runtime refusal. Thirteen cases: the request it builds,
-the reply it reads, and one per way out of the base URL, each asserting through a
-spy `count: 0` that no request was made at all.
+Two [dolphin](https://juancavallotti.github.io/octo/testing) suites, one per
+flow — which is dolphin's unit, and why a flow worth testing gets its own file.
+
+`config_test.yaml` covers `call-admin-api`, the flow behind `admin_api` and the
+one carrying the guard that replaced a runtime refusal. Sixteen cases: the
+request it builds, the reply it reads, and one per way out of the base URL, each
+asserting through a spy `count: 0` that no request was made at all.
+
+`run_program_test.yaml` covers `run-program`, behind `run_command`. Six cases:
+which binary each name selects, and the refusals. The refusals are the reason it
+exists — the block picks its program with a ternary that tests for curl, then for
+jq, and used to let everything else fall through to *find*.
 
 ```bash
 task admin-agent:test
@@ -112,7 +119,7 @@ Deliberately a second image: a test runner that drives `octo` is not something t
 production image should carry, since `octo` runs whatever definition it is pointed
 at.
 
-Two of the cases are there because they already caught something. `cli-run` hands
+Some of the cases are there because they already caught something. `cli-run` hands
 back stdout with a trailing newline, so splitting it naively leaves an empty last
 element — the status reads as `""` and the code stays stuck on the end of the
 body. That is a wrong answer rather than a failure, it survived a live end-to-end
