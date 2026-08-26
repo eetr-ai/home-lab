@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-api
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.admin.api.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: admin-api
+    spec:
+      serviceAccountName: admin-api
+      automountServiceAccountToken: true
+      {{- with .Values.admin.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin-api
+          image: {{ include "home-lab-admin.apiImage" . | quote }}
+          imagePullPolicy: {{ .Values.admin.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            # Slower than readiness on purpose: readiness taking a pod out of
+            # rotation is cheap, restarting it is not.
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.admin.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # The binary is static and writes nothing to disk; it logs to stdout.
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532

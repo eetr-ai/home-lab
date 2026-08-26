@@ -1,0 +1,9 @@
+---
+# The kubelet reads its docker configuration at startup, so a rotated credential
+# does not take effect until it restarts. Restarting the kubelet does not disturb
+# running containers: they keep running under containerd while it is down, and it
+# reconciles them when it comes back.
+- name: Restart kubelet
+  ansible.builtin.service:
+    name: kubelet
+    state: restarted

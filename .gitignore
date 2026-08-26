@@ -5,6 +5,12 @@
 !.env.*.example
 *.pem
 *.key
+# Google Cloud service account keys. scripts/create-registry-secret.sh writes
+# these to a temporary directory outside the repository; these patterns catch
+# one created by hand before it can be committed.
+key.json
+*-key.json
+home-lab-*.json
 *.p12
 *.pfx
 *.kubeconfig

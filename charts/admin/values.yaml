@@ -1,0 +1,46 @@
+# Placeholders are deliberately RFC-invalid, so a values file that was copied but
+# never edited fails obviously rather than resolving to somebody's real host.
+# scripts/install-admin.sh refuses to install while they are still present.
+
+admin:
+  # Per-namespace pull secrets, for a cluster whose nodes do not already hold the
+  # registry credential.
+  #
+  # Empty by default because the nodes do hold it: ansible/roles/registry_credentials
+  # writes it to the kubelet, so every namespace can pull without a copy of its own.
+  # Set this only to override that for one release — a Secret named here must exist
+  # in the release namespace, and the installer checks before Helm runs.
+  imagePullSecrets: []
+
+  # The Gateway the platform chart owns. A route only attaches when this
+  # namespace carries the gateway-access label; the installer applies it.
+  gateway:
+    name: home-lab
+
+  api:
+    image:
+      repository: registry.example.invalid/home-lab/admin-api
+      tag: "0.0.0"
+      pullPolicy: IfNotPresent
+
+    replicas: 1
+
+    # The API holds no state, so a request that arrives mid-rollout is served by
+    # whichever replica is ready. Resources are sized for a panel one operator
+    # uses, not for throughput.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+    # Reaching the API from outside the cluster, for a caller that is not the
+    # panel's own browser session. Disabled until something needs it: the agent
+    # that will call the API directly is not built yet, and an administrative
+    # endpoint should not be publicly routable before it has a reason to be.
+    #
+    # Enabling it means putting Cloudflare Access in front of the hostname first.
+    route:
+      enabled: false
+      hostname: admin-api.example.invalid

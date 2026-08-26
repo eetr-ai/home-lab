@@ -145,14 +145,14 @@ tasks:
       - helm dependency build charts/platform
 
   helm:lint:
-    desc: Lint the platform chart against its example values
+    desc: Lint the repository's charts against their example values
     deps: [helm:deps]
     cmds:
       - helm lint charts/platform --values charts/platform/values.local.yaml.example
+      - helm lint charts/admin --values charts/admin/values.local.yaml.example
 
   helm:template:
-    desc: Render the platform chart to rendered-platform.yaml
-    deps: [helm:deps]
+    desc: Render the charts to rendered-*.yaml
     cmds:
       - task: tests:chart
 
@@ -169,14 +169,16 @@ tasks:
       - ./tests/validate-databases.sh
 
   tests:chart:
-    desc: Render the platform chart and assert the properties the cluster depends on
+    desc: Render the charts and assert the properties the cluster depends on
     deps: [helm:deps]
     env:
       KUBE_VERSION: '{{.KUBE_VERSION}}'
     cmds:
       - ./tests/validate-platform-chart.sh
+      - ./tests/validate-admin-chart.sh
     generates:
       - rendered-platform.yaml
+      - rendered-admin.yaml
 
   # --- Cluster operations ----------------------------------------------------
   #
@@ -187,6 +189,11 @@ tasks:
     desc: 'Install the platform chart (task platform:install -- --values charts/platform/values.local.yaml)'
     cmds:
       - ./scripts/install-platform.sh {{.CLI_ARGS}}
+
+  admin:install:
+    desc: 'Install the admin panel (task admin:install -- --values charts/admin/values.local.yaml)'
+    cmds:
+      - ./scripts/install-admin.sh {{.CLI_ARGS}}
 
   platform:validate:
     desc: Validate the installed platform (set PLATFORM_TEST_URL)

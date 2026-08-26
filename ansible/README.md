@@ -174,3 +174,52 @@ changing the control-plane address, rotating the encryption key, or running
 `kubeadm reset` is an explicit recovery or rebuild operation. Back up the
 secretbox key and any durable cluster data first. The ignored kubeconfig can be
 re-fetched from `/etc/kubernetes/admin.conf` when the control plane is healthy.
+
+## Private registry access
+
+`registry_credentials` gives every node credentials for a private image registry,
+so any workload in any namespace can pull without its own `imagePullSecret`.
+
+This is the **kubelet's** docker configuration at `/var/lib/kubelet/config.json`,
+not containerd's. containerd 2.x no longer honors `registry.configs.<host>.auth`
+under the transfer service it uses by default, and `hosts.toml` carries mirrors
+and TLS but not credentials. The kubelet supplies the credential to the CRI on
+each pull, which works the same whichever runtime is underneath.
+
+The credential never enters Git. Pass a path to a service account key on your
+machine, exactly as the encryption key is passed:
+
+```bash
+ansible-playbook playbooks/registry-credentials.yml \
+  -e registry_credentials_file=/absolute/path/to/key.json
+```
+
+`bootstrap.yml` runs the same role last, so a rebuilt cluster comes up able to
+pull rather than needing a second run somebody has to remember. Supplying no
+`registry_credentials_file` skips the role entirely, which is the right behavior
+for a cluster that pulls only public images.
+
+Rotating is the same command with a new key, followed by deleting the old one in
+the provider.
+
+**Clearing `registry_credentials_file` does not revoke anything.** The role skips,
+and a credential already on the nodes stays there. That is deliberate: a bootstrap
+rerun that forgot the flag would otherwise strip the cluster's registry access as a
+side effect. Removing access is its own act — delete the key in the provider, which
+takes effect everywhere at once, and remove the file if you also want it gone:
+
+```bash
+ansible kubernetes -b -m ansible.builtin.file \
+  -a 'path=/var/lib/kubelet/config.json state=absent'
+ansible kubernetes -b -m ansible.builtin.service -a 'name=kubelet state=restarted'
+```
+
+The role owns `/var/lib/kubelet/config.json` outright and rewrites it whole rather
+than merging. Nothing else in this repository writes to that file, and a merge
+would silently preserve a credential for a registry nobody remembers configuring.
+A second registry belongs in the role, not in a separate writer. Installing a credential restarts the kubelet, one node at a time;
+running containers are not disturbed, because they keep running under containerd
+while it is down and are reconciled when it returns.
+
+The key is on every node, readable by root. Treat node access as registry access,
+and keep the key read-only and scoped to the one repository it needs.
