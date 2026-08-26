@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.0.0...admin-v1.1.0) (2026-08-26)
+
+
+### Features
+
+* **admin:** dashboard with cluster metrics, nodes, and storage ([#24](https://github.com/eetr-ai/home-lab/issues/24)) ([a2498cd](https://github.com/eetr-ai/home-lab/commit/a2498cd7de2fabb801549d7582aebb4119774ec1))
+
 ## 1.0.0 (2026-08-26)
 
 
