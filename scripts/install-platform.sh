@@ -57,6 +57,9 @@ helm repo add traefik https://traefik.github.io/charts --force-update
 helm repo add nfs-subdir-external-provisioner \
   https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/ \
   --force-update
+helm repo add metrics-server \
+  https://kubernetes-sigs.github.io/metrics-server/ \
+  --force-update
 helm dependency build "$chart_dir"
 
 rendered_chart=$(helm template "$release" "$chart_dir" \

@@ -79,3 +79,8 @@ dist/
 
 # go-task
 .task/
+
+# The agent's local run directory: `task admin-agent:run` mounts it as /data, so
+# it holds whatever a local conversation left behind — the KV store and the
+# workspace. The cluster's equivalent is a PVC.
+admin/agent/.local/

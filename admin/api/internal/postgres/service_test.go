@@ -13,11 +13,13 @@ import (
 type fakeRepo struct {
 	databases  map[string]string // name -> owner
 	roles      map[string]bool   // name -> canLogin
+	superusers map[string]bool   // name -> is a superuser
 	extensions map[string][]Extension
 	current    string
 
 	created []string
 	dropped []string
+	altered []string
 	err     error
 
 	// What the service actually asked for, so a test can check the request was
@@ -25,15 +27,40 @@ type fakeRepo struct {
 	lastDatabaseOwner string
 	lastRoleRequest   CreateRoleRequest
 	lastExtension     string
+	lastRoleUpdate    UpdateRoleRequest
+	lastQuery         string
+
+	// What a query returns, so a test can check the service passes it through
+	// rather than reshaping it.
+	queryResult QueryResult
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		databases:  map[string]string{"postgres": "admin", "template0": "admin", "template1": "admin"},
 		roles:      map[string]bool{"admin": true, "reporting": false},
+		superusers: map[string]bool{"admin": true},
 		extensions: map[string][]Extension{},
 		current:    "admin",
 	}
+}
+
+func (f *fakeRepo) AlterRole(_ context.Context, name string, req UpdateRoleRequest) error {
+	f.altered = append(f.altered, "role:"+name)
+	f.lastRoleUpdate = req
+	f.roles[name] = req.CanLogin
+	return f.err
+}
+
+func (f *fakeRepo) AlterDatabaseOwner(_ context.Context, name, owner string) error {
+	f.altered = append(f.altered, "database:"+name)
+	f.databases[name] = owner
+	return f.err
+}
+
+func (f *fakeRepo) Query(_ context.Context, database, sql string) (QueryResult, error) {
+	f.lastQuery = database + ":" + sql
+	return f.queryResult, f.err
 }
 
 func (f *fakeRepo) ListDatabases(context.Context) ([]Database, error) {
@@ -68,7 +95,7 @@ func (f *fakeRepo) DatabaseExists(_ context.Context, name string) (bool, error) 
 func (f *fakeRepo) ListRoles(context.Context) ([]Role, error) {
 	out := make([]Role, 0, len(f.roles))
 	for name, canLogin := range f.roles {
-		out = append(out, Role{Name: name, CanLogin: canLogin})
+		out = append(out, Role{Name: name, CanLogin: canLogin, IsSuperuser: f.superusers[name]})
 	}
 	return out, f.err
 }
@@ -354,5 +381,217 @@ func TestCreateDatabaseInstallsNoExtensions(t *testing.T) {
 		if strings.HasPrefix(call, "extension:") {
 			t.Errorf("CreateDatabase() installed %s", call)
 		}
+	}
+}
+
+// The role the panel connects as must be untouchable. Clearing its LOGIN through
+// a form would lock the panel out of the server it is being used to administer,
+// with no way back in through the panel.
+func TestUpdateRoleRefusesTheConnectingRole(t *testing.T) {
+	repo := newFakeRepo()
+	service := NewService(repo)
+
+	// Case-insensitively, matching the drop path: PostgreSQL folds an unquoted
+	// identifier to lower case, so "ADMIN" and "admin" are the same role — and a
+	// check that missed that would leave the lock-out it exists to prevent one
+	// shift key away.
+	for _, name := range []string{"admin", "ADMIN", "Admin"} {
+		_, err := service.UpdateRole(t.Context(), name, UpdateRoleRequest{ConnectionLimit: -1})
+		if !errors.Is(err, ErrProtected) {
+			t.Fatalf("UpdateRole(%q) error = %v, want %v", name, err, ErrProtected)
+		}
+	}
+	if len(repo.altered) != 0 {
+		t.Errorf("a refused update still reached the server: %v", repo.altered)
+	}
+}
+
+func TestUpdateRoleValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		role    string
+		request UpdateRoleRequest
+		wantErr error
+	}{
+		{
+			name: "an ordinary update",
+			role: "reporting",
+			request: UpdateRoleRequest{
+				CanLogin: true, ConnectionLimit: 5, Password: strings.Repeat("x", 16),
+			},
+		},
+		{
+			name: "revoking everything is allowed",
+			role: "reporting", request: UpdateRoleRequest{ConnectionLimit: -1},
+		},
+		{
+			name: "a short password",
+			role: "reporting", request: UpdateRoleRequest{CanLogin: true, Password: "short"},
+			wantErr: ErrWeakPassword,
+		},
+		{
+			// Refused rather than ignored: silently discarding it leaves the caller
+			// believing a password was set.
+			name: "a password on a role that cannot log in",
+			role: "reporting", request: UpdateRoleRequest{Password: strings.Repeat("x", 16)},
+			wantErr: ErrInvalidName,
+		},
+		{
+			name: "a connection limit below unlimited",
+			role: "reporting", request: UpdateRoleRequest{ConnectionLimit: -2},
+			wantErr: ErrInvalidName,
+		},
+		{
+			name: "one of PostgreSQL's own roles",
+			role: "pg_monitor", request: UpdateRoleRequest{ConnectionLimit: -1},
+			wantErr: ErrProtected,
+		},
+		{
+			name: "a role that does not exist",
+			role: "absent", request: UpdateRoleRequest{ConnectionLimit: -1},
+			wantErr: ErrNotFound,
+		},
+		{
+			name: "an unsafe name",
+			role: `x"; DROP ROLE admin; --`, request: UpdateRoleRequest{ConnectionLimit: -1},
+			wantErr: ErrInvalidName,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			_, err := NewService(repo).UpdateRole(t.Context(), test.role, test.request)
+
+			if test.wantErr != nil {
+				if !errors.Is(err, test.wantErr) {
+					t.Fatalf("error = %v, want %v", err, test.wantErr)
+				}
+				if len(repo.altered) != 0 {
+					t.Errorf("a refused update still reached the server: %v", repo.altered)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if len(repo.altered) != 1 {
+				t.Errorf("altered = %v, want exactly one", repo.altered)
+			}
+			if repo.lastRoleUpdate != test.request {
+				t.Errorf("the request was reshaped: got %+v, want %+v", repo.lastRoleUpdate, test.request)
+			}
+		})
+	}
+}
+
+func TestUpdateDatabaseValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		database string
+		owner    string
+		wantErr  error
+	}{
+		{name: "an ordinary reassignment", database: "app", owner: "reporting"},
+		{
+			// Reassigning one of PostgreSQL's own is refused for the same reason
+			// dropping one is.
+			name: "a protected database", database: "postgres", owner: "reporting",
+			wantErr: ErrProtected,
+		},
+		{name: "a database that does not exist", database: "absent", owner: "reporting", wantErr: ErrNotFound},
+		{name: "an owner that does not exist", database: "app", owner: "absent", wantErr: ErrNotFound},
+		{name: "an unsafe owner", database: "app", owner: `x"; --`, wantErr: ErrInvalidName},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			repo.databases["app"] = "admin"
+			err := NewService(repo).UpdateDatabase(t.Context(), test.database,
+				UpdateDatabaseRequest{Owner: test.owner})
+
+			if test.wantErr != nil {
+				if !errors.Is(err, test.wantErr) {
+					t.Fatalf("error = %v, want %v", err, test.wantErr)
+				}
+				if len(repo.altered) != 0 {
+					t.Errorf("a refused update still reached the server: %v", repo.altered)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if repo.databases["app"] != test.owner {
+				t.Errorf("owner = %q, want %q", repo.databases["app"], test.owner)
+			}
+		})
+	}
+}
+
+// The service does not inspect the SQL — PostgreSQL enforces read-only itself —
+// so what it does check is that there is a statement at all, and that it is not
+// so large the useful failure would be the parser's.
+func TestQueryValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		database string
+		sql      string
+		wantErr  bool
+	}{
+		{name: "an ordinary select", database: "app", sql: "SELECT 1"},
+		{
+			// Not refused here. The transaction is READ ONLY, so the server refuses
+			// it — and its message says what it refused, which a pattern match here
+			// could not.
+			name: "a write is left to the server to refuse", database: "app", sql: "DELETE FROM users",
+		},
+		{name: "an empty statement", database: "app", sql: "", wantErr: true},
+		{name: "whitespace only", database: "app", sql: "   \n\t ", wantErr: true},
+		{name: "an oversized statement", database: "app", sql: strings.Repeat("a", maxQueryLength+1), wantErr: true},
+		{name: "an unsafe database name", database: `x"; --`, sql: "SELECT 1", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			_, err := NewService(repo).Query(t.Context(), test.database, test.sql)
+
+			if test.wantErr {
+				if !errors.Is(err, ErrInvalidName) {
+					t.Fatalf("error = %v, want %v", err, ErrInvalidName)
+				}
+				if repo.lastQuery != "" {
+					t.Errorf("a refused query still reached the server: %q", repo.lastQuery)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if repo.lastQuery != test.database+":"+test.sql {
+				t.Errorf("the statement was reshaped: %q", repo.lastQuery)
+			}
+		})
+	}
+}
+
+// Every path in this slice writes NOSUPERUSER, and the panel has no control for
+// the attribute — so saving an edit to a superuser role would quietly demote it.
+// Refusing is the only honest answer available.
+func TestUpdateRoleRefusesASuperuser(t *testing.T) {
+	repo := newFakeRepo()
+	repo.roles["operator"] = true
+	repo.superusers["operator"] = true
+
+	_, err := NewService(repo).UpdateRole(t.Context(), "operator",
+		UpdateRoleRequest{CanLogin: true, ConnectionLimit: -1})
+
+	if !errors.Is(err, ErrProtected) {
+		t.Fatalf("UpdateRole(superuser) error = %v, want %v", err, ErrProtected)
+	}
+	if len(repo.altered) != 0 {
+		t.Errorf("a refused update still reached the server: %v", repo.altered)
 	}
 }

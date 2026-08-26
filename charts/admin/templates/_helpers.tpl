@@ -22,3 +22,13 @@ The panel image, addressed the same way and for the same reason as the API's.
 {{- $image := .Values.admin.web.image -}}
 {{- printf "%s:%s" $image.repository (required "admin.web.image.tag is required" $image.tag) -}}
 {{- end }}
+
+{{- /*
+The agent image, addressed the same way and for the same reason as the other two.
+It carries the agent's definition as well as the runtime, so the tag names the
+prompt and the tool set and not only the binary.
+*/ -}}
+{{- define "home-lab-admin.agentImage" -}}
+{{- $image := .Values.admin.agent.image -}}
+{{- printf "%s:%s" $image.repository (required "admin.agent.image.tag is required" $image.tag) -}}
+{{- end }}

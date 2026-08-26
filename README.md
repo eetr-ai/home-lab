@@ -334,9 +334,15 @@ cp admin/.env.example admin/.env && chmod 600 admin/.env   # then fill it in
 task dev
 ```
 
-The panel is then at `http://localhost:3000`; `task logs` follows both containers
-and `task stop` takes them down. `admin/.env` is ignored — it holds a client
+The panel is then at `http://localhost:3000`; `task logs` follows all three
+containers and `task stop` takes them down. `admin/.env` is ignored — it holds a client
 secret and two superuser passwords.
+
+The third of them is the [assistant](admin/agent/README.md), so `admin/.env`
+needs an `OPENROUTER_API_KEY` as well. The task checks
+for one before starting anything rather than leaving you with a stack whose
+assistant is dead. In the cluster the agent is a deliberate opt-in; locally it is
+part of the thing you are working on.
 
 These tasks pin `DOCKER_CONTEXT=default`. The database module has you point your
 Docker context at the server, and leaving it there would start the development
@@ -395,7 +401,8 @@ credential, so there is no per-namespace pull secret to create first — see the
 .
 ├── admin/            # The in-cluster administration panel
 │   ├── api/          # Go API server managing the databases and reading the cluster
-│   └── web/          # Next.js panel, signed in against eetr-auth
+│   ├── web/          # Next.js panel, signed in against eetr-auth
+│   └── agent/        # The assistant: an Octo app answering questions about the cluster
 ├── ansible/          # Kubernetes-node configuration and kubeadm bootstrap
 ├── docs/             # Architecture, operations, and recovery guides
 ├── charts/           # Cluster platform and repository-owned Helm charts

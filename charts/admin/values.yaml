@@ -44,7 +44,24 @@ admin:
     # read-only ClusterRole below is created with it.
     kubernetes:
       enabled: true
+      # Node disk usage, read from each kubelet's stats endpoint.
+      #
+      # Off by default, and it is the one grant here worth a deliberate decision.
+      # Disk usage is not in the Kubernetes API and metrics-server reports only CPU
+      # and memory, so the only source is the kubelet — which means `get` on the
+      # nodes/proxy subresource, and that also opens the kubelet's other read
+      # endpoints, including the one that serves files under /var/log on the host.
+      #
+      # Left off, the panel reports every other node figure and shows the node's
+      # allocatable ephemeral storage in place of a usage reading, labelled as the
+      # scheduling ceiling it is. Nothing else changes.
+      nodeStats:
+        enabled: false
 
+    # The superuser the panel administers the server as. It also runs the
+    # read-only query console — there is no second credential, so access to the
+    # panel is access to whatever that account can do, up to and including the
+    # container the server runs in. databases/README.md says what that means.
     postgres:
       enabled: false
       secret:
@@ -138,3 +155,64 @@ admin:
         memory: 128Mi
       limits:
         memory: 512Mi
+
+  # The panel's assistant.
+  #
+  # An Octo app — a flow definition with an ai-agent block in it — running on
+  # Octo's public standalone runtime, with the definition baked into the image. It
+  # is reached only through the panel: the drawer posts to a route handler in
+  # admin-web, which authenticates the operator and attaches their bearer token, so
+  # the agent reads the API as whoever is asking and holds no identity of its own.
+  #
+  # Off by default. It costs money per answer, it needs a provider key that does
+  # not exist until somebody creates one, and a panel without it is a complete
+  # panel.
+  agent:
+    enabled: false
+
+    # As OpenRouter publishes model ids: vendor-prefixed, with no bare name. The
+    # runtime reads this at startup, so changing it replaces the pod.
+    model: deepseek/deepseek-v4-flash
+
+    # default | none | minimal | low | medium | high. The connector validates this
+    # when it starts, so a typo is a pod that will not start rather than a setting
+    # that quietly did nothing.
+    reasoning: medium
+
+    # The OpenRouter key. A Secret created outside Helm like every other credential
+    # here; the installer verifies it exists before Helm runs.
+    #
+    # Create it with:
+    #   kubectl -n admin create secret generic admin-agent-llm \
+    #     --from-literal=apiKey=sk-or-...
+    secret:
+      name: admin-agent-llm
+      key: apiKey
+
+    # Where the agent's memory and its workspace live.
+    #
+    # The NFS class rather than a local volume: the runtime's store is loaded from
+    # this directory at startup, so a pod rescheduled onto another node has to find
+    # it there. The claim is ReadWriteMany for the same reason the Deployment is
+    # pinned to one replica — see the comment on it.
+    #
+    # Small on purpose. It holds conversations, a handful of remembered facts, and
+    # whatever the agent has written in its workspace; anything large in there is a
+    # bug rather than a capacity problem.
+    storage:
+      className: nfs-client
+      size: 1Gi
+
+    image:
+      repository: registry.example.invalid/home-lab/admin-agent
+      tag: "0.0.0"
+      pullPolicy: IfNotPresent
+
+    # Sized for one operator asking questions. The memory ceiling is what a long
+    # conversation's context costs to hold, not what the model uses.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

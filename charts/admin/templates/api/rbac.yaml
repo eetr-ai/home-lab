@@ -1,22 +1,42 @@
 {{- if .Values.admin.api.kubernetes.enabled }}
 {{- /*
-Read-only, cluster-wide.
+Cluster-wide, almost entirely read-only.
 
 Cluster-wide because the panel's job is to say what is running everywhere, and a
 Role per namespace would mean editing this chart whenever a namespace is added.
-Read-only because the panel does not change workloads: that is what the
-repository's Helm releases and kubectl are for, and an API that could scale or
-delete would need a far more careful answer to "who is allowed to" than "whoever
-can sign in".
 
-The verbs here are the whole of it. tests/validate-admin-chart.sh fails the build
-if a write verb ever appears.
+The two write grants at the bottom are for rolling a workload's pods and changing
+its replica count. Neither can create anything or delete anything, and both are
+things that already happen without the panel. What a workload *is* still comes
+from this repository's Helm releases.
 
-The resources are the whole of it too, and the list is exactly what the API reads
-— nothing is granted "in case a later endpoint wants it". Services, nodes and
-replicasets were listed here originally and no code ever asked for them; a
-standing grant for something unused is a permission nobody is reviewing. Add one
-back in the same change that reads it.
+READ THIS BEFORE ADDING ANOTHER WRITE VERB.
+
+`patch` on a Deployment is patch on *any field of it*. RBAC grants verbs on
+resources and has no way to say "only this annotation", so anyone who can reach
+the restart endpoint could, through the API server, change any Deployment's
+image, env, securityContext, or ServiceAccount. What actually confines this to a
+restart is one function in the Go code — restartPatch in internal/kube/scale.go —
+not this role.
+
+That is a materially weaker guarantee than the read-only role this replaced, and
+it has two consequences worth stating plainly:
+
+  - Set admin.web.writeEmails. An unset allowlist permits every operator who can
+    sign in (see permitsWrite in the panel's lib/auth/write-access.ts), and the
+    API itself does not authorize per endpoint at all — any valid token can
+    restart anything.
+  - A ValidatingAdmissionPolicy restricting this ServiceAccount's Deployment
+    patches to the restartedAt annotation path is the real fix. It is not here
+    yet.
+
+The resources are exactly what the API uses and nothing is granted "in case a
+later endpoint wants it". replicasets were listed here originally and no code ever
+asked for them; a standing grant for something unused is a permission nobody is
+reviewing. Add one back in the same change that uses it.
+
+tests/validate-admin-chart.sh pins every (resource, verb) pair below, scoped to
+the rule that granted it, and fails the build on any it does not expect.
 */ -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -25,20 +45,87 @@ metadata:
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 rules:
-  # ListNamespaces, ListPods, ListEvents.
+  # ListNamespaces, ListPods, ListEvents, ListNodes, and ReadStorage.
+  #
+  # nodes and persistentvolumes are cluster-scoped; persistentvolumeclaims are
+  # namespaced, so this binding grants them across every namespace. None of the
+  # three carries workload data: a node reports its capacity and kubelet version,
+  # and a volume or claim its size and what it is bound to. configmaps are
+  # deliberately absent — plenty of workloads keep connection strings and internal
+  # hostnames in one, and the panel renders whatever it reads.
   - apiGroups: [""]
     resources:
       - namespaces
       - pods
       - events
+      - nodes
+      - persistentvolumeclaims
+      - persistentvolumes
     verbs: ["get", "list", "watch"]
-  # ListWorkloads, which is these three kinds and no others.
+  # Streaming a pod's log. Its own subresource, and `get` is the whole of it —
+  # a follow stream is a get with follow=true, not a watch.
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs: ["get"]
+  # ReadWorkload, which reads the services that reach a workload's pods.
+  - apiGroups: [""]
+    resources:
+      - services
+    verbs: ["get", "list", "watch"]
+  # ListWorkloads and ReadWorkload, which are these three kinds and no others.
   - apiGroups: ["apps"]
     resources:
       - deployments
       - statefulsets
       - daemonsets
     verbs: ["get", "list", "watch"]
+  # RestartWorkload. See the warning above: this is patch on any field, and only
+  # the Go code confines it to the restartedAt annotation.
+  #
+  # daemonsets are absent deliberately — the panel neither restarts nor scales
+  # one, so it holds no verb for it beyond reading.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+    verbs: ["patch"]
+  # ScaleWorkload. Its own subresource, so it is its own grant rather than more
+  # power on the workload itself. `get` because the scale is read before it is
+  # written: sending a stale resourceVersion is how two operators scaling at once
+  # end up with one silently overwriting the other.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments/scale
+      - statefulsets/scale
+    verbs: ["get", "update"]
+  # Live CPU and memory, served by metrics-server.
+  #
+  # No watch: the metrics API does not implement one, and granting a verb the
+  # server cannot honour is a permission that only looks like it does something.
+  # The panel treats a failure here as a missing reading rather than an error, so
+  # this grant is harmless on a cluster with no metrics-server installed.
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
+{{- if .Values.admin.api.kubernetes.nodeStats.enabled }}
+  # Node disk usage, which is not in the Kubernetes API at all: the kubelet's own
+  # stats endpoint is the only source, reached through the API server's node proxy.
+  #
+  # This is the widest grant the chart can hold, which is why it is off by default.
+  # `get` on nodes/proxy reaches every read endpoint the kubelet serves, including
+  # /logs — files under /var/log on the host. It does not permit exec or attach:
+  # those need `create` on the same subresource, which is never granted here.
+  #
+  # Switched on by admin.api.kubernetes.nodeStats.enabled, and worth switching off
+  # again if the disk figure stops being worth it.
+  - apiGroups: [""]
+    resources:
+      - nodes/proxy
+    verbs: ["get"]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

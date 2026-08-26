@@ -6,6 +6,9 @@ import type {
 	PostgresDatabase,
 	PostgresExtension,
 	PostgresRole,
+	QueryResult,
+	UpdatePostgresDatabase,
+	UpdatePostgresRole,
 } from "./types";
 
 /**
@@ -52,4 +55,23 @@ export function installExtension(
 	return call<PostgresExtension>("POST", `/api/postgres/databases/${seg(database)}/extensions`, {
 		name,
 	});
+}
+
+export function updateRole(
+	name: string,
+	request: UpdatePostgresRole,
+): Promise<ActionResult<PostgresRole>> {
+	return call<PostgresRole>("PUT", `/api/postgres/roles/${seg(name)}`, request);
+}
+
+export function updateDatabase(
+	name: string,
+	request: UpdatePostgresDatabase,
+): Promise<ActionResult<void>> {
+	return call<void>("PUT", `/api/postgres/databases/${seg(name)}`, request);
+}
+
+/** POST because the statement goes in the body. It is a read; the server enforces that. */
+export function runQuery(database: string, sql: string): Promise<ActionResult<QueryResult>> {
+	return call<QueryResult>("POST", `/api/postgres/databases/${seg(database)}/query`, { sql });
 }
