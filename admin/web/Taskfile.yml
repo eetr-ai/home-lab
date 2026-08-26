@@ -52,3 +52,13 @@ tasks:
     deps: [install]
     cmds:
       - npm run dev
+
+  clean:
+    desc: Remove the build output, including Next's generated route types
+    cmds:
+      - rm -rf .next out coverage
+    # Worth knowing about: tsconfig.json includes .next/types, which Next
+    # generates per route. Those files survive a branch switch (.next is
+    # ignored), so moving to a branch with fewer routes leaves typecheck
+    # complaining about pages that no longer exist. CI never sees this — it
+    # starts from nothing — but locally this task is the fix.
