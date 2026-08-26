@@ -18,6 +18,21 @@ admin:
     name: home-lab
 
   api:
+    # Which identity provider's tokens the API accepts.
+    #
+    # The issuer is kept exactly as configured, trailing slash and all: it is an
+    # identifier rather than a path, and normalizing it would silently fail every
+    # issuer check against a provider whose own is spelled with one.
+    #
+    # The audience is the value a token must name in `aud`, and it is what stops a
+    # token minted for another application being replayed here. eetr-auth puts the
+    # client id there when no resource indicator is requested, so this is normally
+    # the admin panel's client id. It is not a secret — it travels in every
+    # authorization request — so it lives in values rather than a Secret.
+    oidc:
+      issuer: https://auth.example.invalid
+      audience: ""
+
     image:
       repository: registry.example.invalid/home-lab/admin-api
       tag: "0.0.0"

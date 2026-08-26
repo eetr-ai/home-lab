@@ -6,3 +6,6 @@ admin:
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-api
       tag: "0.1.0"
+    oidc:
+      issuer: https://auth.eetr.app
+      audience: YOUR_ADMIN_PANEL_CLIENT_ID

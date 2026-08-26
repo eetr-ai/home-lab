@@ -26,8 +26,20 @@
         },
         "api": {
           "type": "object",
-          "required": ["image", "replicas", "resources", "route"],
+          "required": ["image", "replicas", "resources", "route", "oidc"],
           "properties": {
+            "oidc": {
+              "type": "object",
+              "required": ["issuer"],
+              "properties": {
+                "issuer": {
+                  "type": "string",
+                  "pattern": "^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?(/.*)?$",
+                  "description": "The OpenID Connect issuer URL, exactly as the provider publishes it."
+                },
+                "audience": { "type": "string" }
+              }
+            },
             "image": {
               "type": "object",
               "required": ["repository", "tag", "pullPolicy"],

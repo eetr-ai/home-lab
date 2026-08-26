@@ -40,6 +40,22 @@ if grep -q 'imagePullSecrets:' "$output_file"; then
 fi
 render --set admin.imagePullSecrets[0].name=some-secret | grep -q 'name: some-secret'
 
+# The API refuses to start without an issuer, and the template makes that a render
+# failure rather than a runtime one: `required` stops Helm before Kubernetes sees a
+# Deployment. Assert the wiring exists, and that both an empty issuer and a scheme
+# with no host are refused.
+grep -q 'name: ADMIN_OIDC_ISSUER' "$output_file"
+
+if render --set admin.api.oidc.issuer= >/dev/null 2>&1; then
+  printf 'The chart rendered with no OIDC issuer\n' >&2
+  exit 1
+fi
+
+if render --set admin.api.oidc.issuer=https:// >/dev/null 2>&1; then
+  printf 'The chart rendered with a hostless OIDC issuer\n' >&2
+  exit 1
+fi
+
 # A moving tag cannot say which build is running, and the chart's appVersion is
 # what release-please keeps in step with the images.
 if grep -qE 'image: .*:latest"?$' "$output_file"; then

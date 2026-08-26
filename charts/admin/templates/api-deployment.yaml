@@ -30,6 +30,11 @@ spec:
         - name: admin-api
           image: {{ include "home-lab-admin.apiImage" . | quote }}
           imagePullPolicy: {{ .Values.admin.api.image.pullPolicy }}
+          env:
+            - name: ADMIN_OIDC_ISSUER
+              value: {{ required "admin.api.oidc.issuer is required" .Values.admin.api.oidc.issuer | quote }}
+            - name: ADMIN_OIDC_AUDIENCE
+              value: {{ .Values.admin.api.oidc.audience | quote }}
           ports:
             - name: http
               containerPort: 8090

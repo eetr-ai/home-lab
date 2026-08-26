@@ -46,7 +46,22 @@ If you ever do want one release to pull with its own credential, create a
 cp charts/admin/values.local.yaml.example charts/admin/values.local.yaml
 ```
 
-Replace the registry path and set the image tag to the version you intend to run.
+Replace the registry path, set the image tag to the version you intend to run, and
+fill in the identity provider:
+
+- `admin.api.oidc.issuer` — the OpenID Connect issuer whose tokens the API accepts,
+  written exactly as the provider publishes it. It is `required` in the template,
+  so leaving it out fails the render: Helm refuses and Kubernetes never sees a
+  Deployment. That is the point — the failure lands where you can read it, rather
+  than as an unauthenticated API nobody notices.
+- `admin.api.oidc.audience` — the value a token must carry in `aud`, normally the
+  panel's client id. It is what stops a token minted for another application being
+  replayed here. Neither value is a secret; both travel in every authorization
+  request, which is why they live in values rather than a Secret.
+
+The provider's signing keys may be served from a different host than the issuer —
+eetr-auth publishes its JWKS on a CDN — so that host has to be reachable from the
+cluster.
 `values.local.yaml` is ignored. The installer refuses to run while any
 `example.invalid` placeholder is still present.
 
