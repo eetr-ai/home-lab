@@ -317,6 +317,7 @@
             "kube.ScaleRequest": {
                 "properties": {
                     "replicas": {
+                        "description": "A pointer so absent can be told from zero. int32 would make `{}` decode to\n0, and 0 is a legitimate replica count — so a request that named no count\nat all would scale the workload down to nothing. Scaling to zero has to be\nsomething the caller asked for.",
                         "type": "integer"
                     }
                 },

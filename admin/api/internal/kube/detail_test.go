@@ -60,3 +60,52 @@ func TestSelectorOfMatchesItsLabels(t *testing.T) {
 		t.Error("a real selector rendered empty, which the callers treat as no match")
 	}
 }
+
+// A Service is matched by evaluating its selector against the pods' real labels.
+// The earlier version rebuilt an equality set from the workload's selector, which
+// dropped a multi-value In and — worse — turned a one-value NotIn into an
+// equality label, asserting the opposite of what it required.
+func TestReachesEvaluatesAgainstRealPodLabels(t *testing.T) {
+	pods := []labels.Set{
+		{"app": "api", "tier": "web", "pod-template-hash": "abc123"},
+		{"app": "api", "tier": "web", "pod-template-hash": "def456"},
+	}
+
+	tests := []struct {
+		name     string
+		selector map[string]string
+		want     bool
+	}{
+		{name: "a selector the pods satisfy", selector: map[string]string{"app": "api"}, want: true},
+		{name: "two labels, both present", selector: map[string]string{"app": "api", "tier": "web"}, want: true},
+		{name: "a label the pods do not carry", selector: map[string]string{"app": "worker"}, want: false},
+		{
+			name:     "one label right and one wrong is not a match",
+			selector: map[string]string{"app": "api", "tier": "batch"},
+		},
+		{
+			// Mid-rollout the old and new pods differ by the template hash, and a
+			// Service pinned to one of them still reaches the workload.
+			name:     "matches only one of the pods",
+			selector: map[string]string{"pod-template-hash": "def456"},
+			want:     true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := reaches(labels.SelectorFromSet(test.selector), pods)
+			if got != test.want {
+				t.Errorf("reaches() = %t; want %t", got, test.want)
+			}
+		})
+	}
+}
+
+// A workload with no pods has no labels to match against, so nothing reaches it.
+// Matching an empty set would make every Service in the namespace appear to.
+func TestReachesWithNoPods(t *testing.T) {
+	if reaches(labels.SelectorFromSet(map[string]string{"app": "api"}), nil) {
+		t.Error("a Service matched a workload that has no pods")
+	}
+}

@@ -187,14 +187,16 @@ function LogBody({
 	status: LogStatus;
 	error: string | null;
 }) {
-	if (error) return <p className="text-danger-fg">{error}</p>;
 	if (lines.length === 0) {
 		return (
-			<p className="text-muted-foreground">
-				{status === "ended" ? "No output." : "Waiting for output…"}
+			<p className={error ? "text-danger-fg" : "text-muted-foreground"}>
+				{error ?? (status === "ended" ? "No output." : "Waiting for output…")}
 			</p>
 		);
 	}
+	// The error goes below the lines rather than instead of them. A stream can
+	// fail after delivering output, and the tail already on screen is usually the
+	// part that explains why — replacing it throws away the answer.
 	return (
 		<>
 			{lines.map((line, index) => (
@@ -204,6 +206,7 @@ function LogBody({
 					{line || " "}
 				</div>
 			))}
+			{error ? <p className="mt-2 text-danger-fg">{error}</p> : null}
 		</>
 	);
 }

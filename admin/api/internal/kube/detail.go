@@ -26,25 +26,25 @@ func (r *Repository) ReadWorkload(
 		return WorkloadDetail{}, err
 	}
 
-	pods, mounted, err := r.podsMatching(ctx, namespace, selector)
+	found, err := r.podsMatching(ctx, namespace, selector)
 	if err != nil {
 		return WorkloadDetail{}, err
 	}
-	detail.Pods = pods
+	detail.Pods = found.pods
 
-	services, err := r.servicesFor(ctx, namespace, selector)
+	services, err := r.servicesFor(ctx, namespace, found.labels)
 	if err != nil {
 		return WorkloadDetail{}, err
 	}
 	detail.Services = services
 
-	claims, err := r.claimsFor(ctx, namespace, mounted)
+	claims, err := r.claimsFor(ctx, namespace, found.claims)
 	if err != nil {
 		return WorkloadDetail{}, err
 	}
 	detail.Claims = claims
 
-	events, err := r.eventsFor(ctx, namespace, name, pods)
+	events, err := r.eventsFor(ctx, namespace, name, found.pods)
 	if err != nil {
 		return WorkloadDetail{}, err
 	}
@@ -149,56 +149,72 @@ func selectorOf(selector *metav1.LabelSelector) labels.Selector {
 	return converted
 }
 
-// podsMatching returns the pods a selector covers.
+// matched is what one listing of a workload's pods yields.
+//
+// Three things from a single API call, because all three come from the same
+// objects. Fetching them separately meant either a second listing or a Get per
+// pod.
+type matched struct {
+	pods []Pod
+	// labels is each pod's own label set. Kept because a Service is matched by
+	// evaluating its selector against real pod labels — see servicesFor.
+	labels []labels.Set
+	// claims names the volume claims these pods mount.
+	claims map[string]struct{}
+}
+
+// podsMatching returns the pods a selector covers, with their labels and claims.
 //
 // The guard tests the rendered selector, not Empty(). Both sentinels render as
 // the empty string — and labels.Nothing() reports Empty() as *false*, so an
 // Empty() check passes it straight through to List, which reads an empty
 // LabelSelector as "everything". A workload with no selector would then claim
 // every pod in the namespace as its own.
-// It also returns the volume claims those pods mount, gathered from the same
-// listing. The pods carry their own Spec.Volumes and summarizePod discards them,
-// so recovering the claim names any other way meant one Get per pod on every
-// detail page load — and a "the pod vanished between the list and the read" case
-// that now cannot arise.
+//
+// The labels and claims come from the same listing because summarizePod discards
+// both, and recovering them any other way meant a Get per pod on every detail
+// page load — plus a "the pod vanished between the list and the read" case that
+// now cannot arise.
 func (r *Repository) podsMatching(
 	ctx context.Context, namespace string, selector labels.Selector,
-) ([]Pod, map[string]struct{}, error) {
-	mounted := map[string]struct{}{}
+) (matched, error) {
+	found := matched{pods: []Pod{}, labels: []labels.Set{}, claims: map[string]struct{}{}}
 	if selector.String() == "" {
-		return []Pod{}, mounted, nil
+		return found, nil
 	}
 
 	list, err := r.client.CoreV1().Pods(namespace).
 		List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {
-		return nil, nil, translate(err, "list the workload's pods")
+		return matched{}, translate(err, "list the workload's pods")
 	}
 
-	pods := make([]Pod, 0, len(list.Items))
 	for i := range list.Items {
 		item := &list.Items[i]
-		pods = append(pods, summarizePod(item))
+		found.pods = append(found.pods, summarizePod(item))
+		found.labels = append(found.labels, labels.Set(item.Labels))
 		for j := range item.Spec.Volumes {
 			if claim := item.Spec.Volumes[j].PersistentVolumeClaim; claim != nil {
-				mounted[claim.ClaimName] = struct{}{}
+				found.claims[claim.ClaimName] = struct{}{}
 			}
 		}
 	}
-	sort.Slice(pods, func(a, b int) bool { return pods[a].Name < pods[b].Name })
-	return pods, mounted, nil
+	sort.Slice(found.pods, func(a, b int) bool { return found.pods[a].Name < found.pods[b].Name })
+	return found, nil
 }
 
-// servicesFor returns the services whose selector reaches this workload's pods.
+// servicesFor returns the services that reach this workload's pods.
 //
-// The test runs the other way round from podsMatching: a Service selects pods, so
-// what matters is whether the Service's selector is satisfied by the workload's
-// labels — not whether the two selectors are equal, which they often are not.
+// Each Service's selector is evaluated against the pods' actual labels. The
+// earlier version rebuilt an equality label set out of the *workload's* selector
+// and matched against that, which got two cases quietly wrong: a multi-value In
+// requirement was dropped, and a one-value NotIn became an equality label —
+// asserting the opposite of what it required. Testing against the labels the
+// pods really carry has neither problem, and is what Kubernetes itself does.
 func (r *Repository) servicesFor(
-	ctx context.Context, namespace string, selector labels.Selector,
+	ctx context.Context, namespace string, podLabels []labels.Set,
 ) ([]ClusterService, error) {
-	// Same sentinel trap as podsMatching, checked before asking the cluster.
-	if selector.String() == "" {
+	if len(podLabels) == 0 {
 		return []ClusterService{}, nil
 	}
 
@@ -207,7 +223,6 @@ func (r *Repository) servicesFor(
 		return nil, translate(err, "list the workload's services")
 	}
 
-	workloadLabels := labelsFromSelector(selector)
 	services := []ClusterService{}
 	for i := range list.Items {
 		item := &list.Items[i]
@@ -216,7 +231,7 @@ func (r *Repository) servicesFor(
 		if len(item.Spec.Selector) == 0 {
 			continue
 		}
-		if labels.SelectorFromSet(item.Spec.Selector).Matches(workloadLabels) {
+		if reaches(labels.SelectorFromSet(item.Spec.Selector), podLabels) {
 			services = append(services, summarizeService(item))
 		}
 	}
@@ -224,18 +239,18 @@ func (r *Repository) servicesFor(
 	return services, nil
 }
 
-// labelsFromSelector recovers the equality-based labels a selector requires, so
-// they can be tested against another selector.
-func labelsFromSelector(selector labels.Selector) labels.Set {
-	set := labels.Set{}
-	requirements, _ := selector.Requirements()
-	for _, requirement := range requirements {
-		values := requirement.Values().List()
-		if len(values) == 1 {
-			set[requirement.Key()] = values[0]
+// reaches reports whether a Service's selector matches any of these pods.
+//
+// Any rather than all: a Service reaching some of a workload's pods still reaches
+// the workload, and mid-rollout the old and new pods differ by at least the
+// pod-template-hash label.
+func reaches(selector labels.Selector, podLabels []labels.Set) bool {
+	for _, set := range podLabels {
+		if selector.Matches(set) {
+			return true
 		}
 	}
-	return set
+	return false
 }
 
 func summarizeService(service *corev1.Service) ClusterService {

@@ -294,5 +294,9 @@ type Condition struct {
 
 // ScaleRequest is what a caller sends to change a replica count.
 type ScaleRequest struct {
-	Replicas int32 `json:"replicas"`
+	// A pointer so absent can be told from zero. int32 would make `{}` decode to
+	// 0, and 0 is a legitimate replica count — so a request that named no count
+	// at all would scale the workload down to nothing. Scaling to zero has to be
+	// something the caller asked for.
+	Replicas *int32 `json:"replicas"`
 }

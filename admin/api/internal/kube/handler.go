@@ -292,9 +292,16 @@ func (h *Handler) scaleWorkload(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &request) {
 		return
 	}
+	if request.Replicas == nil {
+		// Refused rather than defaulted. Zero is a real replica count, so treating
+		// a missing one as zero would let `{}` take a workload down.
+		httpx.Error(w, http.StatusBadRequest, "invalid_request",
+			"replicas is required; it is the count to scale to")
+		return
+	}
 
 	err := h.service.ScaleWorkload(r.Context(),
-		r.PathValue("kind"), r.PathValue("namespace"), r.PathValue("name"), request.Replicas)
+		r.PathValue("kind"), r.PathValue("namespace"), r.PathValue("name"), *request.Replicas)
 	if err != nil {
 		respondError(w, err)
 		return
