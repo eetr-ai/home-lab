@@ -34,6 +34,107 @@
                     }
                 },
                 "type": "object"
+            },
+            "postgres.CreateDatabaseRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "owner": {
+                        "description": "Owner is the role that will own it. Empty leaves it owned by the role the\npanel connects as.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.CreateExtensionRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.CreateRoleRequest": {
+                "properties": {
+                    "canCreateDatabase": {
+                        "description": "CanCreateDatabase and CanCreateRole grant the two privileges an application\nrole sometimes needs. Superuser is deliberately not offered.",
+                        "type": "boolean"
+                    },
+                    "canCreateRole": {
+                        "type": "boolean"
+                    },
+                    "canLogin": {
+                        "description": "CanLogin makes the role a user rather than a group. Defaults to false, so\ncreating a login role is a deliberate act.",
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "description": "Password is required when CanLogin is true and must be empty otherwise —\na password on a role that cannot log in is refused rather than dropped, so\nthe caller is never left believing it set one. It never reaches the server\nas plaintext; a SCRAM verifier is derived from it first.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.Database": {
+                "properties": {
+                    "encoding": {
+                        "description": "Encoding is the character set, e.g. UTF8.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "owner": {
+                        "description": "Owner is the role that owns it.",
+                        "type": "string"
+                    },
+                    "sizeBytes": {
+                        "description": "SizeBytes is the on-disk size. Absent (0) when the connecting role cannot\nread it, which is not an error worth failing a listing over.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.Extension": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.Role": {
+                "properties": {
+                    "canCreateDatabase": {
+                        "description": "CanCreateDatabase and CanCreateRole are the two privileges worth granting a\nrole that administers its own application.",
+                        "type": "boolean"
+                    },
+                    "canCreateRole": {
+                        "type": "boolean"
+                    },
+                    "canLogin": {
+                        "description": "CanLogin distinguishes a user from a group.",
+                        "type": "boolean"
+                    },
+                    "connectionLimit": {
+                        "description": "ConnectionLimit is -1 when unlimited, which is the default.",
+                        "type": "integer"
+                    },
+                    "isSuperuser": {
+                        "description": "IsSuperuser is reported so the panel can show which roles bypass every\npermission check. The panel never creates one.",
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
             }
         },
         "securitySchemes": {
@@ -57,6 +158,483 @@
         "url": ""
     },
     "paths": {
+        "/api/postgres/databases": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/postgres.Database"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List databases",
+                "tags": [
+                    "postgres"
+                ]
+            },
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.CreateDatabaseRequest",
+                                        "summary": "request",
+                                        "description": "The database to create"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The database to create",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.Database"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create a database",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}": {
+            "delete": {
+                "description": "Removes the database and all of its data. PostgreSQL's own databases are refused.",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Drop a database",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}/extensions": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/postgres.Extension"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a database's extensions",
+                "tags": [
+                    "postgres"
+                ]
+            },
+            "post": {
+                "description": "Extensions are per database, so this installs into the named one only.\nThe server image ships pgvector, whose extension name is \"vector\".",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.CreateExtensionRequest",
+                                        "summary": "request",
+                                        "description": "The extension to install"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The extension to install",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.Extension"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Install an extension",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/roles": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/postgres.Role"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List roles",
+                "tags": [
+                    "postgres"
+                ]
+            },
+            "post": {
+                "description": "A role that can log in needs a password. Superuser cannot be granted through this API.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.CreateRoleRequest",
+                                        "summary": "request",
+                                        "description": "The role to create"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The role to create",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.Role"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create a role",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/roles/{role}": {
+            "delete": {
+                "description": "PostgreSQL's own roles and the account this panel connects as are refused.",
+                "parameters": [
+                    {
+                        "description": "Role name",
+                        "in": "path",
+                        "name": "role",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Drop a role",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
         "/api/whoami": {
             "get": {
                 "description": "Reports the subject and email the presented bearer token belongs to.",

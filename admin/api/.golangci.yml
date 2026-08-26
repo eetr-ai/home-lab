@@ -69,7 +69,12 @@ linters:
     lll:
       line-length: 120
     interfacebloat:
-      max: 5
+      # A slice's persistence port legitimately has one method per operation, and
+      # three related entities reach a dozen quickly. Splitting one port into three
+      # that share a pool and a transaction lifetime adds indirection without
+      # adding a seam, so the limit accommodates a repository rather than forcing
+      # that. It still catches an interface that has become a grab bag.
+      max: 12
     goconst:
       min-len: 3
       min-occurrences: 3
