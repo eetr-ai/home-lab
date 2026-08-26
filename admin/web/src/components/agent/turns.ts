@@ -191,7 +191,7 @@ export function acknowledge(turns: Turn[], signal: string, text: string): Turn[]
 		(turn) => turn.role === "user" && turn.delivery === "pending" && answerOf(turn).trim() === said,
 	);
 	if (i < 0) return null;
-	return turns.with(i, { ...turns[i], delivery: "missed" });
+	return replaceAt(turns, i, { ...turns[i], delivery: "missed" });
 }
 
 /**
@@ -320,8 +320,20 @@ function finishCompaction(segments: Segment[], dropped?: number): Segment[] {
 	const open = segments.findLastIndex((s) => s.kind === "compaction" && !s.done);
 	if (open < 0) return segments;
 	const segment = segments[open] as Extract<Segment, { kind: "compaction" }>;
-	return segments.with(open, { ...segment, done: true, dropped });
+	return replaceAt(segments, open, { ...segment, done: true, dropped });
 }
+
+/**
+ * A copy with one index replaced — `Array.prototype.with` by hand.
+ *
+ * Written out rather than using the method it is named after, which TypeScript
+ * accepts and Firefox 111 does not have: it landed in 115, this app sets no
+ * browserslist so Next's default baseline applies, and that baseline includes
+ * 111. Next does not polyfill it, so the method would throw `turns.with is not a
+ * function` mid-stream on a browser the project claims to support.
+ */
+const replaceAt = <T,>(items: T[], index: number, value: T): T[] =>
+	items.map((item, i) => (i === index ? value : item));
 
 const push = (turn: Turn, segment: Segment): Turn =>
 	withSegments(turn, [...turn.segments, segment]);

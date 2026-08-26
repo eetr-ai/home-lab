@@ -43,8 +43,19 @@ export function useAutoGrow(value: string, maxRows: number) {
 		// so the clamp and what the user sees cannot drift apart. A jsdom element (or
 		// one styled in `em`) reports no usable line-height; falling back to the
 		// unclamped height keeps the hook honest instead of collapsing the box to zero.
-		const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
-		const content = el.scrollHeight;
+		const style = getComputedStyle(el);
+		const lineHeight = parseFloat(style.lineHeight);
+
+		// Tailwind's preflight sets `box-sizing: border-box`, so an assigned height
+		// covers the borders too — but `scrollHeight` does not include them. Without
+		// this the composer's 1px top and bottom leave the content box 2px short of
+		// its own text, and since overflowY is "hidden" below the cap, that last
+		// sliver of a line is simply cut off with no scrollbar to reveal it.
+		const borders =
+			parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+		const edges = Number.isFinite(borders) ? borders : 0;
+
+		const content = el.scrollHeight + edges;
 		if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
 			el.style.height = `${content}px`;
 			return;
@@ -52,9 +63,8 @@ export function useAutoGrow(value: string, maxRows: number) {
 
 		// The padding is not part of the text, so it is added to the line budget
 		// rather than eating into it: `maxRows` means rows of writing.
-		const { paddingTop, paddingBottom } = getComputedStyle(el);
-		const chrome = parseFloat(paddingTop) + parseFloat(paddingBottom);
-		const cap = lineHeight * maxRows + (Number.isFinite(chrome) ? chrome : 0);
+		const chrome = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+		const cap = lineHeight * maxRows + (Number.isFinite(chrome) ? chrome : 0) + edges;
 
 		el.style.height = `${Math.min(content, cap)}px`;
 		// Only the clamped state scrolls. Left on, a box with room to spare still

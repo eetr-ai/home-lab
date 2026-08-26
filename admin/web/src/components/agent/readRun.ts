@@ -55,7 +55,14 @@ export async function readRun(
 	for await (const frame of parseSSE(body)) {
 		if (frame.event === "navigate") {
 			const to = parseNavigateEvent(frame.data);
-			if (to) navigate(to);
+			// Counted, because `applied` means "this stream delivered something" and
+			// a navigation is something. A run whose only frame was a navigate used
+			// to end with the handed-over note appended to it — an explanation for a
+			// silence, printed under a turn that had just moved the operator's page.
+			if (to) {
+				navigate(to);
+				applied++;
+			}
 			continue;
 		}
 		// The route's closing frame carries the flow's result body. Usually that

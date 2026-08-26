@@ -53,12 +53,21 @@ export async function POST(req: Request): Promise<Response> {
 		return Response.json({ error: credential.error }, { status: 401 });
 	}
 
-	let body: Record<string, unknown>;
+	let parsed: unknown;
 	try {
-		body = (await req.json()) as Record<string, unknown>;
+		parsed = await req.json();
 	} catch {
 		return Response.json({ error: "the request body is not JSON" }, { status: 400 });
 	}
+	// `req.json()` resolves for any valid JSON *value*, so null, a number and an
+	// array all get here — and the cast to a record hid that. A body of `null`
+	// then threw on `body.stop` below, which the catch around the fetch reported
+	// as 502 "the assistant is unreachable": a bad request from the caller,
+	// blamed on the agent.
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return Response.json({ error: "the request body must be a JSON object" }, { status: 400 });
+	}
+	const body = parsed as Record<string, unknown>;
 
 	// Written last, so a forged identity in the request body cannot survive. The
 	// agent keys its memory and its remembered facts on this, so a `user` a caller

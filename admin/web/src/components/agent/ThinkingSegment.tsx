@@ -4,6 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 
 /**
+ * How close to the end of the reasoning box still counts as being at it.
+ *
+ * Deliberately smaller than the transcript's own slack rather than shared with
+ * it. This box is `max-h-40` — 160px — so the transcript's 48 would be nearly a
+ * third of it, and a reader who scrolled up a couple of lines would still count
+ * as being at the bottom and be pulled back down. About one line is right here.
+ */
+const BOTTOM_SLACK = 24;
+
+/**
  * The model's reasoning while it is reasoning.
  *
  * This exists because leaving it out makes the panel look broken: the agent runs
@@ -44,9 +54,17 @@ export default function ThinkingSegment({
 	// nearest scrollable ancestor, which is the transcript: every token would drag
 	// the whole conversation down, quietly undoing the one thing the transcript's
 	// own scrolling is careful about.
+	//
+	// And follow only while the reader is already at the end. This runs on every
+	// token, so unconditionally it fights anyone who scrolls up inside the box to
+	// re-read a line: the next token drags them back down. The transcript makes
+	// the same distinction in useStickToBottom, for the same reason — scrolling
+	// away is a deliberate act and streaming is not a reason to undo it.
 	useEffect(() => {
 		const el = body.current;
-		if (open && el) el.scrollTop = el.scrollHeight;
+		if (!open || !el) return;
+		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK;
+		if (atBottom) el.scrollTop = el.scrollHeight;
 	}, [text, open]);
 
 	if (!text) return null;

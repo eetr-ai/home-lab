@@ -20,7 +20,11 @@ export default function UserMessage({ turn }: { turn: Turn }) {
 	return (
 		<div className="flex flex-col items-end gap-0.5">
 			<div
-				className={`max-w-[85%] rounded-card px-3 py-1.5 text-sm text-brand-fg transition-colors ${
+				// whitespace-pre-wrap because the composer takes Shift+Enter and a
+				// pasted block, so without it a message someone wrote over four lines
+				// is read back to them as one. break-words because a pod name or a URL
+				// is a single unbreakable token wider than 85% of the drawer.
+				className={`max-w-[85%] whitespace-pre-wrap break-words rounded-card px-3 py-1.5 text-sm text-brand-fg transition-colors ${
 					// Held back until it is picked up, so a message waiting on a model call
 					// does not sit there looking as settled as one already answered.
 					turn.delivery === "pending" ? "bg-brand/50" : "bg-brand"

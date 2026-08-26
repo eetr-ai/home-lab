@@ -194,6 +194,21 @@ describe("acknowledge", () => {
 		expect(acknowledge(turns, "unanswered", "did you see this")?.[0].delivery).toBe("missed");
 	});
 
+	// The one-element list above would pass even if every entry were rewritten, so
+	// this pins the two properties `Array.prototype.with` used to provide here and
+	// a hand-written copy has to keep: exactly one index changes, and the array
+	// that went in is not touched.
+	it("marks only that message, and leaves the input alone", () => {
+		const many: Turn[] = [
+			{ ...newTurn("a", "user", "first"), delivery: "pending" },
+			{ ...newTurn("b", "user", "second"), delivery: "pending" },
+			{ ...newTurn("c", "user", "third"), delivery: "pending" },
+		];
+		const after = acknowledge(many, "unanswered", "second");
+		expect(after?.map((t) => t.delivery)).toEqual(["pending", "missed", "pending"]);
+		expect(many.map((t) => t.delivery)).toEqual(["pending", "pending", "pending"]);
+	});
+
 	// Null is how the caller learns this window did not send it, and falls back to
 	// saying so in the transcript instead.
 	it("returns null for a message it cannot find", () => {
