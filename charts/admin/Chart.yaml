@@ -1,0 +1,11 @@
+apiVersion: v2
+name: home-lab-admin
+description: The in-cluster administration panel for the eetr home lab
+type: application
+
+# Placeholders for local work only. The published chart's version and appVersion
+# both come from the release tag, applied by `helm package` in cloudbuild.yaml — a
+# chart and the images it references have to carry the same version, and deriving
+# both from the tag makes that true by construction rather than by remembering.
+version: 0.1.0
+appVersion: "0.0.0"

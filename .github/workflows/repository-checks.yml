@@ -53,9 +53,9 @@ jobs:
       - name: Run repository tests
         run: task test
 
-      # Reads rendered-platform.yaml, which `task test` produced through
-      # tests/validate-platform-chart.sh. Kept as a step rather than a task because
-      # it runs as a container action.
+      # Reads the rendered charts that `task test` produced through
+      # tests/validate-*-chart.sh. Kept as a step rather than a task because it
+      # runs as a container action.
       - name: Validate rendered Kubernetes resources
         uses: docker://ghcr.io/yannh/kubeconform:v0.7.0
         with:
@@ -68,3 +68,4 @@ jobs:
             -schema-location https://raw.githubusercontent.com/datreeio/CRDs-catalog/7b1e26ef9deea49293714d204c1a2270aab1178f/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
             -kubernetes-version 1.36.0
             /github/workspace/rendered-platform.yaml
+            /github/workspace/rendered-admin.yaml

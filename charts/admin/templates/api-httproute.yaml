@@ -1,0 +1,32 @@
+{{- if .Values.admin.api.route.enabled }}
+{{- /*
+Only reachable from outside when something needs it to be. Put Cloudflare Access
+in front of the hostname before enabling this: the API authenticates its callers,
+but an administrative endpoint should not be the only thing standing between the
+public internet and the cluster.
+*/ -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: admin-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.admin.gateway.name }}
+      # The Gateway lives in the platform namespace, and cross-namespace
+      # attachment is what the gateway-access label on this namespace permits.
+      namespace: platform-system
+      sectionName: websecure
+  hostnames:
+    - {{ required "admin.api.route.hostname is required when the route is enabled" .Values.admin.api.route.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: admin-api
+          port: 80
+{{- end }}
