@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release please
+    runs-on: ubuntu-latest
+    steps:
+      # Opens and maintains a release pull request from the Conventional Commit
+      # history. Merging it tags admin-vX.Y.Z, and that tag is what the Cloud Build
+      # trigger watches.
+      #
+      # The tag is created with GITHUB_TOKEN, which by design does not start other
+      # GitHub Actions workflows. That does not matter here: publishing runs in
+      # Cloud Build through its GitHub App, which sees the tag either way. It would
+      # matter if a release ever needed to run a workflow in this repository.
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
