@@ -30,6 +30,21 @@ resource "google_project_iam_member" "build_log_writer" {
   member  = "serviceAccount:${google_service_account.build.email}"
 }
 
+# `gcloud builds submit` uploads the source to Cloud Build's staging bucket and the
+# build then reads it back. A build running as its own service account has no
+# standing there by default, so without this the manual submit — the documented way
+# to exercise the pipeline without cutting a release — fails on a 403 for an object
+# it just uploaded. Trigger-fired builds fetch their source from GitHub instead and
+# do not depend on this.
+#
+# Scoped to that one bucket. Cloud Build creates it on first use, so on a brand new
+# project run one build before applying this, or create the bucket first.
+resource "google_storage_bucket_iam_member" "build_source_reader" {
+  bucket = "${var.project_id}_cloudbuild"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.build.email}"
+}
+
 resource "google_service_account" "puller" {
   project      = var.project_id
   account_id   = "home-lab-puller"

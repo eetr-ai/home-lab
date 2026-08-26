@@ -337,7 +337,10 @@ the released package, so infrastructure work never moves the panel's version.
 To exercise the pipeline without cutting a release:
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=dev-local .
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_IMAGE_BASE=us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab,_TAG=dev-local \
+  --service-account=projects/YOUR_PROJECT/serviceAccounts/home-lab-build@YOUR_PROJECT.iam.gserviceaccount.com \
+  .
 ```
 
 Installing a published version into the cluster stays a deliberate `helm upgrade`,

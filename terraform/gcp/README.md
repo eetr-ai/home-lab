@@ -55,8 +55,16 @@ the tag fires this trigger. To publish without a tag — to check a pipeline cha
 say — submit the build directly:
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=dev-local .
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_IMAGE_BASE=us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab,_TAG=dev-local \
+  --service-account=projects/YOUR_PROJECT/serviceAccounts/home-lab-build@YOUR_PROJECT.iam.gserviceaccount.com \
+  .
 ```
+
+Naming the service account matters: it makes the manual path run as the identity
+the trigger uses, rather than as the broader default. That is also why the module
+grants it read access to Cloud Build's staging bucket — a build running as its own
+account otherwise cannot read the source archive `gcloud` just uploaded for it.
 
 ## State and secrets
 

@@ -5,9 +5,15 @@
 # Everything is addressed by that immutable tag — nothing here writes `latest`,
 # because a chart that pulls a moving name cannot say which build is running.
 #
-# To exercise the pipeline without cutting a release:
+# To exercise the pipeline without cutting a release, naming the same service
+# account the trigger uses so the manual path exercises the real one:
 #
-#   gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=dev-local .
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions=_IMAGE_BASE=REGION-docker.pkg.dev/PROJECT/home-lab,_TAG=dev-local \
+#     --service-account=projects/PROJECT/serviceAccounts/home-lab-build@PROJECT.iam.gserviceaccount.com .
+#
+# It publishes the images under the tag given and the chart as 0.0.0-<tag>, which
+# sorts below every real release.
 
 substitutions:
   # Registry prefix, e.g. us-west1-docker.pkg.dev/PROJECT/home-lab. Supplied by
