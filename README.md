@@ -351,9 +351,10 @@ export KUBECONFIG=ansible/artifacts/admin.conf
 task admin:install -- --values charts/admin/values.local.yaml
 ```
 
-The [admin chart guide](charts/admin/README.md) covers the registry pull secret
-the cluster needs first, the values to replace, and what the release does and does
-not own.
+The [admin chart guide](charts/admin/README.md) covers the values to replace and
+what the release does and does not own. The nodes already hold the registry
+credential, so there is no per-namespace pull secret to create first — see the
+[Ansible guide](ansible/README.md).
 
 ## Rebuild and recovery boundaries
 
