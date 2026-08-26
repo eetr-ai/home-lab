@@ -84,13 +84,14 @@ variable "bridge_name" {
 }
 
 variable "nodes" {
-  description = "Kubernetes node sizing and stable virtual MAC addresses."
+  description = "Kubernetes node sizing, stable virtual MAC addresses, and router-reserved IPv4 addresses."
   type = map(object({
-    role       = string
-    vcpu       = number
-    memory_mib = number
-    disk_gib   = number
-    mac        = string
+    role         = string
+    vcpu         = number
+    memory_mib   = number
+    disk_gib     = number
+    mac          = string
+    ipv4_address = optional(string)
   }))
 
   validation {
@@ -100,8 +101,27 @@ variable "nodes" {
       node.vcpu >= 2 &&
       node.memory_mib >= 2048 &&
       node.disk_gib >= 20 &&
-      can(regex("^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", node.mac))
+      can(regex("^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", node.mac)) &&
+      (node.ipv4_address == null ? true : can(cidrnetmask("${node.ipv4_address}/32")))
     ])
-    error_message = "Each node needs a valid role, at least 2 vCPU, 2 GiB RAM, 20 GiB disk, and a valid MAC."
+    error_message = "Each node needs a valid role, at least 2 vCPU, 2 GiB RAM, 20 GiB disk, a valid MAC, and an optional IPv4 address."
+  }
+
+  validation {
+    condition = var.network_mode != "bridge" || alltrue([
+      for node in values(var.nodes) : node.ipv4_address != null
+    ])
+    error_message = "Every node must declare its router-reserved ipv4_address when network_mode is bridge."
+  }
+
+  validation {
+    condition = length([
+      for node in values(var.nodes) : node.ipv4_address
+      if node.ipv4_address != null
+      ]) == length(distinct([
+        for node in values(var.nodes) : node.ipv4_address
+        if node.ipv4_address != null
+    ]))
+    error_message = "Node ipv4_address values must be unique."
   }
 }

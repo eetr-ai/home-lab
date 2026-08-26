@@ -46,6 +46,9 @@ jobs:
           find . -type f -name '*.sh' -not -path './.git/*' -print0 \
             | xargs -0 -r shellcheck
 
+      - name: Test inventory rendering
+        run: ./tests/render-ansible-inventory.sh
+
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
