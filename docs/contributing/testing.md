@@ -95,3 +95,43 @@ Keep the thing worth testing out of the component. A draft-comparison rule, a
 retry policy, or a URL-derivation rule belongs in its own module, where it can be
 tested directly. Extracting it is usually what makes the test worth writing in the
 first place.
+
+The agent drawer is the largest example of that in the repository, and it is worth
+knowing what it does and does not cover. Four modules under
+`src/components/agent/` have no React in them at all — `events.ts` (the SSE
+parser), `turns.ts` (the reducer that folds frames into a transcript), `thread.ts`
+and `frames.ts` — and those are the ones with tests. The components around them
+are not tested, in line with everything above. Two of those tests are load-bearing
+rather than routine:
+
+- `parseNavigateEvent` is a **security** boundary, not a formatter. The agent asks
+  where to navigate; this decides what it is allowed to ask for, whatever its
+  definition was changed to say. Every way out of the site — protocol-relative,
+  absolute, backslash, and a path that only becomes protocol-relative once the
+  browser drops a tab — has a case.
+- The reducer's ordering cases are the feature. A run that thinks, calls two
+  tools, thinks again and answers did those things in that order, and a test that
+  only counted segments would pass on an implementation that lost it.
+
+## The agent definition
+
+`admin/agent/config.yaml` is not covered by a test, and could not usefully be:
+there is no Octo binary in this repository, so nothing here can build the flow the
+way the runtime does. `task admin-agent:lint` asserts the properties whose failure
+mode is a crash-loop rather than an error somebody would notice — undeclared
+variables, a `cli-run` allow list naming a path the image does not carry, a skill
+pointing at a file that is not there, `allowMethods` slipping off the read-only
+tool, the operator's token reaching somewhere it must not.
+
+None of that is a substitute for **loading the config for real**, which takes
+seconds:
+
+```bash
+task admin-agent:run
+curl -N -X POST localhost:8080/chat -d '{"threadId":"t1","message":"hello"}'
+```
+
+Do that before trusting a change to the definition. The lint was written *from*
+the failures that found — including a folded YAML block that put a newline inside
+a CEL string literal, which the runtime reports as a column offset into a string
+nobody wrote that way.
