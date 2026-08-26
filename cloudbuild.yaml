@@ -41,10 +41,11 @@ steps:
           echo "_IMAGE_BASE is empty. Pass it, or let the trigger supply it." >&2
           exit 1
         fi
-        echo "Publishing ${_IMAGE_BASE}/admin-api:${_TAG}"
+        echo "Publishing ${_IMAGE_BASE}/admin-api:${_TAG} and ${_IMAGE_BASE}/admin-web:${_TAG}"
 
   - id: build-admin-api
     name: gcr.io/cloud-builders/docker
+    waitFor: ['check-substitutions']
     env:
       # The Dockerfile uses RUN --mount=type=cache, which the classic builder
       # does not understand.
@@ -58,6 +59,23 @@ steps:
       # The module directory is the context: it is self-contained, and a
       # repository-root context would ship every chart and playbook to the daemon.
       - admin/api
+
+  # Built in parallel with the API rather than after it: neither reads the other's
+  # output, and the panel's npm install is the long pole of the two.
+  - id: build-admin-web
+    name: gcr.io/cloud-builders/docker
+    waitFor: ['check-substitutions']
+    env:
+      # The Dockerfile uses RUN --mount=type=cache, which the classic builder
+      # does not understand.
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --tag
+      - ${_IMAGE_BASE}/admin-web:${_TAG}
+      - --file
+      - admin/web/Dockerfile
+      - admin/web
 
   # The chart is published as an OCI artifact into the same repository as the
   # images, which is what lets one `helm upgrade` reference one place.
@@ -100,3 +118,4 @@ steps:
 
 images:
   - ${_IMAGE_BASE}/admin-api:${_TAG}
+  - ${_IMAGE_BASE}/admin-web:${_TAG}
