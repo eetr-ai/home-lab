@@ -95,7 +95,7 @@ configured=$(render --set admin.api.postgres.enabled=true --set admin.api.mongo.
 grep -q 'name: ADMIN_POSTGRES_DSN' <<<"$configured"
 grep -q 'name: ADMIN_MONGO_URI' <<<"$configured"
 grep -q 'secretKeyRef' <<<"$configured"
-if grep -qE 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' -A 1 <<<"$configured" | grep -q '^ *value:'; then
+if grep -E -A 1 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' <<<"$configured" | grep -q '^ *value:'; then
   printf 'A database connection string was rendered as a literal value\n' >&2
   exit 1
 fi
