@@ -30,6 +30,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/mongo/databases/{database}/users", h.listUsers)
 	mux.HandleFunc("POST /api/mongo/databases/{database}/users", h.createUser)
 	mux.HandleFunc("DELETE /api/mongo/databases/{database}/users/{user}", h.dropUser)
+	mux.HandleFunc("PUT /api/mongo/databases/{database}/users/{user}", h.updateUser)
+	mux.HandleFunc("POST /api/mongo/databases/{database}/find", h.find)
 }
 
 // listDatabases returns every database on the server.
@@ -243,6 +245,73 @@ func (h *Handler) dropUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// updateUser replaces a user's roles and, optionally, its password.
+//
+//	@Summary		Update a user
+//	@Description	The whole role set, not a set of grants: MongoDB's updateUser replaces the
+//	@Description	array outright. An empty password leaves the existing one in place.
+//	@Tags			mongo
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string						true	"Database the user belongs to"
+//	@Param			user		path		string						true	"User name"
+//	@Param			request		body		mongo.UpdateUserRequest		true	"The desired state"
+//	@Success		200			{object}	mongo.User
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/mongo/databases/{database}/users/{user} [put]
+func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
+	var request UpdateUserRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	user, err := h.service.UpdateUser(r.Context(),
+		r.PathValue("database"), r.PathValue("user"), request)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, user)
+}
+
+// find returns documents from one collection.
+//
+//	@Summary		Find documents
+//	@Description	POST because the query goes in the body — it is a read, not a change. A
+//	@Description	find and nothing else: aggregate can write through $out and $merge, and
+//	@Description	runCommand is the whole server. Filters carrying $where, $function, or
+//	@Description	$accumulator are refused at any depth: each runs JavaScript in the server's
+//	@Description	engine, forcing a full collection scan and occupying a core until the
+//	@Description	deadline. Results are capped at 200 documents and the query at 15 seconds.
+//	@Tags			mongo
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string				true	"Database to query"
+//	@Param			request		body		mongo.FindRequest	true	"The query"
+//	@Success		200			{object}	mongo.FindResult
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		422			{object}	http.ErrorBody
+//	@Router			/api/mongo/databases/{database}/find [post]
+func (h *Handler) find(w http.ResponseWriter, r *http.Request) {
+	var request FindRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	result, err := h.service.Find(r.Context(), r.PathValue("database"), request)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
 // respondError maps this slice's errors to status codes.
 //
 // Only the slice's own errors reach the caller as prose. Anything else is a
@@ -256,6 +325,13 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, ErrAlreadyExists):
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
+	case errors.Is(err, ErrInvalidQuery):
+		httpx.Error(w, http.StatusBadRequest, "invalid_request", err.Error())
+	case errors.Is(err, ErrQueryFailed):
+		// 422 rather than 400: the request was well-formed and the query was the
+		// thing the server would not run. The message is MongoDB's own, which names
+		// the offending operator — the whole value of a query console.
+		httpx.Error(w, http.StatusUnprocessableEntity, "query_failed", err.Error())
 	case errors.Is(err, ErrProtected):
 		httpx.Error(w, http.StatusForbidden, "protected", err.Error())
 	default:

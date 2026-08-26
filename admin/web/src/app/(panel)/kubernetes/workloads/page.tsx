@@ -1,4 +1,5 @@
 import { Boxes } from "lucide-react";
+import Link from "next/link";
 import { listWorkloads } from "@/app/actions/kube";
 import { Td, Th } from "@/components/ui/table";
 import { Directory } from "../../_components/directory";
@@ -28,7 +29,7 @@ export default async function WorkloadsPage({
 			<ScopePicker label="Namespace" param="namespace" options={namespaces} selected={selected} />
 			<Directory
 				error={error ?? (workloads && !workloads.ok ? workloads.error : null)}
-				isEmpty={rows.length === 0}
+				isEmpty={workloads?.ok === true && rows.length === 0}
 				minWidth="min-w-[760px]"
 				empty={{ icon: Boxes, title: "Nothing running here", description: "This namespace has no Deployments, StatefulSets, or DaemonSets." }}
 				columns={
@@ -43,7 +44,14 @@ export default async function WorkloadsPage({
 				rows={rows.map((workload) => (
 					<tr key={`${workload.kind}/${workload.name}`}>
 						<Td className="text-muted-foreground">{workload.kind}</Td>
-						<Td className="font-medium">{workload.name}</Td>
+						<Td className="font-medium">
+							<Link
+								href={`/kubernetes/workloads/${encodeURIComponent(workload.kind)}/${encodeURIComponent(workload.name)}?namespace=${encodeURIComponent(workload.namespace)}`}
+								className="hover:underline"
+							>
+								{workload.name}
+							</Link>
+						</Td>
 						{/* Amber rather than red when short: a rollout in progress is not a
 						    fault, and colouring it like one trains you to ignore the colour. */}
 						<Td

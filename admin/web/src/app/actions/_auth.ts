@@ -34,8 +34,15 @@ export async function withWrite<T>(fn: () => Promise<ActionResult<T>>): Promise<
 	return fn();
 }
 
-/** The refusal to report, or undefined when the caller is signed in. */
-async function denyUnlessSignedIn(): Promise<{ ok: false; error: string } | undefined> {
+/**
+ * The refusal to report, or undefined when the caller is signed in.
+ *
+ * Exported because the log-streaming route handler needs the same rule and is not
+ * shaped like an action — it returns a Response, not an ActionResult, so it
+ * cannot go through withRead. One definition of "signed in" rather than two that
+ * will drift.
+ */
+export async function denyUnlessSignedIn(): Promise<{ ok: false; error: string } | undefined> {
 	const session = await auth();
 	if (!session?.user) return { ok: false, error: "not signed in" };
 	// A session whose refresh failed still looks signed in. It is not: its tokens

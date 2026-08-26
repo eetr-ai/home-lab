@@ -33,14 +33,15 @@ func summarizePod(pod *corev1.Pod) Pod {
 	}
 
 	return Pod{
-		Name:      pod.Name,
-		Namespace: pod.Namespace,
-		Phase:     string(pod.Status.Phase),
-		Status:    podStatus(pod),
-		Ready:     fmt.Sprintf("%d/%d", ready, len(pod.Spec.Containers)),
-		Restarts:  restarts,
-		Node:      pod.Spec.NodeName,
-		CreatedAt: pod.CreationTimestamp.Time,
+		Name:       pod.Name,
+		Namespace:  pod.Namespace,
+		Containers: containerNames(pod),
+		Phase:      string(pod.Status.Phase),
+		Status:     podStatus(pod),
+		Ready:      fmt.Sprintf("%d/%d", ready, len(pod.Spec.Containers)),
+		Restarts:   restarts,
+		Node:       pod.Spec.NodeName,
+		CreatedAt:  pod.CreationTimestamp.Time,
 	}
 }
 
@@ -100,4 +101,21 @@ func terminationReason(state *corev1.ContainerStateTerminated) string {
 		return "ExitCode:" + strconv.Itoa(int(state.ExitCode))
 	}
 	return ""
+}
+
+// containerNames lists the pod's containers, which is what a log request has to
+// name when there is more than one.
+//
+// Init containers are included, after the regular ones: a pod stuck in
+// Init:CrashLoopBackOff is one whose init container's log is the only one worth
+// reading, and it is the only place that log can be reached.
+func containerNames(pod *corev1.Pod) []string {
+	names := make([]string, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	for i := range pod.Spec.Containers {
+		names = append(names, pod.Spec.Containers[i].Name)
+	}
+	for i := range pod.Spec.InitContainers {
+		names = append(names, pod.Spec.InitContainers[i].Name)
+	}
+	return names
 }

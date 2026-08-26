@@ -11,6 +11,9 @@ import type {
 	MongoCollection,
 	MongoDatabase,
 	MongoUser,
+	FindRequest,
+	FindResult,
+	UpdateMongoUser,
 } from "@/lib/api/types";
 
 /** The MongoDB section's actions. See postgres.ts for why the whole section
@@ -88,4 +91,28 @@ export async function dropUser(database: string, name: string): Promise<ActionRe
 		if (result.ok) revalidatePath(SECTION, "layout");
 		return result;
 	});
+}
+
+export async function updateUser(
+	database: string,
+	name: string,
+	request: UpdateMongoUser,
+): Promise<ActionResult<MongoUser>> {
+	const result = await withWrite(() => mongo.updateUser(database, name, request));
+	if (result.ok) revalidatePath("/mongo", "layout");
+	return result;
+}
+
+/**
+ * Run a find.
+ *
+ * withRead, not withWrite. A find cannot write — aggregate and runCommand, which
+ * can, are not offered at all — so gating this on write access would restrict a
+ * read while protecting nothing.
+ */
+export async function find(
+	database: string,
+	request: FindRequest,
+): Promise<ActionResult<FindResult>> {
+	return withRead(() => mongo.find(database, request));
 }

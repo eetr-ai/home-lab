@@ -53,4 +53,23 @@ if grep -q '^kind: Ingress$' "$output_file"; then
   exit 1
 fi
 
+# metrics-server backs the admin panel's usage figures and nothing else, so it is
+# conditional. Assert both halves: it renders by default, and a cluster that
+# already has one (k3s ships it) can switch it off without disabling anything else
+# — two aggregated API servers cannot both back metrics.k8s.io.
+grep -q 'name: metrics-server' "$output_file"
+grep -q -- '- --kubelet-insecure-tls' "$output_file"
+
+without_metrics=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system \
+  --kube-version "$kube_version" \
+  --api-versions policy/v1/PodDisruptionBudget \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --set metrics-server.enabled=false)
+if grep -q 'name: metrics-server' <<<"$without_metrics"; then
+  printf 'Disabling metrics-server must leave nothing of it behind\n' >&2
+  exit 1
+fi
+grep -q '^kind: Gateway$' <<<"$without_metrics"
+
 printf 'Platform chart validation passed.\n'

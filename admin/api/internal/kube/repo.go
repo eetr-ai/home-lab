@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 // eventLimit bounds an event listing. A namespace under repeated failure produces
@@ -20,11 +21,28 @@ const eventLimit = 100
 // Repository reads the cluster through client-go.
 type Repository struct {
 	client kubernetes.Interface
+	// streamClient is the same cluster with no request deadline, used only for
+	// log streaming. See NewStreamClientset for why it cannot be the one above.
+	streamClient kubernetes.Interface
+	// metrics is the optional metrics.k8s.io client. Nil when metrics-server is
+	// not expected, and every read through it degrades to "no reading" rather
+	// than to an error — see nodeUsage.
+	metrics metricsclient.Interface
+	// nodeStats switches on reading node disk usage from the kubelet, which needs
+	// a grant the panel does not hold by default. See nodeFilesystem.
+	nodeStats bool
 }
 
-// NewRepository wraps a clientset.
-func NewRepository(client kubernetes.Interface) *Repository {
-	return &Repository{client: client}
+// NewRepository wraps the clients this reads the cluster with.
+func NewRepository(
+	client, streamClient kubernetes.Interface, metrics metricsclient.Interface, nodeStats bool,
+) *Repository {
+	return &Repository{
+		client:       client,
+		streamClient: streamClient,
+		metrics:      metrics,
+		nodeStats:    nodeStats,
+	}
 }
 
 // ListNamespaces returns every namespace.
@@ -186,8 +204,15 @@ func lastSeen(event *corev1.Event) time.Time {
 // it without importing Kubernetes' error package.
 func translate(err error, what string) error {
 	switch {
+	case err == nil:
+		// Load-bearing: callers pass a write's error straight through, and the
+		// default branch below would turn a nil into a non-nil error wrapping
+		// nothing — a successful restart reported as a failure.
+		return nil
 	case apierrors.IsNotFound(err):
 		return fmt.Errorf("%w: %s", ErrNotFound, what)
+	case apierrors.IsConflict(err):
+		return fmt.Errorf("%w: %s", ErrConflict, what)
 	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
 		// The panel's ServiceAccount is bound to a read-only role. A forbidden
 		// reply usually means that binding is missing rather than that the caller

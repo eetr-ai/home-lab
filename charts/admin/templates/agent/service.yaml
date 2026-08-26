@@ -1,0 +1,21 @@
+{{- if .Values.admin.agent.enabled }}
+# ClusterIP only, and no HTTPRoute anywhere in this directory. The agent is reached
+# through the panel's own route handler, which is where the operator is
+# authenticated and where their token is attached — an agent published on the
+# Gateway would be an unauthenticated way to spend the LLM key.
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-agent
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: admin-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}

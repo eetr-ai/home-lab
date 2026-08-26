@@ -1,0 +1,53 @@
+{{- if .Values.admin.agent.enabled }}
+# Who may talk to the agent.
+#
+# It is the one workload here with no authentication of its own. The API wants a
+# bearer token and the panel wants a session; the agent answers whoever asks, and
+# every answer costs money and can run curl inside the cluster. Its Service has no
+# route, but a ClusterIP is reachable from every pod on the cluster — so "the panel
+# is the only thing that reaches it" was a statement about intent until this.
+#
+# This is the first NetworkPolicy in the repository, which is why it is written
+# narrowly rather than as the start of a default-deny posture. Selecting a pod at
+# all makes it default-deny for ingress, and that is the whole mechanism: the two
+# rules below are then the only ways in.
+#
+# The two ports are separated deliberately, and this is the part worth not getting
+# wrong. Probes come from the kubelet on the node rather than from a pod, so a
+# policy that admitted only admin-web would depend on the CNI exempting host
+# traffic — and where it does not, the pod fails its readiness probe and the agent
+# is simply down. The chat port carries the restriction; the admin port, which
+# serves nothing but /healthz and /readyz, is left open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-agent
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: admin-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    # The conversation, from the panel and nothing else.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: admin-web
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Probes, from anywhere. See above: the source is the node, not a pod.
+    - ports:
+        - protocol: TCP
+          port: 39999
+{{- end }}
+# Egress is deliberately not restricted here. The agent holds curl on purpose, and
+# a policy that let it reach the API and the model provider and nothing else would
+# be a list to maintain rather than a boundary — the pod is the boundary, as
+# admin/agent/README.md says. Narrowing what it may reach is a real decision to
+# take on its own, not a line to add here in passing.

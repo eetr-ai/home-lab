@@ -112,6 +112,7 @@ func registerPostgres(ctx context.Context, mux *stdhttp.ServeMux, logger *slog.L
 	if err != nil {
 		return nil, err
 	}
+
 	postgres.NewHandler(postgres.NewService(repo)).Register(mux)
 	logger.Info("serving the PostgreSQL endpoints")
 	return repo.Close, nil
@@ -154,7 +155,35 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	kube.NewHandler(kube.NewService(kube.NewRepository(clientset))).Register(mux)
+
+	// A second client with no request deadline, for log streaming only. The one
+	// above bounds every request at twenty seconds, which is right for a list and
+	// fatal for a follow stream.
+	streamClient, err := kube.NewStreamClientset()
+	if err != nil {
+		return err
+	}
+
+	// The metrics client is built unconditionally and used only if it answers.
+	// metrics-server is an optional cluster component, so its absence has to be a
+	// missing reading on the dashboard rather than a panel that will not start.
+	metrics, err := kube.NewMetricsClientset()
+	if err != nil {
+		return err
+	}
+
+	// Node disk usage comes from the kubelet rather than from the Kubernetes API,
+	// which means a grant on the nodes/proxy subresource. That also opens the
+	// kubelet's other read endpoints, so it is opt-in: the chart withholds the
+	// grant unless this is switched on, and without it the panel reports every
+	// other node figure and no disk.
+	nodeStats := os.Getenv("ADMIN_KUBERNETES_NODE_STATS") == "true"
+	if nodeStats {
+		logger.Info("reading node disk usage from the kubelet")
+	}
+
+	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
+	kube.NewHandler(kube.NewService(repo)).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
 	return nil
 }

@@ -1,0 +1,136 @@
+{{- if .Values.admin.agent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-agent
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  # One, and this is not a value anybody may raise.
+  #
+  # Octo's standalone runtime holds its object store — the agent's memory and its
+  # facts — in a process-local map, loads it from disk once at startup, and flushes
+  # whole namespaces back. Two replicas would each answer from their own copy and
+  # each overwrite the other's file; a shared store needs the runtime's Kubernetes
+  # services provider, which needs the whole Octo platform. Until that is here,
+  # more replicas silently lose conversations rather than serving more of them.
+  replicas: 1
+  # Recreate for the same reason, and it is load-bearing rather than tidy: the
+  # default RollingUpdate briefly runs two pods, which is exactly the case above.
+  # The cost is a few seconds with no agent during a rollout, which is the right
+  # trade for a chat panel.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin-agent
+  # The prompt, the tools and the skills are baked into the image, so the tag is
+  # most of this pod's configuration; the rest is the environment below. Both
+  # replace pods when they change, which they have to — the runtime reads its
+  # environment once, at startup, and never again.
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: admin-agent
+    spec:
+      # It holds a shell's worth of programs and reaches the network with curl, so
+      # it is deliberately given no cluster credential at all. What it may read of
+      # the cluster it reads through the admin API, as the operator who asked.
+      automountServiceAccountToken: false
+      {{- with .Values.admin.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+        # The NFS provisioner creates a directory the pod's uid can write, and
+        # fsGroup is what makes that true on a server that maps groups rather than
+        # users. It costs a recursive chown of a directory holding a few small
+        # files, which is why it is set rather than reasoned about.
+        fsGroup: 65532
+      containers:
+        - name: admin-agent
+          image: {{ include "home-lab-admin.agentImage" . | quote }}
+          imagePullPolicy: {{ .Values.admin.agent.image.pullPolicy }}
+          env:
+            # The only secret this pod holds. Everything else it is trusted with
+            # arrives per-request, on the header the panel attaches.
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.agent.secret.name }}
+                  key: {{ .Values.admin.agent.secret.key }}
+            # Vendor-prefixed, as OpenRouter publishes model ids.
+            - name: LLM_MODEL
+              value: {{ required "admin.agent.model is required" .Values.admin.agent.model | quote }}
+            - name: LLM_REASONING
+              value: {{ .Values.admin.agent.reasoning | quote }}
+            # In-cluster, so the agent talks to the API directly rather than back
+            # out through the Gateway — the same address the panel uses.
+            - name: ADMIN_API_URL
+              value: http://admin-api.{{ .Release.Namespace }}.svc.cluster.local
+            # Both halves of the volume below. AGENT_WORKSPACE is declared by the
+            # definition; OCTO_STORAGE_DIR is read by the runtime itself, which is
+            # why it is not in that file's env block.
+            - name: AGENT_WORKSPACE
+              value: /data/workspace
+            - name: OCTO_STORAGE_DIR
+              value: /data/store
+          ports:
+            - name: http
+              containerPort: 8080
+            # The runtime's admin port, separate from any http connector so probes
+            # never collide with a route. The chat flow serves POST only, so
+            # without this there would be nothing a probe could ask.
+            - name: admin
+              containerPort: 39999
+          readinessProbe:
+            httpGet:
+              # 200 once every connector and flow started, 503 with the reason
+              # otherwise — including while a shutdown drains, which is the half
+              # that matters here.
+              path: /readyz
+              port: admin
+            # The LLM connector is built at startup; give it room before the first
+            # ask, so a rollout does not log a failure it was always going to pass.
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            # Slower than readiness on purpose: readiness taking a pod out of
+            # rotation is cheap, restarting it is not — and restarting this one
+            # drops whatever conversation was in flight.
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.admin.agent.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # curl writes where it is told and the runtime writes nothing, but a
+            # read-only root leaves a program that reaches for a temporary file
+            # with nowhere to put it. Cheap insurance against a failure that would
+            # read as the tool being broken.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: admin-agent-data
+        - name: tmp
+          emptyDir: {}
+{{- end }}

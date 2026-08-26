@@ -1,0 +1,72 @@
+version: '3'
+
+# Tasks for the admin agent module. Included from the root Taskfile under the
+# `admin-agent:` namespace with the working directory set to admin/agent, so every
+# path here is relative to it.
+
+vars:
+  IMAGE: '{{.AGENT_IMAGE | default "home-lab/admin-agent"}}'
+  TAG: '{{.AGENT_TAG | default "dev"}}'
+
+tasks:
+  lint:
+    desc: Check that the agent definition parses and names only what the image carries
+    cmds:
+      - ./lint.sh
+
+  test:
+    desc: Run the dolphin suite against the agent's flows
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    preconditions:
+      # Named here rather than left to a build failure, because "Cannot connect to
+      # the Docker daemon" in the middle of `task check` reads as the check being
+      # broken rather than as Docker not running.
+      - sh: docker info >/dev/null 2>&1
+        msg: 'Docker is not running. The agent suite needs it: dolphin needs an Octo runtime, and there is no Go toolchain here to build one.'
+    cmds:
+      # Built on the real image rather than beside it, so the suite runs against
+      # the runtime, the definition and the programs that actually ship. The base
+      # tag is a fixed name and not {{.TAG}}: what is under test is the working
+      # tree, never whatever happens to be tagged.
+      - docker build -t home-lab/admin-agent:test-base .
+      - docker build -t home-lab/admin-agent:test -f Dockerfile.test .
+      - docker run --rm home-lab/admin-agent:test {{.CLI_ARGS}}
+
+  build:
+    desc: 'Build the agent image (task admin-agent:build AGENT_TAG=0.2.0)'
+    # DOCKER_CONTEXT is pinned for the same reason every other local task pins it:
+    # databases/README.md has you point your context at the virtualization host,
+    # and a build that quietly ran there is worse than one honest override.
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - docker build -t '{{.IMAGE}}:{{.TAG}}' .
+
+  run:
+    desc: 'Run the agent locally on :8080 (needs OPENROUTER_API_KEY and ADMIN_API_URL)'
+    deps: [build]
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    preconditions:
+      - sh: test -n "${OPENROUTER_API_KEY:-}"
+        msg: 'OPENROUTER_API_KEY is not set. Export it, or source admin/.env.'
+    cmds:
+      # A host directory rather than a volume, so the KV store and the workspace
+      # can be read afterwards — the whole point of the persistent half.
+      #
+      # --add-host is what makes the default ADMIN_API_URL below resolve. Docker
+      # Desktop provides host.docker.internal on its own; Docker Engine on Linux
+      # does not, and without the mapping this task works on a Mac and fails
+      # everywhere else with a DNS error rather than a useful one.
+      - mkdir -p .local/workspace .local/store
+      - |
+        docker run --rm -p 8080:8080 \
+          --add-host host.docker.internal:host-gateway \
+          -e OPENROUTER_API_KEY \
+          -e ADMIN_API_URL="${ADMIN_API_URL:-http://host.docker.internal:8090}" \
+          -e OCTO_STORAGE_DIR=/data/store \
+          -e AGENT_WORKSPACE=/data/workspace \
+          -v "$PWD/.local:/data" \
+          --user "$(id -u):$(id -g)" \
+          '{{.IMAGE}}:{{.TAG}}' {{.CLI_ARGS}}
