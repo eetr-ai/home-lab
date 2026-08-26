@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars, which is ignored, and replace the values.
+#
+# Only these two are environment-specific. The repository, registry name, and tag
+# pattern have working defaults in variables.tf; override them only in a fork.
+
+project_id = "YOUR_GCP_PROJECT_ID"
+region     = "us-west1"
