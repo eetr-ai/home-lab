@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,10 +80,17 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	// leaves nothing behind.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// SET LOCAL, so it lasts exactly as long as this transaction rather than
-	// leaking onto a pooled connection.
+	// set_config rather than SET LOCAL, with is_local true — which does the same
+	// thing, and reverts on commit exactly the same way. The reason for the longer
+	// spelling is that SET is a utility statement and takes no bind parameters, so
+	// it forces the value to be interpolated into the SQL; set_config is an
+	// ordinary function and takes one. The value here is an int64 from a constant
+	// in this file, so interpolating it was never an injection — but "safe because
+	// of where this number comes from" is an argument a reader has to reconstruct,
+	// and a static analyser cannot. This needs neither.
 	if _, err := tx.Exec(ctx,
-		fmt.Sprintf("SET LOCAL statement_timeout = %d", queryTimeout.Milliseconds())); err != nil {
+		"SELECT set_config('statement_timeout', $1, true)",
+		strconv.FormatInt(queryTimeout.Milliseconds(), 10)); err != nil {
 		return QueryResult{}, fmt.Errorf("bound the query: %w", err)
 	}
 
