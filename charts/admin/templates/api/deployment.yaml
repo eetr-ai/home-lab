@@ -49,6 +49,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.admin.api.postgres.secret.name }}
                   key: {{ .Values.admin.api.postgres.secret.key }}
+            {{- if .Values.admin.api.postgres.query.enabled }}
+            - name: ADMIN_POSTGRES_QUERY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.api.postgres.query.secret.name }}
+                  key: {{ .Values.admin.api.postgres.query.secret.key }}
+            {{- end }}
             {{- end }}
             {{- if .Values.admin.api.mongo.enabled }}
             - name: ADMIN_MONGO_URI

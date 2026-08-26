@@ -65,3 +65,53 @@ type CreateRoleRequest struct {
 type CreateExtensionRequest struct {
 	Name string `json:"name"`
 }
+
+// UpdateRoleRequest is the desired state of a role.
+//
+// The whole state rather than a set of changes: the panel edits a role from a
+// form showing its current values, so it knows all of them, and "set these three
+// flags" needs no answer to what an omitted field means. A password is the one
+// exception — it cannot be read back, so an empty one means "leave it alone"
+// rather than "remove it".
+type UpdateRoleRequest struct {
+	CanLogin          bool `json:"canLogin"`
+	CanCreateDatabase bool `json:"canCreateDatabase"`
+	CanCreateRole     bool `json:"canCreateRole"`
+	// ConnectionLimit is -1 for unlimited, which is PostgreSQL's own default.
+	ConnectionLimit int `json:"connectionLimit"`
+	// Password, when set, replaces the existing one. Never sent as plaintext: a
+	// SCRAM verifier is derived from it first, the same as on create.
+	Password string `json:"password,omitempty"`
+}
+
+// UpdateDatabaseRequest is the desired state of a database.
+//
+// Only the owner. Encoding cannot be changed after creation, and the name would
+// be a rename — which breaks every connection string pointing at it, and is not
+// something to offer from a form with no way to warn about that.
+type UpdateDatabaseRequest struct {
+	Owner string `json:"owner"`
+}
+
+// QueryRequest asks for rows from one database.
+type QueryRequest struct {
+	// SQL is a single read-only statement. It is not parsed or filtered here —
+	// PostgreSQL enforces the read-only part itself. See Service.Query.
+	SQL string `json:"sql"`
+}
+
+// QueryResult is what a query returned.
+type QueryResult struct {
+	// Columns are in the order the statement selected them.
+	Columns []string `json:"columns"`
+	// Rows hold values already rendered as strings. The panel displays them and
+	// does not compute on them, and preserving every PostgreSQL type through JSON
+	// would mean a type map that has to be kept current for no gain.
+	Rows [][]string `json:"rows"`
+	// Truncated reports that the result was cut at the row cap, so the panel can
+	// say so rather than presenting a partial answer as the whole one.
+	Truncated bool `json:"truncated"`
+	// ElapsedMs is how long the server took, which is most of what a query is run
+	// for when it is being tuned rather than read.
+	ElapsedMs int64 `json:"elapsedMs"`
+}

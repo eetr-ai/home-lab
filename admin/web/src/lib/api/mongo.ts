@@ -7,6 +7,9 @@ import type {
 	MongoCollection,
 	MongoDatabase,
 	MongoUser,
+	FindRequest,
+	FindResult,
+	UpdateMongoUser,
 } from "./types";
 
 /**
@@ -61,4 +64,21 @@ export function createUser(
 
 export function dropUser(database: string, name: string): Promise<ActionResult<void>> {
 	return call<void>("DELETE", `/api/mongo/databases/${seg(database)}/users/${seg(name)}`);
+}
+
+export function updateUser(
+	database: string,
+	name: string,
+	request: UpdateMongoUser,
+): Promise<ActionResult<MongoUser>> {
+	return call<MongoUser>(
+		"PUT",
+		`/api/mongo/databases/${seg(database)}/users/${seg(name)}`,
+		request,
+	);
+}
+
+/** POST because the query goes in the body. It is a read; only find is offered. */
+export function find(database: string, request: FindRequest): Promise<ActionResult<FindResult>> {
+	return call<FindResult>("POST", `/api/mongo/databases/${seg(database)}/find`, request);
 }

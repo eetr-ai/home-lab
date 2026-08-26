@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Database, Plus, Trash2 } from "lucide-react";
+import { Database, Pencil, Plus, Trash2 } from "lucide-react";
 import { createDatabase, dropDatabase } from "@/app/actions/postgres";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
@@ -9,6 +9,7 @@ import { useRowDelete } from "../../../_components/use-row-delete";
 import { formatBytes } from "@/lib/format/bytes";
 import type { PostgresDatabase } from "@/lib/api/types";
 import { CreateDatabasePanel } from "./create-database-panel";
+import { EditDatabasePanel } from "./edit-database-panel";
 
 export function DatabaseList({
 	databases,
@@ -21,6 +22,7 @@ export function DatabaseList({
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
+	const [editing, setEditing] = useState<PostgresDatabase | null>(null);
 	const rowDelete = useRowDelete(setError);
 
 	const create = (
@@ -74,13 +76,22 @@ export function DatabaseList({
 									onCancel={rowDelete.cancel}
 								/>
 							) : (
-								<IconButton
-									variant="danger"
-									aria-label={`Drop ${database.name}`}
-									onClick={() => rowDelete.ask(database.name)}
-								>
-									<Trash2 className="h-4 w-4" />
-								</IconButton>
+								/* Pencil then Trash2, per the UX guidelines' row-action order. */
+								<div className="flex items-center justify-end gap-1">
+									<IconButton
+										aria-label={`Edit ${database.name}`}
+										onClick={() => setEditing(database)}
+									>
+										<Pencil className="h-4 w-4" />
+									</IconButton>
+									<IconButton
+										variant="danger"
+										aria-label={`Drop ${database.name}`}
+										onClick={() => rowDelete.ask(database.name)}
+									>
+										<Trash2 className="h-4 w-4" />
+									</IconButton>
+								</div>
 							)}
 						</Td>
 					</tr>
@@ -92,6 +103,14 @@ export function DatabaseList({
 				owners={owners}
 				onClose={() => setCreating(false)}
 				onSubmit={createDatabase}
+			/>
+			{/* Keyed by database, so opening a different one starts from its own
+			    owner rather than from whatever was last edited. */}
+			<EditDatabasePanel
+				key={editing?.name}
+				database={editing}
+				owners={owners}
+				onClose={() => setEditing(null)}
 			/>
 		</>
 	);
