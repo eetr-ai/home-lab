@@ -18,8 +18,10 @@ spec:
     spec:
       serviceAccountName: admin-api
       automountServiceAccountToken: true
+      {{- with .Values.admin.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.admin.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:

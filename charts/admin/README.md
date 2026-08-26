@@ -24,42 +24,21 @@ chart installs the API alone.
 
 ## Before installing
 
-### The image pull secret
+### Registry access
 
-The images live in a private Artifact Registry repository, so the cluster needs a
-credential. Create it from a key for the read-only `home-lab-puller` account that
-[terraform/gcp](../../terraform/gcp/README.md) declares — read-only on purpose, so
-a leaked key cannot overwrite a published image.
+Nothing to do here, if the cluster was bootstrapped with a registry credential.
+The nodes hold it: `ansible/roles/registry_credentials` writes it into the
+kubelet's configuration, so every namespace can pull private images without a
+Secret of its own. See [the Ansible guide](../../ansible/README.md).
 
-Keys are not managed by Terraform, because Terraform would write the private key
-into a local state file. Create one by hand:
+That is a deliberate trade. One credential on each node, rather than a copy in
+every namespace that has to be rotated in step. It costs per-namespace scoping —
+any pod scheduled on a node can pull anything the key can read — which is why the
+key is read-only and bound to a single repository.
 
-```bash
-umask 077
-gcloud iam service-accounts keys create ./home-lab-puller.json \
-  --iam-account "home-lab-puller@YOUR_PROJECT.iam.gserviceaccount.com"
-
-kubectl create namespace admin --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl create secret docker-registry artifact-registry \
-  --namespace admin \
-  --docker-server=us-west1-docker.pkg.dev \
-  --docker-username=_json_key \
-  --docker-password="$(cat ./home-lab-puller.json)" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-rm -P ./home-lab-puller.json   # shred -u on Linux
-```
-
-The Secret is not owned by Helm, matching how the platform chart's Cloudflare
-credentials work. Rotating it is the same two commands with a fresh key, followed
-by deleting the old key in Google Cloud.
-
-This is a Kubernetes pull secret rather than registry authentication configured on
-the nodes. It is scoped to the one namespace that needs it and rotates with a
-single command, and it leaves the Ansible containerd role alone — that role
-generates the stock configuration and asserts on its shape, so node-level
-credentials would mean re-templating it and putting a key on all three nodes.
+If you ever do want one release to pull with its own credential, create a
+`kubernetes.io/dockerconfigjson` Secret in its namespace and name it in
+`admin.imagePullSecrets`. The installer checks it exists before Helm runs.
 
 ### The values file
 

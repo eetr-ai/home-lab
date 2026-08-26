@@ -31,9 +31,14 @@ grep -q '^kind: ServiceAccount$' "$output_file"
 grep -q 'runAsUser: 65532' "$output_file"
 grep -q 'readOnlyRootFilesystem: true' "$output_file"
 
-# The image comes from a private repository, so the credential has to reach the
-# pod or it never starts.
-grep -q 'imagePullSecrets:' "$output_file"
+# The nodes hold the registry credential, so a per-namespace pull secret is an
+# override rather than the norm. Assert both halves: nothing is emitted by default,
+# and what is asked for is passed through.
+if grep -q 'imagePullSecrets:' "$output_file"; then
+  printf 'The chart must not require a per-namespace pull secret by default\n' >&2
+  exit 1
+fi
+render --set admin.imagePullSecrets[0].name=some-secret | grep -q 'name: some-secret'
 
 # A moving tag cannot say which build is running, and the chart's appVersion is
 # what release-please keeps in step with the images.

@@ -3,11 +3,14 @@
 # scripts/install-admin.sh refuses to install while they are still present.
 
 admin:
-  # Pulled from a private Artifact Registry repository, so every pod needs the
-  # credential. The Secret is created outside Helm — see README.md — because a
-  # registry key in a values file would end up in Git.
-  imagePullSecrets:
-    - name: artifact-registry
+  # Per-namespace pull secrets, for a cluster whose nodes do not already hold the
+  # registry credential.
+  #
+  # Empty by default because the nodes do hold it: ansible/roles/registry_credentials
+  # writes it to the kubelet, so every namespace can pull without a copy of its own.
+  # Set this only to override that for one release — a Secret named here must exist
+  # in the release namespace, and the installer checks before Helm runs.
+  imagePullSecrets: []
 
   # The Gateway the platform chart owns. A route only attaches when this
   # namespace carries the gateway-access label; the installer applies it.
