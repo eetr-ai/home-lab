@@ -205,8 +205,12 @@ tasks:
     env:
       DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
     preconditions:
-      - sh: test -f admin/.env
-        msg: 'admin/.env is missing. Create it with: cp admin/.env.example admin/.env && chmod 600 admin/.env'
+      # Non-empty, or already exported. An empty admin/.env passes a mere
+      # existence check and then fails deep inside compose interpolation, and
+      # exporting the variables in your shell is a legitimate way to run this —
+      # compose reads the environment before it reads the file.
+      - sh: test -s admin/.env || test -n "${OIDC_ISSUER:-}"
+        msg: 'admin/.env is missing or empty. Create it with: cp admin/.env.example admin/.env && chmod 600 admin/.env'
     cmds:
       - docker compose -f admin/compose.yaml up --build --detach --wait {{.CLI_ARGS}}
       - cmd: printf '\nThe panel is at http://localhost:3000 and the API at http://localhost:8090\nFollow the logs with `task logs`, and stop it with `task stop`.\n'

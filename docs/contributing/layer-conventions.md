@@ -70,9 +70,16 @@ server action  →  typed domain client  →  fetch wrapper
 (auth boundary)   (no HTTP verbs)         (the only place that calls fetch)
 ```
 
-- The **fetch wrapper** is the only code that touches `fetch`. It returns a
-  discriminated `ActionResult<T>` — `{ ok: true, data } | { ok: false, error }` —
-  and **never throws**.
+- The **fetch wrapper** is the only code that touches `fetch`. It is one
+  `RestClient` from `@eetr/ts-rest-utils`, configured once, whose `authProvider`
+  supplies the signed-in operator's bearer token — so authentication is a
+  property of the client rather than something each call has to remember. It
+  returns a discriminated `ActionResult<T>` — `{ ok: true, data } | { ok: false,
+  error }` — and **never throws**.
+
+  It imports `server-only`, and so does anything else that can read the
+  operator's token. That module makes importing it from a client component a
+  build failure, which is the difference between a rule and a rule that holds.
 - The **typed domain client** exposes domain functions (`listDatabases()`,
   `dropRole()`), never HTTP verbs. Paths, methods, base URLs, and headers stay
   inside it. Its modules mirror the API's slices, so the vertical seam runs from
@@ -89,6 +96,21 @@ the browser side unwraps it back into value-or-throw at the last moment.
 **Server actions are the default** for reads and mutations alike. Reach for a route
 handler only when an action genuinely cannot serve: streaming responses, endpoints
 a third party must call by URL, and framework endpoints such as Auth.js.
+
+**A mutation revalidates its whole section, not its own page.** Creating a
+PostgreSQL role changes what the databases tab can offer as an owner; dropping a
+database changes which extensions can be listed. Refreshing only the page that
+acted leaves a sibling tab quietly stale, so the actions call
+`revalidatePath("/postgres", "layout")` and let Next refresh what is on screen.
+
+**Server Components fetch; Client Components interact.** The page is a Server
+Component that awaits the actions and hands rows down; the client half owns only
+what needs a browser — the create panel, the delete confirmations, the scope
+picker. Watch the boundary when passing props: a function cannot cross it, and an
+icon is a function. A shared presentational component that a Server Component
+renders must therefore *not* be marked `"use client"`, or passing it an icon fails
+at render time — which the build does not catch, because it only happens when the
+page runs.
 
 ## Where new code goes
 

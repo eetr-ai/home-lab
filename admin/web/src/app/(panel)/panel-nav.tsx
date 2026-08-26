@@ -2,12 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut, ServerCog } from "lucide-react";
+import { Boxes, Database, LayoutDashboard, Leaf, LogOut, ServerCog } from "lucide-react";
 import { endSession } from "@/app/actions/session";
 import { ThemeSwitcher } from "@/app/theme-switcher";
 import { activeHref, type NavItem } from "@/lib/nav/active";
 
-const navItems: NavItem[] = [{ href: "/overview", label: "Overview", icon: LayoutDashboard }];
+const navItems: NavItem[] = [
+	{ href: "/overview", label: "Overview", icon: LayoutDashboard },
+	{ href: "/postgres", label: "PostgreSQL", icon: Database },
+	{ href: "/mongo", label: "MongoDB", icon: Leaf },
+	{ href: "/kubernetes", label: "Kubernetes", icon: Boxes },
+];
 
 export function PanelNav({ email }: { email: string }) {
 	const pathname = usePathname();

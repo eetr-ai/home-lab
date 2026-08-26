@@ -1,4 +1,5 @@
 import { CircleCheck, CircleX, LayoutDashboard } from "lucide-react";
+import { auth } from "@/auth";
 import { describeCaller } from "@/app/actions/identity";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { Card } from "@/components/ui/card";
  * page says whether the cause is above or below the API.
  */
 export default async function OverviewPage() {
-	const caller = await describeCaller();
+	const [caller, session] = await Promise.all([describeCaller(), auth()]);
 
 	return (
 		<main className="flex min-h-screen flex-col p-6">
@@ -38,7 +39,12 @@ export default async function OverviewPage() {
 						<dt className="text-muted-foreground">Subject</dt>
 						<dd className="truncate font-mono">{caller.data.subject}</dd>
 						<dt className="text-muted-foreground">Email</dt>
-						<dd className="truncate">{caller.data.email || "—"}</dd>
+						{/* The API reports the email only when the access token carries the
+						    claim, and eetr-auth puts it in the ID token instead — so the
+						    session is where the panel actually knows it from. */}
+						<dd className="truncate">
+							{caller.data.email || session?.user?.email || "—"}
+						</dd>
 					</dl>
 				) : (
 					<p className="text-sm text-danger-fg">{caller.error}</p>

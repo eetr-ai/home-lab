@@ -29,6 +29,13 @@ proves nothing, so we do not write it.
 The heuristic: if the test would still pass after you deleted the logic and
 returned a constant, it is testing structure.
 
+**Check that an assertion bites before trusting it.** This applies most to the
+shell checks under `tests/`, where a `grep` that matches nothing and a `grep` that
+matches everything both exit zero in some pipelines. Break the thing on purpose,
+watch the check fail, put it back. Several assertions in
+`tests/validate-admin-chart.sh` were wrong in exactly that way until they were
+mutation-checked.
+
 ## No integration tests in the repository
 
 Do not commit a test that needs live infrastructure — a running database, a
