@@ -1,8 +1,8 @@
 # Admin panel chart
 
 Installs the in-cluster administration panel: the Go API that manages the host
-PostgreSQL and MongoDB services and reads the cluster, and the web panel an
-operator signs in to.
+PostgreSQL and MongoDB services and reads the cluster, the web panel an operator
+signs in to, and — optionally — the assistant that answers questions about it.
 
 It is a separate chart from [platform](../platform/README.md) rather than a
 section of it. The platform chart installs the cluster's shared services and its
@@ -23,10 +23,13 @@ repository has a cohesive set of configurable Kubernetes resources.
 | `Deployment/admin-web` | The panel. No ServiceAccount token: it asks the API |
 | `Service/admin-web` | ClusterIP on port 80 |
 | `HTTPRoute/admin-web` | Enabled — a panel nobody can reach is not a panel |
+| `Deployment/admin-agent` | **Disabled by default.** One replica, `Recreate` — see below |
+| `Service/admin-agent` | ClusterIP on port 80. No route: the panel proxies to it |
+| `PersistentVolumeClaim/admin-agent-data` | The agent's memory and workspace, on the NFS class |
 
-The two images always carry the same version. One release tag builds both and
-publishes the chart, so `admin.api.image.tag` and `admin.web.image.tag` should
-match.
+The images always carry the same version. One release tag builds all three and
+publishes the chart, so `admin.api.image.tag`, `admin.web.image.tag` and
+`admin.agent.image.tag` should match.
 
 The templates are folded by component rather than by resource kind, the same way
 the Go code is:
@@ -34,8 +37,9 @@ the Go code is:
 ```text
 templates/
   _helpers.tpl
-  api/   deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml
-  web/   deployment.yaml service.yaml httproute.yaml
+  api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml
+  web/    deployment.yaml service.yaml httproute.yaml
+  agent/  deployment.yaml service.yaml pvc.yaml
 ```
 
 Helm walks the directory, so nesting costs nothing and everything one half of the
@@ -232,6 +236,58 @@ every read endpoint a kubelet serves, including the one that returns files under
 Left off, the nodes page reports every other figure and shows the node's
 ephemeral-storage allocatable in place of a usage reading, labelled as the
 capacity it is.
+
+### The assistant
+
+Off by default, and it costs money per answer, so turning it on is a decision.
+It needs one Secret:
+
+```bash
+kubectl -n admin create secret generic admin-agent-llm \
+  --from-literal=apiKey=sk-or-...
+```
+
+...and then `admin.agent.enabled: true` with an image tag. Everything else has a
+default: `admin.agent.model` (an OpenRouter model id, vendor-prefixed —
+`deepseek/deepseek-v4-flash`), `admin.agent.reasoning`, and
+`admin.agent.storage.{className,size}`.
+
+Three things about it are worth understanding before you run it.
+
+**It runs exactly one replica, and that is not an oversight.** The agent is an
+[Octo](https://juancavallotti.github.io/octo/) app on Octo's standalone runtime,
+whose object store — the agent's memory and its remembered facts — is a map held
+in the process and serialized to `OCTO_STORAGE_DIR`. It is read once at startup
+and written back a namespace at a time, so two replicas would each answer from
+their own copy and each overwrite the other's file. That is also why the
+Deployment is `Recreate`: a rolling update runs two pods for a few seconds, which
+is the same problem for a shorter time. Sharing the store across replicas needs
+the runtime's Kubernetes services provider, which needs the whole Octo platform.
+
+The claim is `ReadWriteMany` on `nfs-client` anyway, and for a different reason:
+the store has to be where the pod lands, so a pod rescheduled onto another node
+has to find it. RWX is also what keeps raising the replica count a values change
+once there is somewhere shared to put the store, rather than a storage migration
+as well. **Note the class's reclaim policy: deleting this PVC deletes the
+conversations with it.**
+
+**It reads the API as whoever is asking.** The panel's own route handler attaches
+the signed-in operator's bearer token to every chat request, and the agent's
+`admin_read` tool sends it on. So there is no service identity, no
+client-credentials grant and no standing token — and the agent can read exactly
+what the operator could read from the panel itself. The tool is `GET`-only, which
+is enforced by the runtime rather than by the prompt.
+
+**It is a privileged pod.** It carries `curl`, `jq` and GNU `find`, and a
+workspace it can write to, because an assistant that can fetch a health endpoint
+and read the JSON back is worth more than one that can only describe how. The
+allow list on those tools keeps the ordinary path predictable; it is not a
+boundary. The boundary is the pod: it holds the OpenRouter key, it reaches
+anything it can route to, and it carries **no ServiceAccount token at all**. If
+its network reach matters on your cluster, a NetworkPolicy is the control.
+
+The drawer is gated by `admin.web.writeEmails` — the same allowlist every other
+change goes through. An operator given the panel read-only sees no launcher.
 
 ## Install
 

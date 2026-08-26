@@ -67,6 +67,17 @@ spec:
             # than back out through the Gateway.
             - name: ADMIN_API_URL
               value: http://admin-api.{{ .Release.Namespace }}.svc.cluster.local
+            {{- if .Values.admin.agent.enabled }}
+            # The agent, also in-cluster. The panel is the only thing that reaches
+            # it: it has no route of its own, and the operator's token is attached
+            # here rather than held by the agent — so this address is the whole of
+            # its access control, and it is a server-side variable for that reason.
+            #
+            # Absent when no agent is deployed, which is what the launcher reads to
+            # decide whether to render at all.
+            - name: AGENT_URL
+              value: http://admin-agent.{{ .Release.Namespace }}.svc.cluster.local
+            {{- end }}
           ports:
             - name: http
               containerPort: 3000

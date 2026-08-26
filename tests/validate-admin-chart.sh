@@ -20,6 +20,20 @@ render() {
     "$@"
 }
 
+# The same chart with nothing but its own values.yaml, plus the four settings that
+# are render failures when unset. Everything else keeps the shipped default, which
+# is what makes an assertion about a default an assertion about the default.
+render_defaults() {
+  helm template home-lab-admin "${repo_root}/charts/admin" \
+    --namespace admin \
+    --kube-version "$kube_version" \
+    --set admin.api.oidc.issuer=https://auth.test.invalid \
+    --set admin.api.image.tag=0.0.1 \
+    --set admin.web.hostname=admin.test.invalid \
+    --set admin.web.clientId=test-client \
+    --set admin.web.image.tag=0.0.1
+}
+
 render >"$output_file"
 
 grep -q '^kind: Deployment$' "$output_file"
@@ -351,6 +365,148 @@ fi
 
 if render --set admin.web.clientId= >/dev/null 2>&1; then
   printf 'The chart rendered with no OIDC client id\n' >&2
+  exit 1
+fi
+
+# --- the agent ---------------------------------------------------------------
+#
+# It is rendered here because the example values enable it, which is what puts its
+# Deployment, Service and PVC in front of kubeconform. Its being *off* by default
+# is asserted against the shipped values.yaml rather than against this render.
+if grep -q 'name: admin-agent' <<<"$(render_defaults)"; then
+  printf 'The agent must be disabled by default\n' >&2
+  exit 1
+fi
+
+agent_pod=$(render --show-only templates/agent/deployment.yaml)
+
+# One replica, and not because nobody got round to raising it. The standalone Octo
+# runtime holds its object store — the agent's memory — in the process and writes
+# it back to this volume; two replicas would each answer from their own copy and
+# each overwrite the other's file. Recreate is the second half of the same fact:
+# the default RollingUpdate runs two pods for a few seconds.
+grep -q '^  replicas: 1$' <<<"$agent_pod"
+grep -q 'type: Recreate' <<<"$agent_pod"
+if grep -qE '^  replicas: [2-9]' <<<"$agent_pod"; then
+  printf 'The agent must run exactly one replica; see the comment on its Deployment\n' >&2
+  exit 1
+fi
+
+# It holds a shell's worth of programs and reaches the network with curl, so it is
+# given no cluster credential at all. What it reads of the cluster it reads through
+# the API, as the operator who asked.
+grep -q 'automountServiceAccountToken: false' <<<"$agent_pod"
+
+# The provider key is the one secret this pod holds, and it comes from a Secret
+# rather than from values — this repository is public.
+#
+# Asserted as the four lines it has to be rather than as "no literal value". A
+# rejection-only check passes on an empty value, on a configMapKeyRef, and on a
+# secretKeyRef naming something else entirely; this one only passes on the shape
+# that actually works.
+key_env=$(grep -A 4 'name: OPENROUTER_API_KEY$' <<<"$agent_pod")
+grep -q 'valueFrom:' <<<"$key_env"
+grep -q 'secretKeyRef:' <<<"$key_env"
+grep -q 'name: admin-agent-llm' <<<"$key_env"
+grep -q 'key: apiKey' <<<"$key_env"
+if grep -q '^ *value:' <<<"$key_env"; then
+  printf 'The OpenRouter key was rendered as a literal value rather than read from a Secret\n' >&2
+  exit 1
+fi
+
+# Probes answer on the runtime's admin port, not on the chat route: the chat flow
+# serves POST only, so a probe against it would fail a healthy pod.
+grep -q 'containerPort: 39999' <<<"$agent_pod"
+grep -q 'path: /readyz' <<<"$agent_pod"
+if grep -q 'path: /chat' <<<"$agent_pod"; then
+  printf 'The agent must not be probed on its chat route; it serves POST only\n' >&2
+  exit 1
+fi
+
+# The memory and the workspace are one volume, and it has to be the NFS class: the
+# store is read from this directory at startup, so a pod that comes back on another
+# node has to find it there.
+agent_pvc=$(render --show-only templates/agent/pvc.yaml)
+grep -q 'storageClassName: "nfs-client"' <<<"$agent_pvc"
+grep -q 'ReadWriteMany' <<<"$agent_pvc"
+
+# ...and the agent is reached only through the panel, which is where the operator
+# is authenticated and where their token is attached. A route on the Gateway would
+# be an unauthenticated way to spend the provider key.
+if grep -q 'name: admin-agent' <<<"$routes"; then
+  printf 'The agent must not be published on the Gateway\n' >&2
+  exit 1
+fi
+
+# The panel is the only thing that reaches the agent, so it is the panel that has
+# to know where it is — and it must not be told when there is nothing there, since
+# that address is what the launcher reads to decide whether to render at all.
+grep -q 'name: AGENT_URL' <<<"$(render --show-only templates/web/deployment.yaml)"
+if grep -q 'name: AGENT_URL' <<<"$(render --set admin.agent.enabled=false)"; then
+  printf 'The panel must not be given an agent address when no agent is deployed\n' >&2
+  exit 1
+fi
+
+# A ClusterIP is reachable from every pod on the cluster, and this one answers
+# anybody. The policy is what makes "only the panel reaches it" true rather than
+# intended — so assert both halves: the chat port is restricted to admin-web, and
+# the admin port is not. Probes come from the kubelet rather than from a pod, and a
+# policy that restricted 39999 too would fail a healthy pod on any CNI that does
+# not exempt host traffic.
+policy=$(render --show-only templates/agent/networkpolicy.yaml)
+
+# Each ingress rule flattened to one line — `<ports…> from:<selectors…>` — so the
+# assertions below are about which rule carries what, not about what order the
+# rules happen to be written in. A rule begins at four spaces and a dash.
+rules() {
+  awk '
+    /^  ingress:/ { inrules = 1; next }
+    !inrules { next }
+    /^[^ ]/ || /^  [^ ]/ { if (line != "") print line; inrules = 0; next }
+    /^    - / { if (line != "") print line; line = ""; }
+    /port: / { sub(/^.*port: /, ""); line = line " port:" $0; next }
+    /name: / { sub(/^.*name: /, ""); line = line " from:" $0; next }
+    END { if (line != "") print line }
+  ' <<<"$policy"
+}
+
+# The conversation is reachable from the panel and from nothing else.
+chat_rule=$(rules | grep 'port:8080')
+if ! grep -q 'from:admin-web' <<<"$chat_rule"; then
+  printf 'The agent chat port must be restricted to admin-web; the rule is [%s]\n' "$chat_rule" >&2
+  exit 1
+fi
+
+# ...and the probe port is reachable from anywhere, which is not an oversight.
+# Probes come from the kubelet on the node rather than from a pod, so a rule that
+# named a selector here would fail a healthy pod on any CNI that does not exempt
+# host traffic.
+probe_rule=$(rules | grep 'port:39999')
+if grep -q 'from:' <<<"$probe_rule"; then
+  printf 'The probe port must not be restricted to a pod selector; the rule is [%s]\n' "$probe_rule" >&2
+  exit 1
+fi
+
+# Disabling it takes all three away rather than leaving a claim behind holding a
+# volume nothing reads.
+without_agent=$(render --set admin.agent.enabled=false)
+if grep -q 'admin-agent' <<<"$without_agent"; then
+  printf 'Disabling the agent must remove its Deployment, Service, claim and policy\n' >&2
+  exit 1
+fi
+
+# The connector validates the reasoning effort when it starts, so an unlisted value
+# is a pod that will not start. The schema is what turns that into a render failure.
+if render --set admin.agent.reasoning=enthusiastic >/dev/null 2>&1; then
+  printf 'The chart rendered with an unsupported reasoning effort\n' >&2
+  exit 1
+fi
+
+# OpenRouter model ids are vendor-prefixed and there is no bare name, so a bare one
+# is a 404 on the first call rather than a startup failure — the slowest possible
+# way to find out.
+if render --set admin.agent.model=deepseek-v4-flash >/dev/null 2>&1; then
+  printf 'The chart rendered with a model id that is not vendor-prefixed\n' >&2
   exit 1
 fi
 
