@@ -102,6 +102,24 @@ sudo exportfs -rav
 sudo exportfs -v
 ```
 
+If UFW is active, add the bridged rule before removing the obsolete NAT rule:
+
+```bash
+VM_SUBNET_CIDR=192.0.2.0/24
+VIRTUAL_BRIDGE=br0
+
+sudo ufw allow in on "$VIRTUAL_BRIDGE" \
+  from "$VM_SUBNET_CIDR" to any port 2049 proto tcp
+sudo ufw status numbered
+sudo ufw --force delete OLD_NAT_RULE_NUMBER
+sudo ufw reload
+sudo ufw status verbose
+```
+
+Replace `OLD_NAT_RULE_NUMBER` with the number shown for the obsolete NFS rule.
+When access is restricted to individual node addresses instead of a dedicated
+node subnet, add one equivalent rule per reserved node address.
+
 Prove TCP port 2049 and a read/write NFSv4.1 mount from a worker before changing
 Kubernetes resources. A provisioner pod stuck in `ContainerCreating` usually
 reports the underlying mount error in `kubectl describe pod` events.

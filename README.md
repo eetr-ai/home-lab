@@ -162,13 +162,23 @@ cd ..
 Create exactly 32 random bytes in a mode-`0600` file outside this repository:
 
 ```bash
+KEY_PATH=/ABSOLUTE/SECURE/PATH/kubernetes-secretbox.key
+if [ -e "$KEY_PATH" ]; then
+  printf '%s\n' "Refusing to overwrite existing key: $KEY_PATH" >&2
+  exit 1
+fi
+
 umask 077
-openssl rand 32 > /ABSOLUTE/SECURE/PATH/kubernetes-secretbox.key
+(set -C; openssl rand 32 >"$KEY_PATH") || exit 1
+chmod 0600 "$KEY_PATH"
+test "$(wc -c <"$KEY_PATH" | tr -d '[:space:]')" -eq 32
 ```
 
 Store a recoverable copy somewhere independent of the cluster before
 initialization. Losing this key makes encrypted Kubernetes Secrets in etcd
-unrecoverable. Never print, paste, or commit it.
+unrecoverable. The existence check and shell no-clobber mode deliberately make
+this command fail rather than replace an established key. Never print, paste,
+or commit it.
 
 ### 5. Bootstrap Kubernetes
 

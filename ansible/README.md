@@ -78,13 +78,21 @@ Create exactly 32 random bytes outside the repository. The destination must be
 an absolute path on storage that is backed up separately:
 
 ```bash
+KEY_PATH=/ABSOLUTE/PATH/OUTSIDE/REPOSITORY/kubernetes-secretbox.key
+if [ -e "$KEY_PATH" ]; then
+  printf '%s\n' "Refusing to overwrite existing key: $KEY_PATH" >&2
+  exit 1
+fi
+
 umask 077
-openssl rand 32 > /ABSOLUTE/PATH/OUTSIDE/REPOSITORY/kubernetes-secretbox.key
-stat -f '%Sp %z bytes' /ABSOLUTE/PATH/OUTSIDE/REPOSITORY/kubernetes-secretbox.key
+(set -C; openssl rand 32 >"$KEY_PATH") || exit 1
+chmod 0600 "$KEY_PATH"
+test "$(wc -c <"$KEY_PATH" | tr -d '[:space:]')" -eq 32
 ```
 
-On Linux, use `stat -c '%A %s bytes'` for the final check. Store a recoverable
-copy now. Do not encode, print, paste, or commit the key.
+The existence check and shell no-clobber mode protect against both accidental
+reruns and a concurrent creator. Store a recoverable copy now. Do not encode,
+print, paste, or commit the key.
 
 ## 3. Bootstrap the nodes
 

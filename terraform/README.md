@@ -96,25 +96,34 @@ configured host bridge is absent, the provider may leave shut-off domain
 definitions that were never recorded in Terraform state. A later apply then
 reports that each domain already exists.
 
-First confirm that the affected domains are shut off and absent from state:
+Evaluate every affected domain independently. A domain is an orphan candidate
+only when its exact resource address is absent from Terraform state and
+libvirt reports it as shut off:
 
 ```bash
-terraform state list
-ssh LIBVIRT_HOST virsh -c qemu:///system list --all
+terraform state show 'libvirt_domain.node["k8s-cp-1"]'
+ssh LIBVIRT_HOST virsh -c qemu:///system domstate k8s-cp-1
+
+terraform state show 'libvirt_domain.node["k8s-worker-1"]'
+ssh LIBVIRT_HOST virsh -c qemu:///system domstate k8s-worker-1
+
+terraform state show 'libvirt_domain.node["k8s-worker-2"]'
+ssh LIBVIRT_HOST virsh -c qemu:///system domstate k8s-worker-2
 ```
 
-Only in that specific partial-creation state, remove the orphaned definitions
-without removing their separately managed storage:
+`terraform state show` prints `No instance found` for an absent resource. Leave
+every resource that it does find untouched. For each individually confirmed
+orphan, remove only that definition without removing its separately managed
+storage:
 
 ```bash
 ssh LIBVIRT_HOST \
-  'virsh -c qemu:///system undefine k8s-cp-1 --nvram &&
-   virsh -c qemu:///system undefine k8s-worker-1 --nvram &&
-   virsh -c qemu:///system undefine k8s-worker-2 --nvram'
+  'virsh -c qemu:///system undefine CONFIRMED_ORPHAN_DOMAIN --nvram'
 ```
 
 Never add `--remove-all-storage`; the node disks and cloud-init volumes remain
-Terraform-managed. Verify the bridge, create a fresh plan, and apply again.
+Terraform-managed. Never undefine a running domain or one present in Terraform
+state. Verify the bridge, create a fresh plan, and apply again.
 
 ## Optional temporary NAT mode
 
