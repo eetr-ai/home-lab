@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -413,6 +414,12 @@ func TestUpdateUserValidation(t *testing.T) {
 			}
 			if len(repo.updated) != 1 {
 				t.Errorf("updated = %v, want exactly one", repo.updated)
+			}
+			// The request itself, not just that a call happened: a service that
+			// reshaped the role set or dropped the password would pass a count.
+			if !reflect.DeepEqual(repo.lastUserUpdate, test.request) {
+				t.Errorf("the request was reshaped: got %+v, want %+v",
+					repo.lastUserUpdate, test.request)
 			}
 		})
 	}

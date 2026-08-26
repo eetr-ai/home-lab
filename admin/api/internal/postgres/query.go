@@ -16,6 +16,11 @@ const (
 	// statement_timeout so PostgreSQL cancels the query itself rather than the
 	// client abandoning a query that keeps running.
 	queryTimeout = 15 * time.Second
+	// queryDeadline bounds the whole operation from the client's side: connecting,
+	// executing, and reading the rows back. Longer than queryTimeout so a query
+	// the server kills reports the server's own message — which says what it
+	// refused — rather than a context deadline that says nothing.
+	queryDeadline = 25 * time.Second
 )
 
 // Query runs one read-only statement against a database and returns its rows.
@@ -50,6 +55,14 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	if r.queryConfig == nil {
 		return QueryResult{}, ErrQueryUnavailable
 	}
+
+	// One deadline over the whole operation, before anything opens a socket.
+	// statement_timeout is set after connecting and bounds only execution, so on
+	// its own it leaves both ends unbounded: a connection to an unresponsive
+	// server, and the delivery of rows that pgx reads inside collectRows. Neither
+	// is execution, so neither is what the server-side timeout covers.
+	ctx, cancel := context.WithTimeout(ctx, queryDeadline)
+	defer cancel()
 
 	conn, err := r.connectAsQueryRole(ctx, database)
 	if err != nil {

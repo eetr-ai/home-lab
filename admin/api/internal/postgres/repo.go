@@ -60,7 +60,10 @@ func (r *Repository) WithQueryCredential(dsn string) error {
 	if err != nil {
 		return fmt.Errorf("parse the PostgreSQL query connection string: %w", err)
 	}
-	config.AfterConnect = verifyStringsAreConforming
+	// No AfterConnect hook here, unlike the pool above: nothing ever builds a pool
+	// from this config. connectAsQueryRole dials it directly and calls
+	// verifyStringsAreConforming itself, so a hook set here would look like a
+	// guarantee and run never.
 	r.queryConfig = config
 	return nil
 }
