@@ -1,0 +1,42 @@
+name: home-lab-mongo
+
+services:
+  mongo:
+    # Pinned to the 7.0 series deliberately. MongoDB 8.0+ refuses to start on
+    # Linux kernels 6.19 and newer (SERVER-121912: TCMalloc violates the rseq
+    # ABI) and only stands the guard down at kernel 7.0.14+. Ubuntu 26.04
+    # reports 7.0.0-NN regardless of backports, so no 8.x image starts on this
+    # host. Revisit when an 8.x release handles distribution kernel versions.
+    image: mongo:7.0.40-jammy
+    restart: unless-stopped
+    stop_grace_period: 1m
+    command:
+      - mongod
+      - --auth
+      - --bind_ip_all
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN_USER:?set MONGO_ADMIN_USER in databases/.env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ADMIN_PASSWORD:?set MONGO_ADMIN_PASSWORD in databases/.env}
+    ports:
+      - "27017:27017"
+    volumes:
+      - ${DATABASE_DATA_DIR:?set DATABASE_DATA_DIR in databases/.env}/mongo:/data/db
+      - ${DATABASE_DATA_DIR}/mongo-config:/data/configdb
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host 127.0.0.1
+          --username "$${MONGO_INITDB_ROOT_USERNAME}"
+          --password "$${MONGO_INITDB_ROOT_PASSWORD}"
+          --authenticationDatabase admin
+          --eval 'quit(db.adminCommand({ ping: 1 }).ok ? 0 : 2)'
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

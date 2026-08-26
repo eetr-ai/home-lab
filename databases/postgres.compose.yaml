@@ -1,0 +1,35 @@
+name: home-lab-postgres
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18-bookworm
+    restart: unless-stopped
+    stop_grace_period: 1m
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?set POSTGRES_ADMIN_USER in databases/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in databases/.env}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command:
+      - postgres
+      - -c
+      - password_encryption=scram-sha-256
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 images expect the mount at /var/lib/postgresql and place
+      # the cluster in a version subdirectory such as 18/docker beneath it.
+      - ${DATABASE_DATA_DIR:?set DATABASE_DATA_DIR in databases/.env}/postgres:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --username "$${POSTGRES_USER}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

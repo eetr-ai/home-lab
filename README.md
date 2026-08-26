@@ -33,6 +33,7 @@ Ubuntu Server virtualization host
    |
    +-- QEMU/KVM and libvirt
    +-- NFS export for Kubernetes volumes
+   +-- Docker-hosted PostgreSQL and MongoDB
    +-- LVM-backed host storage
 ```
 
@@ -45,6 +46,7 @@ The implemented stack includes:
 - cert-manager with Cloudflare DNS-01 for managed TLS certificates.
 - NFS-backed dynamic volume provisioning.
 - Cloudflare Tunnel for explicitly approved public endpoints.
+- Host-managed PostgreSQL with pgvector and MongoDB for private workloads.
 - Terraform for VM infrastructure.
 - Ansible for Kubernetes-node configuration and kubeadm bootstrap.
 - Pinned upstream Helm charts and a repository-owned platform chart.
@@ -285,7 +287,23 @@ rerun the platform installer. The [platform guide](charts/platform/README.md)
 documents Gateway API routing, certificates, uninstall behavior, and PVC data
 risk.
 
-### 9. Final checks
+### 9. Install private host databases when needed
+
+The optional [database module](databases/README.md) runs PostgreSQL with
+pgvector and MongoDB directly on the virtualization host. Two Docker Compose
+projects keep the containers running, store data on the dedicated
+`/srv/datastore` volume, and publish the native database ports so the operator
+laptop, the host, and the Kubernetes nodes all connect the same way.
+
+Setup is an ignored environment file with two superuser passwords, one per
+server. Compose drives the host through a Docker context over SSH, so the
+module runs from the laptop checkout without copying anything to the server.
+Those credentials are what the planned in-cluster infra admin application uses
+to create and manage databases; the module itself creates no application
+database. Database ports never receive a Cloudflare route, and the password is
+the access boundary.
+
+### 10. Final checks
 
 ```bash
 kubectl get nodes -o wide
@@ -326,6 +344,7 @@ Confirm that:
 ├── charts/           # Cluster platform and repository-owned Helm charts
 ├── helm-values/      # Reviewed values for standalone upstream charts
 ├── cloud-init/       # Cloud-init examples and learning artifacts
+├── databases/        # Private host PostgreSQL and MongoDB services
 ├── scripts/          # Small, idempotent operational helpers
 ├── terraform/        # libvirt VMs and infrastructure integrations
 └── tests/            # Repository regression fixtures and checks
