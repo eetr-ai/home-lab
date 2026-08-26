@@ -1,0 +1,54 @@
+version: '3'
+
+# Tasks for the admin panel. Included from the root Taskfile under the
+# `admin-web:` namespace with the working directory set to admin/web, so every
+# path here is relative to it.
+
+tasks:
+  install:
+    desc: Install the dependencies exactly as the lockfile pins them
+    cmds:
+      - npm ci
+    # `npm ci` deletes and recreates node_modules, which is slow and pointless when
+    # nothing has moved. The lockfile is the input; node_modules is the output.
+    sources:
+      - package-lock.json
+      - package.json
+    generates:
+      - node_modules/.package-lock.json
+
+  lint:
+    desc: Run ESLint and the theme guard
+    deps: [install]
+    cmds:
+      - npm run lint
+
+  typecheck:
+    desc: Type-check the app without emitting
+    deps: [install]
+    cmds:
+      - npm run typecheck
+
+  test:
+    desc: 'Run the tests (pass vitest flags after --)'
+    deps: [install]
+    cmds:
+      - npm run test -- {{.CLI_ARGS}}
+
+  test:watch:
+    desc: Run the tests and re-run them on change
+    deps: [install]
+    cmds:
+      - npm run test:watch
+
+  build:
+    desc: Build the production bundle
+    deps: [install]
+    cmds:
+      - npm run build
+
+  dev:
+    desc: 'Run the panel with hot reload (needs an API at ADMIN_API_URL)'
+    deps: [install]
+    cmds:
+      - npm run dev

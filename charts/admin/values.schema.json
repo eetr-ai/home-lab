@@ -1,75 +1,178 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["admin"],
+  "required": [
+    "admin"
+  ],
   "properties": {
     "admin": {
       "type": "object",
-      "required": ["imagePullSecrets", "gateway", "api"],
+      "required": [
+        "imagePullSecrets",
+        "gateway",
+        "api",
+        "web"
+      ],
       "properties": {
         "imagePullSecrets": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "properties": {
-              "name": { "type": "string", "minLength": 1 }
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         },
         "gateway": {
           "type": "object",
-          "required": ["name"],
+          "required": [
+            "name"
+          ],
           "properties": {
-            "name": { "type": "string", "minLength": 1 }
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "api": {
           "type": "object",
-          "required": ["image", "replicas", "resources", "route", "oidc", "postgres", "mongo", "kubernetes"],
+          "required": [
+            "image",
+            "replicas",
+            "resources",
+            "route",
+            "oidc",
+            "postgres",
+            "mongo",
+            "kubernetes"
+          ],
           "properties": {
             "kubernetes": {
               "type": "object",
-              "required": ["enabled"],
-              "properties": { "enabled": { "type": "boolean" } }
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
             },
-            "postgres": { "$ref": "#/$defs/managedService" },
-            "mongo": { "$ref": "#/$defs/managedService" },
+            "postgres": {
+              "$ref": "#/$defs/managedService"
+            },
+            "mongo": {
+              "$ref": "#/$defs/managedService"
+            },
             "oidc": {
               "type": "object",
-              "required": ["issuer"],
+              "required": [
+                "issuer"
+              ],
               "properties": {
                 "issuer": {
                   "type": "string",
                   "pattern": "^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?(/.*)?$",
                   "description": "The OpenID Connect issuer URL, exactly as the provider publishes it."
                 },
-                "audience": { "type": "string" }
+                "audience": {
+                  "type": "string"
+                }
               }
             },
             "image": {
-              "type": "object",
-              "required": ["repository", "tag", "pullPolicy"],
-              "properties": {
-                "repository": { "type": "string", "minLength": 1 },
-                "tag": {
-                  "type": "string",
-                  "minLength": 1,
-                  "not": { "const": "latest" },
-                  "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
-                },
-                "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
-              }
+              "$ref": "#/$defs/image"
             },
-            "replicas": { "type": "integer", "minimum": 1 },
-            "resources": { "type": "object" },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "resources": {
+              "type": "object"
+            },
             "route": {
               "type": "object",
-              "required": ["enabled"],
+              "required": [
+                "enabled"
+              ],
               "properties": {
-                "enabled": { "type": "boolean" },
-                "hostname": { "type": "string" }
+                "enabled": {
+                  "type": "boolean"
+                },
+                "hostname": {
+                  "type": "string"
+                }
               }
+            }
+          }
+        },
+        "web": {
+          "type": "object",
+          "required": [
+            "hostname",
+            "clientId",
+            "providerName",
+            "secret",
+            "image",
+            "replicas",
+            "resources"
+          ],
+          "properties": {
+            "hostname": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$",
+              "description": "The hostname the panel is served on. A bare host, not a URL: the chart builds AUTH_URL and the HTTPRoute from it."
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "providerName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "writeEmails": {
+              "type": "string"
+            },
+            "secret": {
+              "type": "object",
+              "required": [
+                "name",
+                "authSecretKey",
+                "clientSecretKey"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "authSecretKey": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientSecretKey": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "image": {
+              "$ref": "#/$defs/image"
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "resources": {
+              "type": "object"
             }
           }
         }
@@ -79,16 +182,59 @@
   "$defs": {
     "managedService": {
       "type": "object",
-      "required": ["enabled", "secret"],
+      "required": [
+        "enabled",
+        "secret"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "secret": {
           "type": "object",
-          "required": ["name", "key"],
+          "required": [
+            "name",
+            "key"
+          ],
           "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "key": { "type": "string", "minLength": 1 }
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
           }
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "repository",
+        "tag",
+        "pullPolicy"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "const": "latest"
+          },
+          "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         }
       }
     }

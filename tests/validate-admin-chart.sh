@@ -68,19 +68,20 @@ if grep -q '^kind: Ingress$' "$output_file"; then
   exit 1
 fi
 
-# The API is not routable from outside by default. That default is the point:
-# enabling it is a decision, taken after Cloudflare Access is in front of the
-# hostname, and a chart that quietly published an administrative endpoint would
-# make it an accident instead.
-if grep -q '^kind: HTTPRoute$' "$output_file"; then
+# The panel is routable — a panel nobody can reach is not a panel — and the API
+# is not. That asymmetry is the point: the browser-facing half is meant to be
+# published (behind Cloudflare Access), while exposing the administrative API
+# itself is a separate decision taken when something needs to call it.
+routes=$(awk '/^kind: HTTPRoute$/,/^---$/' "$output_file")
+grep -q 'name: admin-web' <<<"$routes"
+if grep -q 'name: admin-api' <<<"$routes"; then
   printf 'The admin API route must be disabled by default\n' >&2
   exit 1
 fi
+grep -q 'sectionName: websecure' <<<"$routes"
 
-# ...and it renders when asked for, attached to the platform Gateway.
+# ...and the API route renders when asked for, attached to the same Gateway.
 routed=$(render --set admin.api.route.enabled=true --set admin.api.route.hostname=admin-api.test.invalid)
-grep -q '^kind: HTTPRoute$' <<<"$routed"
-grep -q 'sectionName: websecure' <<<"$routed"
 grep -q 'admin-api.test.invalid' <<<"$routed"
 
 # A managed service is served only when configured, and its credential must come
@@ -104,7 +105,7 @@ fi
 # holds that true, so it reads the rendered document rather than grepping the whole
 # output: a write verb anywhere in the release would otherwise be invisible, and an
 # unrelated ClusterRoleBinding would satisfy a bare `grep -q`.
-rbac=$(render --show-only templates/rbac.yaml)
+rbac=$(render --show-only templates/api/rbac.yaml)
 release_role='home-lab-admin-read'
 
 # Every granted verb, normalised out of whichever YAML style the template used —
@@ -173,6 +174,45 @@ grep -q 'namespace: admin$' <<<"$subjects"
 disabled=$(render --set admin.api.kubernetes.enabled=false)
 if grep -q "name: ${release_role}$" <<<"$disabled"; then
   printf 'Disabling the Kubernetes section must not leave %s behind\n' "$release_role" >&2
+  exit 1
+fi
+
+# The panel's own half. It is an OIDC client, so both of its secrets come from a
+# Secret rather than from values — a client secret or a cookie-sealing key in a
+# values file would end up in Git, and this repository is public.
+grep -q 'name: admin-web' "$output_file"
+for variable in AUTH_SECRET OIDC_CLIENT_SECRET; do
+  grep -q "name: $variable" "$output_file"
+  if grep -A 1 "name: $variable\$" "$output_file" | grep -q '^ *value:'; then
+    printf '%s was rendered as a literal value rather than read from a Secret\n' "$variable" >&2
+    exit 1
+  fi
+done
+
+# One document, not a grep across the whole render: several resources carry the
+# name admin-web, and an assertion that matched any of them would pass on the
+# Service while the Deployment was wrong.
+web_pod=$(render --show-only templates/web/deployment.yaml)
+
+# The panel asks the API for everything and never reads the Kubernetes API itself,
+# so it must carry no ServiceAccount token. Without this the browser-facing pod
+# would hold a cluster credential it has no use for.
+grep -q 'automountServiceAccountToken: false' <<<"$web_pod"
+
+# AUTH_URL is derived from the hostname rather than configured separately: Auth.js
+# builds the OAuth callback from it, and a value that disagrees with the hostname
+# fails at the callback — long after the mistake was made.
+grep -q 'value: "https://admin.example.invalid"' <<<"$web_pod"
+
+# Both halves of the chart are unusable without them, so each is a render failure
+# rather than a pod that starts and cannot sign anybody in.
+if render --set admin.web.hostname= >/dev/null 2>&1; then
+  printf 'The chart rendered with no panel hostname\n' >&2
+  exit 1
+fi
+
+if render --set admin.web.clientId= >/dev/null 2>&1; then
+  printf 'The chart rendered with no OIDC client id\n' >&2
   exit 1
 fi
 

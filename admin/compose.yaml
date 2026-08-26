@@ -1,0 +1,69 @@
+name: home-lab-admin
+
+# The local development stack: the API and the panel, built from the same
+# Dockerfiles that ship, wired to whatever `admin/.env` points at.
+#
+#   task dev     bring it up
+#   task stop    take it down
+#
+# It is meant to run against the real services — the host's PostgreSQL and
+# MongoDB, and the real eetr-auth — because the parts most worth testing (SCRAM
+# verifiers, OIDC discovery, token refresh) have nothing to prove against a fake.
+# Everything that names one of those lives in admin/.env, which is not committed.
+#
+# The cluster section is off by default: reading it needs either a ServiceAccount
+# or a kubeconfig, and a container has neither. Mount one in if you want it — see
+# the commented block on the api service.
+
+services:
+  api:
+    build:
+      context: ./api
+    environment:
+      ADMIN_OIDC_ISSUER: ${OIDC_ISSUER:?set OIDC_ISSUER in admin/.env}
+      ADMIN_OIDC_AUDIENCE: ${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID in admin/.env}
+      ADMIN_POSTGRES_DSN: ${ADMIN_POSTGRES_DSN:-}
+      ADMIN_MONGO_URI: ${ADMIN_MONGO_URI:-}
+      ADMIN_KUBERNETES_DISABLED: ${ADMIN_KUBERNETES_DISABLED:-true}
+    ports:
+      # Published as well as reachable on the compose network, so `npm run dev`
+      # in admin/web can talk to this API without the panel container running.
+      - "8090:8090"
+    # To read the cluster locally, set ADMIN_KUBERNETES_DISABLED=false and mount a
+    # kubeconfig. It carries a credential, so it is read-only and never copied in:
+    #   volumes:
+    #     - ${HOME}/.kube/config:/home/nonroot/.kube/config:ro
+    #   environment:
+    #     KUBECONFIG: /home/nonroot/.kube/config
+    restart: unless-stopped
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  web:
+    build:
+      context: ./web
+    environment:
+      # Auth.js seals the session cookie with this. Any long random string will
+      # do locally, but it must not change between restarts or every session is
+      # invalidated at once.
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in admin/.env — generate one with `openssl rand -base64 32`}
+      # The panel's own origin, and the base of the redirect URI eetr-auth must
+      # have registered: ${AUTH_URL}/api/auth/callback/eetr.
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      OIDC_ISSUER: ${OIDC_ISSUER:?set OIDC_ISSUER in admin/.env}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID in admin/.env}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set OIDC_CLIENT_SECRET in admin/.env}
+      OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-Eetr Auth}
+      ADMIN_WRITE_EMAILS: ${ADMIN_WRITE_EMAILS:-}
+      # Service name, not localhost: this call is made by the panel's server, which
+      # is inside the compose network.
+      ADMIN_API_URL: http://api:8090
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+    logging: *logging

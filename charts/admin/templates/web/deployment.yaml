@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-web
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.admin.web.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: admin-web
+    spec:
+      # The panel reads nothing from the Kubernetes API — it asks admin-api, which
+      # holds the read-only ClusterRole. No token is mounted, so a compromise of
+      # the browser-facing pod reaches the cluster only through that API.
+      automountServiceAccountToken: false
+      {{- with .Values.admin.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin-web
+          image: {{ include "home-lab-admin.webImage" . | quote }}
+          imagePullPolicy: {{ .Values.admin.web.image.pullPolicy }}
+          env:
+            # The panel's own origin, and the base of the redirect URI eetr-auth
+            # must have registered. Auth.js builds the callback from it, so a
+            # value that disagrees with the registered URI fails at the callback
+            # rather than at sign-in, which is a confusing place to find out.
+            - name: AUTH_URL
+              value: {{ printf "https://%s" (required "admin.web.hostname is required" .Values.admin.web.hostname) | quote }}
+            # Seals the session cookie (JWE), which carries the operator's access
+            # and refresh tokens. Rotating it signs everybody out.
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.web.secret.name }}
+                  key: {{ .Values.admin.web.secret.authSecretKey }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.web.secret.name }}
+                  key: {{ .Values.admin.web.secret.clientSecretKey }}
+            # Not secret: the issuer and the client id both travel in every
+            # authorization request the browser makes.
+            - name: OIDC_ISSUER
+              value: {{ required "admin.api.oidc.issuer is required" .Values.admin.api.oidc.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ required "admin.web.clientId is required" .Values.admin.web.clientId | quote }}
+            - name: OIDC_PROVIDER_NAME
+              value: {{ .Values.admin.web.providerName | quote }}
+            {{- with .Values.admin.web.writeEmails }}
+            - name: ADMIN_WRITE_EMAILS
+              value: {{ . | quote }}
+            {{- end }}
+            # In-cluster, so the panel's server talks to the API directly rather
+            # than back out through the Gateway.
+            - name: ADMIN_API_URL
+              value: http://admin-api.{{ .Release.Namespace }}.svc.cluster.local
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            # Slower than readiness on purpose: readiness taking a pod out of
+            # rotation is cheap, restarting it is not.
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.admin.web.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          # Next.js writes to both even with nothing to cache, so a read-only root
+          # filesystem needs them mounted rather than relaxed.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}

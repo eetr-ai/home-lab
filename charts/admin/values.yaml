@@ -82,3 +82,59 @@ admin:
     route:
       enabled: false
       hostname: admin-api.example.invalid
+
+  # The panel itself: the browser-facing half, and an OIDC client of eetr-auth.
+  web:
+    # The hostname the panel is served on. Also the base of the redirect URI that
+    # must be registered with eetr-auth, as https://<hostname>/api/auth/callback/eetr,
+    # and eetr-auth matches it exactly — no wildcards.
+    #
+    # Put Cloudflare Access in front of it before pointing DNS here.
+    hostname: admin.example.invalid
+
+    # The confidential client registered in eetr-auth. Not a secret: it travels
+    # in every authorization request the browser makes. Normally the same value
+    # as admin.api.oidc.audience, which is what a token must name in `aud`.
+    clientId: ""
+
+    # Shown on the sign-in button, as "Sign in with …".
+    providerName: Eetr Auth
+
+    # Comma-separated addresses permitted to make changes. Empty means every
+    # operator who can sign in may write, which is right for a single operator —
+    # eetr-auth already refuses anyone who has not been granted this client's
+    # environment. Set it to hand someone the panel read-only.
+    writeEmails: ""
+
+    # Both values seal or unlock something, so they come from a Secret created
+    # outside Helm. The installer verifies it exists before Helm runs.
+    #
+    # Create it with:
+    #   kubectl -n admin create secret generic admin-oidc \
+    #     --from-literal=authSecret="$(openssl rand -base64 32)" \
+    #     --from-literal=clientSecret=THE_CLIENT_SECRET
+    secret:
+      name: admin-oidc
+      # Seals the session cookie, which carries the operator's access and refresh
+      # tokens. Rotating it signs everybody out.
+      authSecretKey: authSecret
+      clientSecretKey: clientSecret
+
+    image:
+      repository: registry.example.invalid/home-lab/admin-web
+      tag: "0.0.0"
+      pullPolicy: IfNotPresent
+
+    # One, deliberately. Sessions are stateless — the cookie carries them — so
+    # more replicas would serve fine, but the token refresh is deduplicated per
+    # process. Two replicas can therefore present the same rotating refresh token
+    # at once, and eetr-auth's reuse detection answers that by revoking the whole
+    # family. Raising this means moving that lock somewhere shared first.
+    replicas: 1
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi

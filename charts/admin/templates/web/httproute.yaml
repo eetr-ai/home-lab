@@ -1,0 +1,33 @@
+{{- /*
+The panel's own hostname. Unlike the API route this is on by default: a panel
+nobody can reach is not a panel.
+
+Put Cloudflare Access in front of this hostname. eetr-auth authenticates whoever
+arrives, but the root README lists Access in front of administrative routes as a
+final-check requirement, and it is the layer that keeps an unauthenticated
+stranger from reaching the sign-in page at all.
+*/ -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.admin.gateway.name }}
+      # The Gateway lives in the platform namespace, and cross-namespace
+      # attachment is what the gateway-access label on this namespace permits.
+      namespace: platform-system
+      sectionName: websecure
+  hostnames:
+    - {{ required "admin.web.hostname is required" .Values.admin.web.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: admin-web
+          port: 80

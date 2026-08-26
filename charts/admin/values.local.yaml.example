@@ -1,5 +1,7 @@
 # Copy to charts/admin/values.local.yaml, which is ignored, and replace the
-# placeholders with the real registry path and the version you intend to run.
+# placeholders with the real registry path, hostname, and the version you intend
+# to run. The two images always carry the same version — one release tag builds
+# both — so the tags below should match.
 
 admin:
   api:
@@ -9,3 +11,10 @@ admin:
     oidc:
       issuer: https://auth.eetr.app
       audience: YOUR_ADMIN_PANEL_CLIENT_ID
+
+  web:
+    hostname: admin.example.invalid
+    clientId: YOUR_ADMIN_PANEL_CLIENT_ID
+    image:
+      repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-web
+      tag: "0.1.0"

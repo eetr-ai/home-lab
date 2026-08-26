@@ -22,6 +22,9 @@ includes:
   admin-api:
     taskfile: ./admin/api/Taskfile.yml
     dir: ./admin/api
+  admin-web:
+    taskfile: ./admin/web/Taskfile.yml
+    dir: ./admin/web
 
 vars:
   # Pinned so a local run and a CI run resolve the same tool. These match the
@@ -49,11 +52,14 @@ tasks:
       - task: helm:lint
       - task: admin-api:lint
       - task: admin-api:openapi:check
+      - task: admin-web:lint
+      - task: admin-web:typecheck
 
   test:
     desc: Run the module tests and the repository regression tests
     cmds:
       - task: admin-api:test
+      - task: admin-web:test
       - task: tests:inventory
       - task: tests:databases
       - task: tests:chart
@@ -68,6 +74,7 @@ tasks:
     desc: Build every module
     cmds:
       - task: admin-api:build
+      - task: admin-web:build
 
   # --- Terraform ------------------------------------------------------------
 
@@ -180,6 +187,44 @@ tasks:
     generates:
       - rendered-platform.yaml
       - rendered-admin.yaml
+
+  # --- Local development -----------------------------------------------------
+  #
+  # The panel and the API in containers, pointed by admin/.env at whatever you
+  # want to develop against — normally the real services, since SCRAM verifiers
+  # and OIDC discovery have nothing to prove against a fake.
+  #
+  # DOCKER_CONTEXT is pinned to `default` on every one of these. databases/README.md
+  # tells you to point your Docker context at the server to manage PostgreSQL and
+  # MongoDB, and leaving it there would start the development stack on eetr01 —
+  # where nothing answers on localhost:3000 and the registered redirect URI does
+  # not lead. Set DEV_DOCKER_CONTEXT to override deliberately.
+
+  dev:
+    desc: Start the admin panel and API locally (see admin/.env.example)
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    preconditions:
+      - sh: test -f admin/.env
+        msg: 'admin/.env is missing. Create it with: cp admin/.env.example admin/.env && chmod 600 admin/.env'
+    cmds:
+      - docker compose -f admin/compose.yaml up --build --detach --wait {{.CLI_ARGS}}
+      - cmd: printf '\nThe panel is at http://localhost:3000 and the API at http://localhost:8090\nFollow the logs with `task logs`, and stop it with `task stop`.\n'
+        silent: true
+
+  stop:
+    desc: Stop the local admin panel and API
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - docker compose -f admin/compose.yaml down {{.CLI_ARGS}}
+
+  logs:
+    desc: 'Follow the local stack logs (task logs -- api)'
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - docker compose -f admin/compose.yaml logs --follow {{.CLI_ARGS}}
 
   # --- Cluster operations ----------------------------------------------------
   #
