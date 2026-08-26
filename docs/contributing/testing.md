@@ -29,6 +29,19 @@ proves nothing, so we do not write it.
 The heuristic: if the test would still pass after you deleted the logic and
 returned a constant, it is testing structure.
 
+## No integration tests in the repository
+
+Do not commit a test that needs live infrastructure — a running database, a
+cluster, a reachable host. They cannot be automated here, they depend on resources
+that are neither disposable nor easily reproduced, and in a public repository they
+also document the private environment they need.
+
+Test the logic against a fake instead: a service with a substituted repository
+covers the rules, which is where the mistakes are. When the real thing genuinely
+needs proving — that a statement the fake accepted is one PostgreSQL also accepts —
+run that check by hand, report the result on the pull request, and do not commit
+the harness. Writing one temporarily to verify is fine; shipping it is not.
+
 ## TDD is the default for logic
 
 For a new service method or a new piece of BFF logic, write the failing test
