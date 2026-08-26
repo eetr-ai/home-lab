@@ -323,13 +323,34 @@ Confirm that:
 - no key, token, kubeconfig, state, or unencrypted Secret appears in Git, CI,
   Terraform state, Ansible logs, or Helm values.
 
+## Running the admin panel locally
+
+The panel and its API run in containers against whatever `admin/.env` points at —
+normally the real services, because the parts most worth testing (SCRAM verifiers,
+OIDC discovery, token refresh) have nothing to prove against a fake.
+
+```bash
+cp admin/.env.example admin/.env && chmod 600 admin/.env   # then fill it in
+task dev
+```
+
+The panel is then at `http://localhost:3000`; `task logs` follows both containers
+and `task stop` takes them down. `admin/.env` is ignored — it holds a client
+secret and two superuser passwords.
+
+These tasks pin `DOCKER_CONTEXT=default`. The database module has you point your
+Docker context at the server, and leaving it there would start the development
+stack on the virtualization host, where nothing answers on `localhost:3000` and
+the registered redirect URI does not lead.
+
 ## Releasing the admin panel
 
 The [admin panel](admin/) is versioned independently of the infrastructure around
 it. release-please reads the Conventional Commit history and keeps a release pull
 request open; merging it tags `admin-vX.Y.Z`. That tag fires the Cloud Build
-trigger declared in [terraform/gcp](terraform/gcp/README.md), which builds the
-images and publishes them to Artifact Registry under the tag's version.
+trigger declared in [terraform/gcp](terraform/gcp/README.md), which builds both
+images and publishes them to Artifact Registry under the tag's version, alongside
+the chart that references them.
 
 Commits touching only `ansible/`, `terraform/`, or `charts/platform/` are outside
 the released package, so infrastructure work never moves the panel's version.
@@ -373,7 +394,8 @@ credential, so there is no per-namespace pull secret to create first — see the
 ```text
 .
 ├── admin/            # The in-cluster administration panel
-│   └── api/          # Go API server managing the databases and reading the cluster
+│   ├── api/          # Go API server managing the databases and reading the cluster
+│   └── web/          # Next.js panel, signed in against eetr-auth
 ├── ansible/          # Kubernetes-node configuration and kubeadm bootstrap
 ├── docs/             # Architecture, operations, and recovery guides
 ├── charts/           # Cluster platform and repository-owned Helm charts
