@@ -100,20 +100,79 @@ if grep -E -A 1 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' <<<"$configured" | grep -q '^ 
   exit 1
 fi
 
-# The panel reads the cluster and does not change it. A write verb in its
-# ClusterRole would be a silent expansion of what a signed-in user can do, so the
-# build fails on one rather than leaving it to review.
-rbac_verbs=$(awk '/^kind: ClusterRole$/,/^---$/' "$output_file" | grep 'verbs:')
-if grep -qE '"(create|update|patch|delete|deletecollection|\*)"' <<<"$rbac_verbs"; then
-  printf 'The admin ClusterRole must be read-only; found a write verb:\n%s\n' "$rbac_verbs" >&2
+# The panel reads the cluster and does not change it. This is the assertion that
+# holds that true, so it reads the rendered document rather than grepping the whole
+# output: a write verb anywhere in the release would otherwise be invisible, and an
+# unrelated ClusterRoleBinding would satisfy a bare `grep -q`.
+rbac=$(render --show-only templates/rbac.yaml)
+release_role='home-lab-admin-read'
+
+# Every granted verb, normalised out of whichever YAML style the template used —
+# flow (`verbs: ["get"]`) or block (`verbs:` then `- get`). Matching the text as
+# written would pass the moment somebody reformatted the template.
+granted_verbs=$(printf '%s\n' "$rbac" | awk '
+  /^[[:space:]]*verbs:[[:space:]]*\[/ { line=$0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line); print line; next }
+  /^[[:space:]]*verbs:[[:space:]]*$/   { block=1; next }
+  block && /^[[:space:]]*-[[:space:]]/ { line=$0; sub(/^[[:space:]]*-[[:space:]]*/, "", line); print line; next }
+  block                                { block=0 }
+' | tr -d '"'"'"',' | tr ' ' '\n' | sed '/^[[:space:]]*$/d' | sort -u)
+
+if [[ -z $granted_verbs ]]; then
+  printf 'No verbs found in the rendered ClusterRole. The assertion below would pass on anything.\n' >&2
   exit 1
 fi
-grep -q 'kind: ClusterRoleBinding' "$output_file"
 
-# ...and disabling the cluster section removes the role rather than leaving a
-# standing grant for endpoints that are not served.
-if grep -q 'kind: ClusterRole' <<<"$(render --set admin.api.kubernetes.enabled=false)"; then
-  printf 'Disabling the Kubernetes section must not leave its ClusterRole behind\n' >&2
+while read -r verb; do
+  case "$verb" in
+    get | list | watch) ;;
+    *)
+      printf 'The admin ClusterRole must be read-only; it grants %s\n' "$verb" >&2
+      exit 1
+      ;;
+  esac
+done <<<"$granted_verbs"
+
+# The resources are pinned too, not just the verbs. Every one of these is read by
+# a named method in admin/api/internal/kube; a standing grant for anything else is
+# a permission nobody is reviewing. Add one back in the change that reads it.
+granted_resources=$(printf '%s\n' "$rbac" | awk '
+  /^[[:space:]]*resources:[[:space:]]*$/   { block=1; next }
+  block && /^[[:space:]]*-[[:space:]]/     { line=$0; sub(/^[[:space:]]*-[[:space:]]*/, "", line); print line; next }
+  block                                    { block=0 }
+' | tr -d '"' | sort -u | tr '\n' ' ')
+expected_resources='daemonsets deployments events namespaces pods statefulsets '
+if [[ $granted_resources != "$expected_resources" ]]; then
+  printf 'The admin ClusterRole grants [%s]; expected [%s].\n' "$granted_resources" "$expected_resources" >&2
+  printf 'If the API now reads something new, add it here in the same change.\n' >&2
+  exit 1
+fi
+
+# The binding has to name this release's role and this release's ServiceAccount.
+# Checking only that *a* ClusterRoleBinding exists would pass on one pointing
+# somewhere else entirely.
+binding=$(printf '%s\n' "$rbac" | awk '/^kind: ClusterRoleBinding$/,0')
+
+# roleRef is read as its own block rather than grepped out of the whole binding.
+# The binding's metadata carries the same name, so a document-wide grep for the
+# role name is satisfied by that — and passes while roleRef points at
+# cluster-admin. Mutation-checked; it did exactly that before this was scoped.
+role_ref=$(printf '%s\n' "$binding" | awk '/^roleRef:/{inref=1; next} /^[^[:space:]]/{inref=0} inref')
+grep -q "^  kind: ClusterRole$" <<<"$role_ref"
+if ! grep -q "^  name: ${release_role}$" <<<"$role_ref"; then
+  printf 'The ClusterRoleBinding does not point at %s:\n%s\n' "$release_role" "$role_ref" >&2
+  exit 1
+fi
+
+subjects=$(printf '%s\n' "$binding" | awk '/^subjects:/{insub=1; next} /^[^[:space:]]/{insub=0} insub')
+grep -q 'kind: ServiceAccount' <<<"$subjects"
+grep -q 'name: admin-api$' <<<"$subjects"
+grep -q 'namespace: admin$' <<<"$subjects"
+
+# ...and disabling the cluster section removes both, rather than leaving a standing
+# grant for endpoints that are not served.
+disabled=$(render --set admin.api.kubernetes.enabled=false)
+if grep -q "name: ${release_role}$" <<<"$disabled"; then
+  printf 'Disabling the Kubernetes section must not leave %s behind\n' "$release_role" >&2
   exit 1
 fi
 

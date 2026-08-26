@@ -11,6 +11,12 @@ can sign in".
 
 The verbs here are the whole of it. tests/validate-admin-chart.sh fails the build
 if a write verb ever appears.
+
+The resources are the whole of it too, and the list is exactly what the API reads
+— nothing is granted "in case a later endpoint wants it". Services, nodes and
+replicasets were listed here originally and no code ever asked for them; a
+standing grant for something unused is a permission nobody is reviewing. Add one
+back in the same change that reads it.
 */ -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -19,20 +25,19 @@ metadata:
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 rules:
+  # ListNamespaces, ListPods, ListEvents.
   - apiGroups: [""]
     resources:
       - namespaces
       - pods
-      - services
       - events
-      - nodes
     verbs: ["get", "list", "watch"]
+  # ListWorkloads, which is these three kinds and no others.
   - apiGroups: ["apps"]
     resources:
       - deployments
       - statefulsets
       - daemonsets
-      - replicasets
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

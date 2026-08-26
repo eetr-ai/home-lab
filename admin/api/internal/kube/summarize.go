@@ -2,6 +2,7 @@ package kube
 
 import (
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -71,10 +72,32 @@ func blockedContainerReason(statuses []corev1.ContainerStatus, prefix string) st
 		switch {
 		case state.Waiting != nil && state.Waiting.Reason != "":
 			return prefix + state.Waiting.Reason
-		case state.Terminated != nil && state.Terminated.Reason != "" &&
-			state.Terminated.Reason != "Completed":
-			return prefix + state.Terminated.Reason
+		case state.Terminated != nil:
+			if reason := terminationReason(state.Terminated); reason != "" {
+				return prefix + reason
+			}
 		}
+	}
+	return ""
+}
+
+// terminationReason names a termination worth reporting, or "" for one that is
+// not — a container that finished its work.
+//
+// The Reason field is optional in the API, so a container killed by something
+// that set no reason arrives with an empty string and a non-zero exit code. Read
+// only the reason and that pod reports itself as Running, which is the opposite of
+// what happened. kubectl falls back to the exit code for exactly this case, and so
+// does this.
+func terminationReason(state *corev1.ContainerStateTerminated) string {
+	if state.Reason != "" {
+		if state.Reason == "Completed" {
+			return ""
+		}
+		return state.Reason
+	}
+	if state.ExitCode != 0 {
+		return "ExitCode:" + strconv.Itoa(int(state.ExitCode))
 	}
 	return ""
 }

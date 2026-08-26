@@ -103,10 +103,18 @@ func (r *Repository) ListWorkloads(ctx context.Context, namespace string) ([]Wor
 }
 
 // workload builds the common shape from one controller's metadata and template.
+//
+// Init-container images are included, after the main ones. They are part of what
+// the workload runs, and leaving them out makes "which version is deployed"
+// unanswerable for anything that does its migration or its config rendering in an
+// init container — which several things here do.
 func workload(kind string, meta metav1.ObjectMeta, desired, ready int32, spec corev1.PodSpec) Workload {
-	images := make([]string, 0, len(spec.Containers))
+	images := make([]string, 0, len(spec.Containers)+len(spec.InitContainers))
 	for i := range spec.Containers {
 		images = append(images, spec.Containers[i].Image)
+	}
+	for i := range spec.InitContainers {
+		images = append(images, spec.InitContainers[i].Image)
 	}
 	return Workload{
 		Kind:      kind,
