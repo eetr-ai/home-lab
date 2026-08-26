@@ -31,14 +31,22 @@ tasks:
       - '{{.GO}} run github.com/swaggo/swag/v2/cmd/swag@{{.SWAG_VERSION}} init --v3.1 --quiet --generalInfo internal/openapi/doc.go --dir ./ --parseInternal --outputTypes json --output internal/openapi'
 
   openapi:check:
-    desc: Fail if the committed OpenAPI description is out of date
+    desc: Fail if the checked-in OpenAPI description is out of date
     cmds:
-      - task: openapi
+      # Compares the file against what regeneration produces, rather than against
+      # git. Asking git would report any uncommitted edit as drift, which fails on
+      # a branch that legitimately has new routes not yet committed — the check
+      # would then be about commit state instead of about whether the description
+      # matches the annotations.
       - |
-        if ! git diff --quiet -- internal/openapi/swagger.json; then
-          printf 'The committed OpenAPI description does not match the annotations.\n' >&2
-          printf 'Run `task admin-api:openapi` and commit the result.\n' >&2
-          git --no-pager diff --stat -- internal/openapi/swagger.json >&2
+        set -eu
+        before=$(mktemp)
+        trap 'rm -f "$before"' EXIT
+        cp internal/openapi/swagger.json "$before"
+        task openapi
+        if ! diff -q "$before" internal/openapi/swagger.json >/dev/null; then
+          printf 'The OpenAPI description does not match the handler annotations.\n' >&2
+          printf 'It has been regenerated; review and commit internal/openapi/swagger.json.\n' >&2
           exit 1
         fi
 
