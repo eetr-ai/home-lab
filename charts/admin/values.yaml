@@ -39,6 +39,12 @@ admin:
     # Both connection strings carry a superuser password, so they come from
     # Secrets created outside Helm — a values file holding one would end up in Git.
     # The installer verifies each Secret exists before Helm runs.
+    # Reading the cluster needs no connection string: in the cluster the pod's own
+    # ServiceAccount is the credential. On by default for that reason, and the
+    # read-only ClusterRole below is created with it.
+    kubernetes:
+      enabled: true
+
     postgres:
       enabled: false
       secret:

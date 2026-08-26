@@ -93,6 +93,22 @@ those servers carry no TLS by design, which `databases/README.md` documents.
 Prefer `--from-file` over `--from-literal` if you would rather the connection
 string not enter your shell history.
 
+### Reading the cluster
+
+On by default, and it needs no credential: in the cluster the pod's own
+ServiceAccount is one. The chart creates a **read-only** ClusterRole and binds it.
+
+Cluster-wide, because the panel's job is to say what is running everywhere and a
+Role per namespace would mean editing the chart whenever a namespace is added.
+Read-only, because the panel does not change workloads — that is what the
+repository's Helm releases and `kubectl` are for, and an API that could scale or
+delete would need a far more careful answer to "who is allowed to" than "whoever
+can sign in". `tests/validate-admin-chart.sh` fails the build if a write verb ever
+appears in that role.
+
+Set `admin.api.kubernetes.enabled=false` to serve neither the endpoints nor the
+role — for running the API somewhere with no cluster to read.
+
 ## Install
 
 ```bash

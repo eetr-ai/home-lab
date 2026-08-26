@@ -100,4 +100,21 @@ if grep -E -A 1 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' <<<"$configured" | grep -q '^ 
   exit 1
 fi
 
+# The panel reads the cluster and does not change it. A write verb in its
+# ClusterRole would be a silent expansion of what a signed-in user can do, so the
+# build fails on one rather than leaving it to review.
+rbac_verbs=$(awk '/^kind: ClusterRole$/,/^---$/' "$output_file" | grep 'verbs:')
+if grep -qE '"(create|update|patch|delete|deletecollection|\*)"' <<<"$rbac_verbs"; then
+  printf 'The admin ClusterRole must be read-only; found a write verb:\n%s\n' "$rbac_verbs" >&2
+  exit 1
+fi
+grep -q 'kind: ClusterRoleBinding' "$output_file"
+
+# ...and disabling the cluster section removes the role rather than leaving a
+# standing grant for endpoints that are not served.
+if grep -q 'kind: ClusterRole' <<<"$(render --set admin.api.kubernetes.enabled=false)"; then
+  printf 'Disabling the Kubernetes section must not leave its ClusterRole behind\n' >&2
+  exit 1
+fi
+
 printf 'Admin chart validation passed.\n'

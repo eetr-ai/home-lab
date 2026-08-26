@@ -35,6 +35,10 @@ spec:
               value: {{ required "admin.api.oidc.issuer is required" .Values.admin.api.oidc.issuer | quote }}
             - name: ADMIN_OIDC_AUDIENCE
               value: {{ .Values.admin.api.oidc.audience | quote }}
+            {{- if not .Values.admin.api.kubernetes.enabled }}
+            - name: ADMIN_KUBERNETES_DISABLED
+              value: "true"
+            {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
               valueFrom:

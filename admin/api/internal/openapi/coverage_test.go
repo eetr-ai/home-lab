@@ -155,3 +155,41 @@ func describedRoutes(t *testing.T) map[string]struct{} {
 	}
 	return routes
 }
+
+// Every operation that requires a token can answer 401, and the description has
+// to say so. A caller reading the document — an agent especially — decides how to
+// handle a failure from what is declared, and an undeclared 401 reads as "this
+// cannot fail that way".
+//
+// This is the same kind of guard as the route-coverage tests above: it checks the
+// contract the document makes, not how any handler is written.
+func TestEveryProtectedOperationDeclaresUnauthorized(t *testing.T) {
+	var document struct {
+		Paths map[string]map[string]struct {
+			Security  []map[string][]string      `json:"security"`
+			Responses map[string]json.RawMessage `json:"responses"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(Spec(), &document); err != nil {
+		t.Fatalf("parse the embedded spec: %v", err)
+	}
+
+	var missing []string
+	for path, operations := range document.Paths {
+		for method, operation := range operations {
+			if len(operation.Security) == 0 {
+				continue
+			}
+			if _, ok := operation.Responses["401"]; !ok {
+				missing = append(missing, strings.ToUpper(method)+" "+path)
+			}
+		}
+	}
+	sort.Strings(missing)
+
+	if len(missing) > 0 {
+		t.Errorf("these operations require a token but do not declare a 401:\n  %s\n\n"+
+			"add `@Failure 401 {object} http.ErrorBody`, then run `task admin-api:openapi`",
+			strings.Join(missing, "\n  "))
+	}
+}

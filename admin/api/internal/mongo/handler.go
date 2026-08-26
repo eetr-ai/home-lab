@@ -61,6 +61,7 @@ func (h *Handler) listDatabases(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			request	body		mongo.CreateDatabaseRequest	true	"The database and its first collection"
 //	@Success		201		{object}	mongo.Database
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		403		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
@@ -87,6 +88,7 @@ func (h *Handler) createDatabase(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			database	path	string	true	"Database name"
 //	@Success		204
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
@@ -107,6 +109,7 @@ func (h *Handler) dropDatabase(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			database	path		string	true	"Database name"
 //	@Success		200			{array}		mongo.Collection
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400			{object}	http.ErrorBody
 //	@Router			/api/mongo/databases/{database}/collections [get]
 func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +131,7 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 //	@Param			database	path		string							true	"Database name"
 //	@Param			request		body		mongo.CreateCollectionRequest	true	"The collection to create"
 //	@Success		201			{object}	mongo.Collection
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400			{object}	http.ErrorBody
 //	@Failure		409			{object}	http.ErrorBody
 //	@Router			/api/mongo/databases/{database}/collections [post]
@@ -153,6 +157,7 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 //	@Param			database	path	string	true	"Database name"
 //	@Param			collection	path	string	true	"Collection name"
 //	@Success		204
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
@@ -175,6 +180,7 @@ func (h *Handler) dropCollection(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			database	path		string	true	"Database the users are defined in"
 //	@Success		200			{array}		mongo.User
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400			{object}	http.ErrorBody
 //	@Router			/api/mongo/databases/{database}/users [get]
 func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +203,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 //	@Param			database	path		string					true	"Database to create the user in"
 //	@Param			request		body		mongo.CreateUserRequest	true	"The user to create"
 //	@Success		201			{object}	mongo.User
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400			{object}	http.ErrorBody
 //	@Failure		409			{object}	http.ErrorBody
 //	@Router			/api/mongo/databases/{database}/users [post]
@@ -223,6 +230,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 //	@Param			database	path	string	true	"Database the user is defined in"
 //	@Param			user		path	string	true	"User name"
 //	@Success		204
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
