@@ -7,18 +7,32 @@ from.
 
 ## The component library
 
-Reusable primitives live in `src/components/ui` and are imported through the
-barrel (`@/components/ui`). Reach for them instead of retyping the class strings
-below; the strings remain the spec, but the primitives are how it is applied.
+Reusable primitives live in `src/components/ui`. Reach for them instead of
+retyping the class strings below; the strings remain the spec, but the primitives
+are how it is applied.
 
 `Button` · `IconButton` · `Banner` · `Card` · `SectionCard` · `PageHeader` ·
 `Table`/`THead`/`TBody`/`Th`/`Td` · `Input` · `Select` · `Label` · `FormField` ·
 `Spinner`/`FullPageSpinner` · `InlineDeleteConfirm` · `SidePanel` ·
 `ConfirmDialog` · `EmptyState`.
 
-Nothing in `components/ui` declares `"use client"`. Every consumer is a
-`_components/` child of a client page, so a Server Component must not import the
-barrel.
+**How you import one depends on what is importing it**, and there is exactly one
+rule:
+
+- A **Client Component** imports the barrel: `import { Button, Td } from
+  "@/components/ui"`.
+- A **Server Component** imports the module: `import { PageHeader } from
+  "@/components/ui/page-header"`.
+
+Nothing in `components/ui` declares `"use client"`, and most of the primitives
+render anywhere. The barrel is the problem, not the primitives: it also pulls in
+the overlays (`SidePanel`, `ConfirmDialog`) and their hooks, so importing it from
+a Server Component fails on `useRef` — for a component the page never even
+rendered.
+
+The same distinction is why a *shared* presentational component that a Server
+Component renders — `Directory`, say — must not be marked `"use client"` either.
+See [layer-conventions.md](layer-conventions.md) for what goes wrong when it is.
 
 Page-specific components are colocated in a `_components/` folder next to the
 route's `page.tsx`. **State stays in the page**; `_components/` children are
@@ -133,10 +147,17 @@ contract to review a change against:
    separated by `divide-y`; `thead` on `--surface-sunken`.
 4. **Row actions** — `IconButton` only, in a fixed order: surface-specific icons
    first, then `Pencil`, then `Trash2`. No pills, no "View" link.
-5. **Clicking a row opens its edit panel.** The actions cell calls
-   `stopPropagation`, so a row action never also opens the panel. Keep the
-   `Pencil` anyway: a `<tr>` cannot carry button semantics cleanly, so the icon
-   button stays the keyboard-reachable, labelled affordance.
+5. **Clicking a row opens its edit panel — where there is one.** The actions
+   cell calls `stopPropagation`, so a row action never also opens the panel. Keep
+   the `Pencil` anyway: a `<tr>` cannot carry button semantics cleanly, so the
+   icon button stays the keyboard-reachable, labelled affordance.
+
+   Several surfaces here have no edit at all, because the thing behind them has
+   no update operation: a PostgreSQL database is created and dropped, never
+   altered through this panel, and the same goes for roles, collections, and
+   Mongo users. Those surfaces carry a delete action and nothing else, and their
+   rows are not clickable — a row that looks interactive and does nothing is
+   worse than one that plainly is not.
 6. **Empty versus filtered** — `EmptyState` with the header's CTA when the
    collection is genuinely empty; a plain muted line when filters merely exclude
    everything. Different problems, different fixes.
@@ -144,7 +165,18 @@ contract to review a change against:
 8. **Errors** — page-level `Banner` for list errors, in-panel `Banner` for save
    errors, never both at once: a page-level banner is invisible behind the scrim.
 9. **State** — `panelOpen`, `editingId`, `draft`, `baseline`, `saving`,
-   `confirmingDeleteId`, `deletingId`.
+   `confirmingDeleteId`, `deletingId`. In practice the last three are not written
+   out per surface: `CreatePanel` owns the saving and unsaved-changes state, and
+   `useRowDelete` owns the confirm/delete pair. Both keep that state in the
+   parent so only one row can be asking for confirmation at a time.
+
+10. **Scoped lists put the scope in the query string.** A list that has no
+    meaning without a database or a namespace — Mongo collections, PostgreSQL
+    extensions, anything under Kubernetes — reads its scope from the URL through
+    `ScopePicker`, not from component state. The scope is part of what the page
+    is showing, so it should be linkable, survive a reload, and step through the
+    back button. A scope named in the URL that no longer exists falls back to the
+    first available one rather than erroring: the link is stale, not wrong.
 
 A new directory surface should need no new layout class strings. If it does, the
 primitive is wrong — fix the primitive.
@@ -162,9 +194,20 @@ you are sending someone a link to a specific view. Use local state for a tab onl
 when the surrounding view already owns query parameters that the tab would make
 ambiguous; say so in a comment when you do.
 
-Tab strips carry proper semantics: `role="tablist"`, `role="tab"`,
-`aria-selected`, `aria-controls`, and a roving `tabIndex` so the whole strip is one
-tab stop with arrow-key movement.
+A route-segment tab strip is **navigation, not an ARIA tablist**. It is a `<nav>`
+of links carrying `aria-current="page"`, and it must not use `role="tab"` /
+`role="tablist"` / `aria-selected`.
+
+This guide said the opposite until the strip was built, and the earlier advice was
+wrong. ARIA tabs describe panels that live in the same document and are swapped
+without navigating: `aria-controls` has to name an element that is present, and a
+roving `tabIndex` makes sense because the panels are siblings. Neither holds here
+— activating one of these replaces the document. Announcing them as tabs promises
+a screen-reader user a widget that does not behave like one, while `aria-current`
+says exactly what is true: this link is the page you are on.
+
+Local-state tabs, if a section ever needs them, *are* an ARIA tablist and should
+carry the full semantics.
 
 ## Overlays
 
