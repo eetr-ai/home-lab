@@ -200,37 +200,38 @@ to start.
 
 ## The admin panel's query console
 
-The panel's PostgreSQL query console runs submitted SQL. What stops it from
-doing damage is one thing, and it is worth being precise about which.
+The panel's PostgreSQL query console runs submitted SQL, and it runs it as the
+same account the panel administers the server with: the superuser above. There
+is no second credential to configure — the console is served wherever
+`ADMIN_POSTGRES_DSN` is.
 
-**It runs over a separate connection, as a role that is not a superuser.** That
-is the boundary. Everything else is a second layer.
+That is a decision about who the panel is for. Whoever reaches it is already
+authenticated as an operator and already creates and drops databases, roles and
+users through the pages beside the console. A separate login would not have
+narrowed that; it would only have narrowed this one endpoint, at the cost of a
+second password to rotate.
 
-The cheaper design — keep the panel's superuser connection and drop privileges
-per transaction with `SET LOCAL ROLE pg_read_all_data` — *looks* like it works
-and does not. `SET ROLE` is reversible by whoever authenticated, and `session_user`
-stays the superuser. Checked against PostgreSQL 18: inside a `READ ONLY`
-transaction with the role dropped, a submitted `RESET ROLE` (or `SET ROLE NONE`,
-or `DO $$ BEGIN RESET ROLE; END $$`) restored superuser, after which
-`COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` ran and left a file owned by the
-`postgres` user on the database host. With a genuinely non-superuser login, all
-four escapes leave `current_user` unchanged and both `pg_read_file` and
-`COPY … TO PROGRAM` are refused.
+What bounds a submitted statement is therefore its shape, not its authority:
 
-Behind that boundary:
-
-- The statement runs in a `READ ONLY` transaction that is always rolled back, so
-  every `INSERT`, `UPDATE`, `DELETE`, and DDL is refused. Not sufficient on its
-  own — it does not refuse `COPY … TO PROGRAM`, which is not a database write.
+- It runs in a `READ ONLY` transaction that is always rolled back, so every
+  `INSERT`, `UPDATE`, `DELETE`, and DDL is refused by the server.
 - `SET LOCAL statement_timeout`, so a runaway query is killed by the server.
 - pgx's extended protocol carries one statement per message, so
   `SELECT 1; DROP TABLE x` is refused rather than run as two.
 
-No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
-and `DO` blocks all defeat one — the `DO` block above is the demonstration — and
-a single miss would be the whole boundary.
+And be plain about what none of that bounds. A superuser session can reach
+outside the database: `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` runs a
+shell command as the `postgres` user on the database host, and the `READ ONLY`
+transaction does not refuse it, because it is not a database write. Nor can the
+session lower its own floor — `SET ROLE` is reversible by whoever authenticated,
+so a submitted `RESET ROLE` (or `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END
+$$`) restores it and `session_user` never changes. Both checked against
+PostgreSQL 18. **Access to the console is access to the database host**, on the
+same footing as the passwords readable on `eetr01`.
 
-### Creating the role
+If the panel ever grows viewers as well as operators, this is the endpoint to
+give its own login, and the two facts above are why nothing done inside the
+session would substitute for one:
 
 ```sql
 CREATE ROLE panel_query LOGIN PASSWORD 'generate-a-long-one'
@@ -238,13 +239,9 @@ CREATE ROLE panel_query LOGIN PASSWORD 'generate-a-long-one'
 GRANT pg_read_all_data TO panel_query;
 ```
 
-`pg_read_all_data` is predefined from PostgreSQL 14 and grants `SELECT` on
-everything and membership in nothing else. Then set `ADMIN_POSTGRES_QUERY_DSN`
-to a connection string for that role.
-
-**Without it the console is not served** — the API answers 503 and says so. It
-does not fall back to the superuser connection, because running submitted SQL as
-the superuser is the exact thing the separate credential exists to prevent.
+No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
+and `DO` blocks all defeat one, and a check would suggest a boundary that the
+paragraphs above say plainly is not there.
 
 MongoDB is a different shape. There is no read-only transaction to lean on, so
 the boundary is what the panel offers: `find` and nothing else — not `aggregate`,

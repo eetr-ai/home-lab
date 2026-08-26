@@ -113,6 +113,12 @@ The credentials are the ones `databases/.env` holds — the single superuser acc
 each server has. `sslmode=disable` and the plain MongoDB URI are correct here:
 those servers carry no TLS by design, which `databases/README.md` documents.
 
+There is no second credential for the query consoles: they run as these accounts
+too, so whoever may open the panel may run SQL as a PostgreSQL superuser — which
+reaches the database host, not only the database. `databases/README.md` says
+exactly how far that goes and what to do if the panel ever has viewers as well as
+operators.
+
 Prefer `--from-file` over `--from-literal` if you would rather the connection
 string not enter your shell history.
 

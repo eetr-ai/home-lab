@@ -26,37 +26,40 @@ const (
 
 // Query runs one read-only statement against a database and returns its rows.
 //
-// It runs over a *separate connection*, authenticated as a role that is not a
-// superuser. That is the boundary, and it is the only thing here that is one.
+// It runs as the same account the rest of this slice connects as — the panel's
+// administrative credential — over a short-lived connection to the named
+// database. There is no second credential: the panel is given a superuser so it
+// can administer the server, and the console is one more thing it does with it.
 //
-// The obvious cheaper design — keep the superuser pool and drop privileges for
-// the transaction with SET LOCAL ROLE — does not work, and it is worth writing
-// down why, because it looks like it does. SET ROLE is reversible by whoever
-// authenticated: verified against PostgreSQL 18, a submitted `RESET ROLE` (or
-// `SET ROLE NONE`, or `DO $$ BEGIN RESET ROLE; END $$`) restored superuser
-// inside the read-only transaction, after which
-// `COPY (SELECT 1) TO PROGRAM 'id > /tmp/escaped'` ran and left a file owned by
-// the postgres user on the database host. session_user is what SET ROLE resets
-// to, so nothing done inside a session can lower that floor.
+// What bounds a statement here is therefore not authority but shape:
 //
-// With a genuinely non-superuser login, all four of those escapes leave
-// current_user unchanged, and pg_read_file and COPY TO PROGRAM are both refused
-// as permission errors. Also verified rather than assumed.
+//   - a READ ONLY transaction that is always rolled back, so every INSERT,
+//     UPDATE, DELETE and DDL is refused by the server;
+//   - statement_timeout, so a runaway query is killed by the server rather than
+//     abandoned by the client;
+//   - pgx's extended protocol, one statement per message, so
+//     `SELECT 1; DROP TABLE t` is refused rather than run as two.
 //
-// The READ ONLY transaction and the statement timeout remain, as the second
-// layer: the query role should hold no write privileges, but a role gains grants
-// over time and this does not depend on that staying true. Neither is the
-// boundary on its own — a read-only transaction refuses writes and DDL and does
-// not refuse COPY TO PROGRAM.
+// Be clear about what that does not bound. A superuser session can reach outside
+// the database — `COPY (SELECT 1) TO PROGRAM ...` runs a shell command on the
+// database host, and a READ ONLY transaction does not refuse it, because it is
+// not a database write. Nor can the session lower its own floor: SET ROLE is
+// reversible by whoever authenticated, so a submitted RESET ROLE undoes it and
+// session_user stays the superuser. Verified against PostgreSQL 18, both of
+// them. Whoever the panel lets in can do, through this console, anything the
+// panel's database account can do on that host.
+//
+// That is the deliberate position: the caller is already authenticated as an
+// operator and the same account already creates and drops databases, roles and
+// users through the endpoints next to this one. If that ever stops being true —
+// a panel with viewers as well as operators — this is the endpoint to give its
+// own non-superuser login, and the two verified facts above are why nothing
+// inside the session would substitute for one.
 //
 // No pattern matching over the SQL text anywhere. Comments, CTEs, dollar quoting
-// and DO blocks all defeat one — the DO block above is the demonstration — and a
-// single miss would be the whole boundary.
+// and DO blocks all defeat one, and a check here would suggest a boundary that
+// the paragraph above says plainly is not there.
 func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResult, error) {
-	if r.queryConfig == nil {
-		return QueryResult{}, ErrQueryUnavailable
-	}
-
 	// One deadline over the whole operation, before anything opens a socket.
 	// statement_timeout is set after connecting and bounds only execution, so on
 	// its own it leaves both ends unbounded: a connection to an unresponsive
@@ -65,7 +68,7 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	ctx, cancel := context.WithTimeout(ctx, queryDeadline)
 	defer cancel()
 
-	conn, err := r.connectAsQueryRole(ctx, database)
+	conn, err := r.connectTo(ctx, database)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -111,26 +114,6 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	}
 	result.ElapsedMs = time.Since(started).Milliseconds()
 	return result, nil
-}
-
-// connectAsQueryRole opens a connection to one database as the query credential.
-func (r *Repository) connectAsQueryRole(ctx context.Context, database string) (*pgx.Conn, error) {
-	if _, err := quoteIdentifier(database); err != nil {
-		return nil, err
-	}
-
-	config := r.queryConfig.ConnConfig.Copy()
-	config.Database = database
-
-	conn, err := pgx.ConnectConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("connect to database %q for a query: %w", database, err)
-	}
-	if err := verifyStringsAreConforming(ctx, conn); err != nil {
-		_ = conn.Close(ctx)
-		return nil, err
-	}
-	return conn, nil
 }
 
 // collectRows reads a result set into strings, stopping at the row cap.

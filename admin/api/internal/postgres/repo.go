@@ -18,10 +18,6 @@ import (
 type Repository struct {
 	pool   *pgxpool.Pool
 	config *pgxpool.Config
-	// queryConfig is a separate, non-superuser credential used only by the
-	// read-only query console. Nil when none is configured, which switches the
-	// console off — see Query for why it cannot share the pool above.
-	queryConfig *pgxpool.Config
 }
 
 // NewRepository connects to the server and verifies the assumptions this slice's
@@ -51,21 +47,6 @@ func NewRepository(ctx context.Context, dsn string) (*Repository, error) {
 	}
 
 	return &Repository{pool: pool, config: config}, nil
-}
-
-// WithQueryCredential attaches the connection the query console runs statements
-// as. Without one, the console is not served.
-func (r *Repository) WithQueryCredential(dsn string) error {
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return fmt.Errorf("parse the PostgreSQL query connection string: %w", err)
-	}
-	// No AfterConnect hook here, unlike the pool above: nothing ever builds a pool
-	// from this config. connectAsQueryRole dials it directly and calls
-	// verifyStringsAreConforming itself, so a hook set here would look like a
-	// guarantee and run never.
-	r.queryConfig = config
-	return nil
 }
 
 // verifyStringsAreConforming refuses a connection to a server whose literal

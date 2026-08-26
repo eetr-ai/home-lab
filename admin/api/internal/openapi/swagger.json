@@ -2999,7 +2999,7 @@
         },
         "/api/postgres/databases/{database}/query": {
             "post": {
-                "description": "POST because the statement goes in the body — it is a read, not a change.\nRuns over a separate connection authenticated as a non-superuser role, which\nis the boundary: dropping privileges within the panel's own superuser\nsession is reversible by a submitted RESET ROLE. A READ ONLY transaction and\na statement timeout sit behind that. Answers 503 when no such credential is\nconfigured, rather than falling back to the superuser. Results are capped at\n200 rows and the statement at 15 seconds.",
+                "description": "POST because the statement goes in the body — it is a read, not a change.\nRuns as the panel's own administrative account, on a connection to the named\ndatabase. What bounds it is a READ ONLY transaction that is always rolled\nback, a statement timeout, and one statement per request — not a lesser\nprivilege, so a caller reaches whatever that account reaches. Results are\ncapped at 200 rows and the statement at 15 seconds.",
                 "parameters": [
                     {
                         "description": "Database to run against",
@@ -3071,16 +3071,6 @@
                             }
                         },
                         "description": "Unprocessable Entity"
-                    },
-                    "503": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Service Unavailable"
                     }
                 },
                 "security": [

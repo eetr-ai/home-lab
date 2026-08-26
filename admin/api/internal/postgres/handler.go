@@ -102,12 +102,11 @@ func (h *Handler) updateDatabase(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary		Run a read-only query
 //	@Description	POST because the statement goes in the body — it is a read, not a change.
-//	@Description	Runs over a separate connection authenticated as a non-superuser role, which
-//	@Description	is the boundary: dropping privileges within the panel's own superuser
-//	@Description	session is reversible by a submitted RESET ROLE. A READ ONLY transaction and
-//	@Description	a statement timeout sit behind that. Answers 503 when no such credential is
-//	@Description	configured, rather than falling back to the superuser. Results are capped at
-//	@Description	200 rows and the statement at 15 seconds.
+//	@Description	Runs as the panel's own administrative account, on a connection to the named
+//	@Description	database. What bounds it is a READ ONLY transaction that is always rolled
+//	@Description	back, a statement timeout, and one statement per request — not a lesser
+//	@Description	privilege, so a caller reaches whatever that account reaches. Results are
+//	@Description	capped at 200 rows and the statement at 15 seconds.
 //	@Tags			postgres
 //	@Accept			json
 //	@Produce		json
@@ -118,7 +117,6 @@ func (h *Handler) updateDatabase(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400			{object}	http.ErrorBody
 //	@Failure		401			{object}	http.ErrorBody
 //	@Failure		422			{object}	http.ErrorBody
-//	@Failure		503			{object}	http.ErrorBody
 //	@Router			/api/postgres/databases/{database}/query [post]
 func (h *Handler) query(w http.ResponseWriter, r *http.Request) {
 	var request QueryRequest
@@ -335,10 +333,6 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
 	case errors.Is(err, ErrProtected):
 		httpx.Error(w, http.StatusForbidden, "protected", err.Error())
-	case errors.Is(err, ErrQueryUnavailable):
-		httpx.Error(w, http.StatusServiceUnavailable, "not_configured",
-			"the query console needs a read-only PostgreSQL credential "+
-				"(ADMIN_POSTGRES_QUERY_DSN); see databases/README.md")
 	case errors.Is(err, ErrQueryFailed):
 		// 422 rather than 400: the request was well-formed and the statement was
 		// the thing the server would not accept. The message is PostgreSQL's own,
