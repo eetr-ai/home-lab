@@ -33,7 +33,12 @@
               "required": ["repository", "tag", "pullPolicy"],
               "properties": {
                 "repository": { "type": "string", "minLength": 1 },
-                "tag": { "type": "string", "minLength": 1 },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "not": { "const": "latest" },
+                  "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
+                },
                 "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
               }
             },

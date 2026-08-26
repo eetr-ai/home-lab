@@ -200,7 +200,24 @@ pull rather than needing a second run somebody has to remember. Supplying no
 for a cluster that pulls only public images.
 
 Rotating is the same command with a new key, followed by deleting the old one in
-the provider. Installing a credential restarts the kubelet, one node at a time;
+the provider.
+
+**Clearing `registry_credentials_file` does not revoke anything.** The role skips,
+and a credential already on the nodes stays there. That is deliberate: a bootstrap
+rerun that forgot the flag would otherwise strip the cluster's registry access as a
+side effect. Removing access is its own act — delete the key in the provider, which
+takes effect everywhere at once, and remove the file if you also want it gone:
+
+```bash
+ansible kubernetes -b -m ansible.builtin.file \
+  -a 'path=/var/lib/kubelet/config.json state=absent'
+ansible kubernetes -b -m ansible.builtin.service -a 'name=kubelet state=restarted'
+```
+
+The role owns `/var/lib/kubelet/config.json` outright and rewrites it whole rather
+than merging. Nothing else in this repository writes to that file, and a merge
+would silently preserve a credential for a registry nobody remembers configuring.
+A second registry belongs in the role, not in a separate writer. Installing a credential restarts the kubelet, one node at a time;
 running containers are not disturbed, because they keep running under containerd
 while it is down and are reconciled when it returns.
 

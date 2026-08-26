@@ -15,6 +15,12 @@
 # Supplying no credential is a valid state: a cluster that pulls only public
 # images needs nothing here. The role skips rather than failing, so bootstrap.yml
 # can include it unconditionally.
+#
+# Skipping means exactly that: an already-installed credential is left in place.
+# Clearing the variable does not revoke anything, and it deliberately does not —
+# a bootstrap rerun without -e would otherwise strip the cluster's registry access
+# as a side effect of forgetting a flag. Removing access is its own act; see the
+# revoke section of ansible/README.md.
 - name: Skip when no registry credential is supplied
   ansible.builtin.meta: end_host
   when: registry_credentials_file | length == 0
@@ -39,6 +45,42 @@
     quiet: true
   run_once: true
 
+# Any regular file passes the check above, and its contents would be base64-ed
+# into the credential regardless. A wrong file therefore produces a play that
+# succeeds and a cluster that cannot pull, with nothing connecting the two — so
+# the shape is checked here, where the error can say what is wrong.
+# no_log hides the parse failure along with the file, so a file that is not JSON
+# would otherwise fail with nothing but "censored". The rescue turns that back
+# into an error that says what is wrong without saying what the file contained.
+- name: Read the registry credential
+  block:
+    - name: Parse the registry credential
+      ansible.builtin.set_fact:
+        registry_credential: "{{ lookup('file', registry_credentials_file) | from_json }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+  rescue:
+    - name: Report an unreadable registry credential
+      ansible.builtin.fail:
+        msg: >-
+          registry_credentials_file could not be parsed as JSON. It must be the
+          file `gcloud iam service-accounts keys create` writes.
+      run_once: true
+
+- name: Require a service account key
+  ansible.builtin.assert:
+    that:
+      - registry_credential.type | default('') == 'service_account'
+      - registry_credential.client_email | default('') | length > 0
+      - registry_credential.private_key | default('') | length > 0
+    fail_msg: >-
+      registry_credentials_file is valid JSON but is not a service account key.
+      It must be the file `gcloud iam service-accounts keys create` writes.
+    quiet: true
+  run_once: true
+
 - name: Ensure the kubelet state directory exists
   ansible.builtin.file:
     path: /var/lib/kubelet
@@ -49,6 +91,12 @@
 
 # Written from the controller's copy of the key, so the key itself is never
 # copied to a node as a file — only the base64 credential inside this document.
+#
+# This role owns /var/lib/kubelet/config.json outright and rewrites it whole. That
+# is a deliberate choice over merging: the file is created by this repository and
+# nothing else here writes to it, and a merge would silently preserve a credential
+# for a registry nobody remembers configuring. If a second registry is ever needed,
+# add it to this task rather than writing the file from somewhere else.
 - name: Install the kubelet registry credentials
   ansible.builtin.copy:
     content: >-
