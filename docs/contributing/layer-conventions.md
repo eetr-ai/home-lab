@@ -106,11 +106,15 @@ acted leaves a sibling tab quietly stale, so the actions call
 **Server Components fetch; Client Components interact.** The page is a Server
 Component that awaits the actions and hands rows down; the client half owns only
 what needs a browser — the create panel, the delete confirmations, the scope
-picker. Watch the boundary when passing props: a function cannot cross it, and an
-icon is a function. A shared presentational component that a Server Component
-renders must therefore *not* be marked `"use client"`, or passing it an icon fails
-at render time — which the build does not catch, because it only happens when the
-page runs.
+picker.
+
+Watch the boundary when passing props: a function cannot cross it, and an icon is
+a function. A shared presentational component that a Server Component renders must
+therefore *not* be marked `"use client"`, or passing it an icon fails at render
+time — which the build does not catch, because it only happens when the page runs.
+Such a component imports UI primitives by module rather than through the barrel,
+for the reason [ux-guidelines.md](ux-guidelines.md) gives under "The component
+library".
 
 ## Where new code goes
 

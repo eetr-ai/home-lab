@@ -7,18 +7,32 @@ from.
 
 ## The component library
 
-Reusable primitives live in `src/components/ui` and are imported through the
-barrel (`@/components/ui`). Reach for them instead of retyping the class strings
-below; the strings remain the spec, but the primitives are how it is applied.
+Reusable primitives live in `src/components/ui`. Reach for them instead of
+retyping the class strings below; the strings remain the spec, but the primitives
+are how it is applied.
 
 `Button` · `IconButton` · `Banner` · `Card` · `SectionCard` · `PageHeader` ·
 `Table`/`THead`/`TBody`/`Th`/`Td` · `Input` · `Select` · `Label` · `FormField` ·
 `Spinner`/`FullPageSpinner` · `InlineDeleteConfirm` · `SidePanel` ·
 `ConfirmDialog` · `EmptyState`.
 
-Nothing in `components/ui` declares `"use client"`. Every consumer is a
-`_components/` child of a client page, so a Server Component must not import the
-barrel.
+**How you import one depends on what is importing it**, and there is exactly one
+rule:
+
+- A **Client Component** imports the barrel: `import { Button, Td } from
+  "@/components/ui"`.
+- A **Server Component** imports the module: `import { PageHeader } from
+  "@/components/ui/page-header"`.
+
+Nothing in `components/ui` declares `"use client"`, and most of the primitives
+render anywhere. The barrel is the problem, not the primitives: it also pulls in
+the overlays (`SidePanel`, `ConfirmDialog`) and their hooks, so importing it from
+a Server Component fails on `useRef` — for a component the page never even
+rendered.
+
+The same distinction is why a *shared* presentational component that a Server
+Component renders — `Directory`, say — must not be marked `"use client"` either.
+See [layer-conventions.md](layer-conventions.md) for what goes wrong when it is.
 
 Page-specific components are colocated in a `_components/` folder next to the
 route's `page.tsx`. **State stays in the page**; `_components/` children are
