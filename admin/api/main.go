@@ -22,6 +22,7 @@ import (
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
+	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
 )
 
 const (
@@ -59,6 +60,16 @@ func run(logger *slog.Logger) error {
 	api := stdhttp.NewServeMux()
 	auth.NewHandler().Register(api)
 
+	// Each managed service is registered only when it is configured. A panel with
+	// no PostgreSQL to administer answers 404 for those routes, which is the
+	// honest reply — and the OpenAPI description still lists them, so a caller can
+	// see the capability exists and is not switched on here.
+	closePostgres, err := registerPostgres(ctx, api, logger)
+	if err != nil {
+		return err
+	}
+	defer closePostgres()
+
 	root := stdhttp.NewServeMux()
 	health.New().Register(root)
 	openapi.New().Register(root)
@@ -70,6 +81,28 @@ func run(logger *slog.Logger) error {
 	}
 
 	return httpx.Serve(ctx, ":"+port, root, logger)
+}
+
+// registerPostgres wires the PostgreSQL slice when a connection string is set.
+//
+// Configuring it does not connect: the pool is lazy, so an unreachable database
+// costs a failed request rather than a process that will not start. The panel's
+// other sections keep working while it is down, which is when an operator most
+// wants to look at them.
+func registerPostgres(ctx context.Context, mux *stdhttp.ServeMux, logger *slog.Logger) (func(), error) {
+	dsn := os.Getenv("ADMIN_POSTGRES_DSN")
+	if dsn == "" {
+		logger.Warn("ADMIN_POSTGRES_DSN is unset; the PostgreSQL endpoints are not served")
+		return func() {}, nil
+	}
+
+	repo, err := postgres.NewRepository(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	postgres.NewHandler(postgres.NewService(repo)).Register(mux)
+	logger.Info("serving the PostgreSQL endpoints")
+	return repo.Close, nil
 }
 
 // newVerifier builds the token verifier from the environment.
