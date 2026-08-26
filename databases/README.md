@@ -1,219 +1,138 @@
 # Host databases
 
-This module runs PostgreSQL and MongoDB directly on the Ubuntu virtualization
-host. The containers are independent Compose projects and use Docker named
-volumes under the host's configured Docker data root. They do not run in a VM
+PostgreSQL (with pgvector) and MongoDB run as two independent Docker Compose
+projects directly on the virtualization host `eetr01`. They do not run in a VM
 or in Kubernetes.
 
-The intended network paths are:
+Compose is the whole manager here:
 
-```text
-Kubernetes node -> eetr01 br0 address -> database container
-Operator laptop -> SSH to eetr01 -> 127.0.0.1 -> database container
-```
+- `restart: unless-stopped` keeps both containers up across crashes and reboots.
+- Data lives in bind-mounted directories under `DATABASE_DATA_DIR`, so it is
+  obvious on disk and easy to back up.
+- Ports 5432 and 27017 are published on the host, so the laptop, the host
+  itself, and the Kubernetes nodes all connect the same way.
 
-There is no Cloudflare route or other public endpoint. The managed firewall
-rules allow only the three configured Kubernetes node addresses to use the LAN
-bindings.
+The host is `eetr01` at `10.0.0.240` on `br0`, so that is the address every
+client uses. Access control is the database password: there is no per-client
+allowlist and no Cloudflare route — never forward these ports from the router
+to the internet.
 
-## Security and availability boundaries
+Each server gets exactly one account, and it is a superuser. That account is
+what the infra admin application — the in-cluster tool that will manage these
+databases and the cluster itself — connects with, and it is what `psql` and
+`mongosh` use from the laptop. Creating databases, roles, collections, or
+narrower users is that application's job, not this module's.
 
-- PostgreSQL uses SCRAM-SHA-256 password authentication and enables `vector`
-  and `pgcrypto` in the initial database.
-- `pgcrypto` supplies SQL cryptographic functions. It does not transparently
-  encrypt PostgreSQL files, backups, keys, or network traffic.
-- MongoDB is an authenticated standalone server. MongoDB Client-Side Field
-  Level Encryption is configured by a future client application, not by the
-  server Compose file.
-- Database TLS and LUKS encryption are not part of this module. Traffic from
-  Kubernetes nodes to the host is not encrypted in transit. Encrypt sensitive
-  values in the client until database TLS is added.
-- These are single-host services without replication or automatic failover.
-- Only administrator accounts are bootstrapped. Applications must use
-  separate, least-privileged users whose credentials are stored as encrypted
-  Kubernetes Secrets.
+## Set up
 
-## Prerequisites
+The repository stays on your laptop. Docker Compose talks to `eetr01` over SSH
+through a Docker context, so nothing is copied to the server — the containers,
+the published ports, and the data directories are all created there while you
+drive from your checkout.
 
-Run these checks on `eetr01`:
+Create the context once:
 
 ```bash
-docker compose version
-docker info --format '{{.DockerRootDir}}'
-findmnt /srv/docker
-df -h /srv/docker
-docker system df
-ip -4 -brief address show br0
-sudo iptables -n -L DOCKER-USER
-sudo ss -lnt '( sport = :5432 or sport = :27017 )'
+docker context create eetr01 --docker host=ssh://eetr01
+docker context use eetr01
+docker info --format '{{.Name}} {{.DockerRootDir}}'
 ```
 
-Docker must use the dedicated mounted filesystem rather than the root
-filesystem. The database ports must not already be occupied. The firewall
-helper requires Docker's `DOCKER-USER` chain and the `conntrack` iptables
-matcher. Images, database volumes, and Docker metadata share the 20 GB Docker
-filesystem, so monitor it and alert before it fills. Never reclaim space with
-an unreviewed volume-pruning command.
+That last command must report `/srv/docker`. If it reports your laptop's Docker
+root, the context is not active. `ssh eetr01` has to work with key auth and no
+password prompt; the host name comes from your SSH config, so use
+`ssh://user@10.0.0.240` if you have no alias for it.
 
-Install persistent firewall support before saving verified rules:
+Data belongs on `/srv/datastore`, the dedicated 120 GiB `vg0/lv-datastore`
+volume — not `/srv/docker`, which is 20 GiB and holds images and container
+layers:
 
 ```bash
-sudo apt update
-sudo apt install -y iptables-persistent
+ssh eetr01 'findmnt /srv/datastore && sudo install -d -m 0755 /srv/datastore'
 ```
 
-## Configure local inputs and Secrets
-
-From the repository checkout on `eetr01`:
+Then create the environment file in your checkout:
 
 ```bash
 cp databases/.env.example databases/.env
 chmod 0600 databases/.env
 ```
 
-Replace every example value. `DATABASE_LAN_ADDRESS` is the IPv4 address owned
-by `br0`, and `DATABASE_ALLOWED_CLIENTS` is exactly the three reserved
-Kubernetes node addresses separated by commas. Do not add the operator laptop;
-administrative access uses SSH instead.
+Replace every value. Two passwords is the whole credential story here — one for
+the PostgreSQL superuser, one for the MongoDB root user. Generate them with
+`openssl rand -base64 36` and keep copies in the password manager, because they
+are what the admin application will use.
 
-Create two password files outside the repository and outside the Docker data
-volumes. The alternate secure storage location must be mounted before starting
-the containers.
+Compose reads `databases/.env` on your laptop and sends the resolved values
+over the SSH connection, so the file itself never lands on the server. Keep it
+mode 0600 and out of Git; your checkout is the single source of truth for these
+credentials. `DATABASE_DATA_DIR` and the published ports are interpreted on
+`eetr01`, which is why `/srv/datastore` is a server path.
 
-```bash
-umask 077
-install -d -m 0700 /ABSOLUTE/SECURE/PATH/database-secrets
-openssl rand -base64 48 > /ABSOLUTE/SECURE/PATH/database-secrets/postgres_admin_password
-openssl rand -base64 48 > /ABSOLUTE/SECURE/PATH/database-secrets/mongo_admin_password
-chmod 0600 /ABSOLUTE/SECURE/PATH/database-secrets/*
-```
+This keeps a credential file off the server, but not the credentials: Docker
+stores the resolved environment in the container config under
+`/srv/docker/containers/`, where `docker inspect` and `/proc/<pid>/environ`
+expose it. Anyone with root or docker-group access on `eetr01` can read both
+passwords. Treat host access as equivalent to database access.
 
-Set `DATABASE_SECRETS_DIR` in `databases/.env` to that absolute directory.
-Keep recoverable copies of both passwords in the password manager. Compose
-mounts the files read-only and passes only their in-container paths. Local
-Compose preserves the source file permissions, while MongoDB drops privileges
-before reading its password file. The tracked MongoDB wrapper therefore copies
-that file into a private container tmpfs with `mongodb` ownership, then
-delegates initialization and credential cleanup to the official entrypoint.
-The plaintext copy never lands in the container layer or a Docker volume.
+Both passwords are only read when the data directory is empty. Changing one in
+`.env` later does not rotate the existing account; rotate it in the database
+itself (`ALTER ROLE ... PASSWORD`, `db.changeUserPassword`) and update `.env`
+to match.
 
-Validate the rendered configurations. The output contains usernames, paths,
-and addresses, but must not contain password contents.
+## Start
 
-```bash
-docker compose --env-file databases/.env \
-  -f databases/postgres.compose.yaml config --quiet
-docker compose --env-file databases/.env \
-  -f databases/mongo.compose.yaml config --quiet
-```
-
-## Apply the cluster-only firewall
-
-Apply the rules before starting the databases:
-
-```bash
-sudo databases/configure-firewall.sh apply databases/.env
-sudo databases/configure-firewall.sh status
-```
-
-The helper owns only the `HOME_LAB_DATABASES` chain and one jump to that chain
-from `DOCKER-USER`. It matches the original host address and ports after Docker
-has performed destination NAT. Other forwarded Docker traffic returns to the
-existing rules unchanged.
-
-Test from all three Kubernetes nodes and confirm an unlisted LAN client cannot
-connect before making the rules persistent:
-
-```bash
-sudo netfilter-persistent save
-```
-
-Rollback removes only the managed chain:
-
-```bash
-sudo databases/configure-firewall.sh remove
-sudo netfilter-persistent save
-```
-
-If Docker is changed to its native nftables firewall backend, stop and replace
-this iptables-specific helper before exposing the LAN bindings.
-
-## Start and verify PostgreSQL
+From the repository root on your laptop:
 
 ```bash
 docker compose --env-file databases/.env \
   -f databases/postgres.compose.yaml up -d
 docker compose --env-file databases/.env \
+  -f databases/mongo.compose.yaml up -d
+```
+
+Check that both are healthy and listening:
+
+```bash
+docker compose --env-file databases/.env \
   -f databases/postgres.compose.yaml ps
 docker compose --env-file databases/.env \
-  -f databases/postgres.compose.yaml exec postgres \
-  psql --username replace_postgres_admin \
-  --dbname replace_postgres_database \
-  --command='SELECT extname, extversion FROM pg_extension WHERE extname IN ('\''vector'\'', '\''pgcrypto'\'') ORDER BY extname;'
-```
-
-The extension initialization script runs only when the PostgreSQL volume is
-empty. Changing the SQL file does not modify an existing database.
-
-## Start and verify MongoDB
-
-```bash
-docker compose --env-file databases/.env \
-  -f databases/mongo.compose.yaml up -d
-docker compose --env-file databases/.env \
   -f databases/mongo.compose.yaml ps
-docker compose --env-file databases/.env \
-  -f databases/mongo.compose.yaml exec mongo sh -c \
-  'mongosh --quiet --host 127.0.0.1 \
-    --username "$MONGO_INITDB_ROOT_USERNAME" \
-    --password "$(cat /run/home-lab-secrets/mongo_admin_password)" \
-    --authenticationDatabase admin \
-    --eval '\''db.adminCommand({ ping: 1 })'\'''
+ssh eetr01 "sudo ss -lnt '( sport = :5432 or sport = :27017 )'"
 ```
 
-The initialization variables only create the administrator on an empty MongoDB
-volume. Changing them later does not rotate an existing account.
+Both must show `running (healthy)`, and the ports must be listening on
+`0.0.0.0` on the server. `restart: unless-stopped` brings the containers back
+after a host reboot, so this is a one-time start.
 
-Verify host bindings:
+Every `docker compose` command below assumes the `eetr01` context is active.
+Add `--context eetr01` explicitly if you would rather leave your laptop's
+context as the default, and `docker context use default` when you switch back.
 
-```bash
-sudo ss -lnt '( sport = :5432 or sport = :27017 )'
-```
+## Connect
 
-Each enabled service must listen on `127.0.0.1` and the configured `br0`
-address. There must be no `0.0.0.0`, `[::]`, or public-interface binding.
-
-## Administrator connections
-
-Open a tunnel from the operator laptop and leave it running:
+From anywhere on the home LAN, using the host's address:
 
 ```bash
-ssh -N -L 15432:127.0.0.1:5432 eetr01
-```
+psql --host 10.0.0.240 --username replace_postgres_admin --dbname postgres
 
-Connect `psql`, pgAdmin, or another PostgreSQL client to `127.0.0.1:15432`.
-Let the client prompt for the password instead of putting it in shell history.
-
-MongoDB uses a separate local port:
-
-```bash
-ssh -N -L 27018:127.0.0.1:27017 eetr01
-mongosh --host 127.0.0.1 --port 27018 \
+mongosh --host 10.0.0.240 --port 27017 \
   --username replace_mongo_admin \
   --authenticationDatabase admin --password
 ```
 
-MongoDB Compass can use the same host, port, username, and `admin`
-authentication database. Do not place the password in a saved URI.
+`10.0.0.240` is the `br0` address reserved for `eetr01`. Let the client prompt
+for the password instead of putting it in shell history or a saved URI. The
+admin application connects to the same address and ports with the same
+credentials.
 
-Kubernetes applications connect to the configured `br0` address on the native
-database ports. The host address may be stored in non-secret application
-configuration, but usernames and passwords belong in encrypted Kubernetes
-Secrets.
+No application database is created here. PostgreSQL starts with only its
+built-in `postgres` database and MongoDB with only `admin`; the admin
+application creates whatever it needs. The image ships the `vector` extension,
+but extensions are per-database, so run `CREATE EXTENSION vector;` (and
+`pgcrypto` if wanted) inside each database after creating it.
 
-## Stop, upgrade, and recover
-
-Stop a service without deleting its named volumes:
+## Stop, upgrade, and back up
 
 ```bash
 docker compose --env-file databases/.env \
@@ -222,30 +141,59 @@ docker compose --env-file databases/.env \
   -f databases/mongo.compose.yaml down
 ```
 
-`docker compose down --volumes` permanently deletes the selected database
-volume. Do not use it unless a tested backup exists and deletion is intended.
+`down` leaves the data directories untouched. Before an image update, read the
+upstream upgrade notes and take a dump — a data directory cannot be moved
+between incompatible major versions.
 
-Before an image update, read the upstream upgrade notes, create a logical dump,
-and test restoration. Never move a named volume directly between incompatible
-major database versions.
-
-Create logical dumps into a protected host directory with sufficient space:
+The dumps stream back over the SSH connection, so these write to your laptop:
 
 ```bash
 umask 077
 docker compose --env-file databases/.env \
   -f databases/postgres.compose.yaml exec -T postgres sh -c \
-  'pg_dumpall --username "$POSTGRES_USER"' \
-  > /ABSOLUTE/SECURE/BACKUP/PATH/postgres.sql
+  'pg_dumpall --username "$POSTGRES_USER"' > /BACKUP/PATH/postgres.sql
 
 docker compose --env-file databases/.env \
   -f databases/mongo.compose.yaml exec -T mongo sh -c \
   'mongodump --username "$MONGO_INITDB_ROOT_USERNAME" \
-    --password "$(cat /run/home-lab-secrets/mongo_admin_password)" \
-    --authenticationDatabase admin --archive' \
-  > /ABSOLUTE/SECURE/BACKUP/PATH/mongo.archive
+    --password "$MONGO_INITDB_ROOT_PASSWORD" \
+    --authenticationDatabase admin --archive' > /BACKUP/PATH/mongo.archive
 ```
 
-The dumps are sensitive and are not encrypted by this module. Encrypt them in
-the backup system, retain the matching credentials and application encryption
-keys, and perform a restore test before relying on them.
+Dumps contain everything the databases hold and are not encrypted here. Store
+them somewhere protected and test a restore before relying on them.
+
+## Known constraints
+
+MongoDB is pinned to the 7.0 series. MongoDB 8.0 and newer exit immediately on
+Linux kernels 6.19+ because TCMalloc violates the kernel's rseq ABI
+([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)); the guard is
+only lifted at kernel 7.0.14 and above. Ubuntu 26.04 reports its kernel as
+`7.0.0-NN` no matter which stable patches are backported, so every 8.x image
+fails on this host with:
+
+```text
+MongoDB cannot start: Linux kernel versions 6.19 and newer has a known
+incompatibility with this version of MongoDB.
+```
+
+Upgrading the host kernel does not fix this, because the version string stays
+`7.0.0`. The 7.0 series carries no such guard and runs fine. It is close to
+end of life, so re-test an 8.x image periodically and move up once one starts.
+
+PostgreSQL 18 images expect the data mount at `/var/lib/postgresql` and create
+a version subdirectory such as `18/docker` beneath it. Mounting at
+`/var/lib/postgresql/data`, the pre-18 convention, makes the container refuse
+to start.
+
+## Boundaries
+
+- Single-host services: no replication, no automatic failover.
+- No TLS. LAN traffic to these ports is unencrypted; encrypt sensitive values
+  in the client if that matters.
+- The two accounts are superusers with full access to everything on their
+  server. Whoever holds a password holds the database.
+- The passwords are readable on `eetr01` through the container environment, so
+  root or docker-group access on the host is database access.
+- `pgcrypto` provides SQL cryptographic functions only. It does not encrypt
+  PostgreSQL files, backups, or connections.

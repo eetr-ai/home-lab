@@ -290,16 +290,18 @@ risk.
 ### 9. Install private host databases when needed
 
 The optional [database module](databases/README.md) runs PostgreSQL with
-pgvector and MongoDB directly on the virtualization host. It stores data in
-Docker named volumes under the host's configured Docker data root, publishes
-only on loopback and the host bridge address, and restricts LAN connections to
-the exact Kubernetes node addresses.
+pgvector and MongoDB directly on the virtualization host. Two Docker Compose
+projects keep the containers running, store data on the dedicated
+`/srv/datastore` volume, and publish the native database ports so the operator
+laptop, the host, and the Kubernetes nodes all connect the same way.
 
-Create the ignored environment file and external password files on the host,
-apply the module's `DOCKER-USER` firewall chain, and start each Compose project
-independently. Database ports never receive a Cloudflare route. Operators use
-SSH tunnels; applications use separate least-privileged credentials stored in
-encrypted Kubernetes Secrets.
+Setup is an ignored environment file with two superuser passwords, one per
+server. Compose drives the host through a Docker context over SSH, so the
+module runs from the laptop checkout without copying anything to the server.
+Those credentials are what the planned in-cluster infra admin application uses
+to create and manage databases; the module itself creates no application
+database. Database ports never receive a Cloudflare route, and the password is
+the access boundary.
 
 ### 10. Final checks
 
