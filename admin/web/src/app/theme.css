@@ -1,0 +1,252 @@
+/* =============================================================================
+ * Theme
+ *
+ * Two tiers:
+ *   1. Palette  — raw values. Referenced ONLY by tier 2, never by components.
+ *   2. Roles    — semantic names. The only thing components may reference.
+ *
+ * Adding a theme means adding one selector block that remaps tier 2. No
+ * component changes. Every role defined in :root must also be defined in
+ * .dark (and in the prefers-color-scheme fallback), or that role silently
+ * keeps its light value in dark mode.
+ *
+ * See docs/contributing/ux-guidelines.md › Theme.
+ * ========================================================================== */
+
+/* ── Tier 1: palette ─────────────────────────────────────────────────────── */
+:root {
+	--gray-0: #ffffff;
+	--gray-50: #f8fafc;
+	--gray-100: #f1f5f9;
+	--gray-200: #e2e8f0;
+	--gray-500: #5b6470;
+	--gray-700: #334155;
+	--gray-900: #18181b;
+	--gray-950: #0a0a0a;
+
+	/* Near-black surfaces for dark mode. Deliberately not pure black: a raised
+	   surface needs to read as raised against --background without a border. */
+	--ink-900: #0e0f11;
+	--ink-800: #121316;
+	--ink-700: #17181b;
+
+	--brand-700: #17304e;
+	--brand-600: #1e3a5f;
+	--brand-500: #2c5282;
+	--brand-300: #c2d0e2;
+	--brand-800: #2d4a6f;
+
+	--red-50: #fef2f2;
+	--red-100: #fee2e2;
+	--red-300: #fca5a5;
+	--red-700: #b91c1c;
+	--red-800: #991b1b;
+	--red-200-dk: #fecaca;
+	--red-950-a: rgb(69 10 10 / 0.5);
+	--red-900-a: rgb(127 29 29 / 0.6);
+
+	--red-600: #dc2626;
+	--red-400-dk: #f87171;
+
+	--green-50: #f0fdf4;
+	--green-300: #86efac;
+	--green-600: #16a34a;
+	--green-700: #15803d;
+	--green-800: #166534;
+	--green-200-dk: #bbf7d0;
+	--green-400-dk: #4ade80;
+	--green-950-a: rgb(5 46 22 / 0.5);
+
+	--amber-50: #fffbeb;
+	--amber-300: #fcd34d;
+	--amber-700: #b45309;
+	--amber-200-dk: #fde68a;
+	--amber-950-a: rgb(69 26 3 / 0.5);
+
+	--blue-50: #eff6ff;
+	--blue-700: #1d4ed8;
+	--blue-200-dk: #bfdbfe;
+	--blue-950-a: rgb(23 37 84 / 0.5);
+}
+
+/* ── Tier 2: roles — light ───────────────────────────────────────────────── */
+:root {
+	--background: var(--gray-0);
+	--surface: var(--gray-0);
+	--surface-sunken: var(--gray-50);
+	--surface-hover: rgb(15 23 42 / 0.05);
+
+	--foreground: var(--gray-950);
+	--muted-foreground: var(--gray-500);
+
+	/* Delicate edges: a hairline that separates without demanding attention.
+	   --border-strong is for emphasis; --brand is reserved for focus. */
+	--border: rgb(15 23 42 / 0.10);
+	--border-strong: rgb(15 23 42 / 0.18);
+
+	--brand: var(--brand-600);
+	/* Hover goes darker in light mode so --brand-fg (white) stays readable.
+	   --brand-muted is a pale tint for borders and fills, never a hover for
+	   a brand-filled control. */
+	--brand-hover: var(--brand-700);
+	--brand-fg: var(--gray-0);
+	--brand-muted: var(--brand-300);
+
+	--danger-bg: var(--red-50);
+	--danger-bg-hover: var(--red-100);
+	--danger-fg: var(--red-700);
+	--danger-border: var(--red-300);
+
+	--success-bg: var(--green-50);
+	--success-fg: var(--green-700);
+	--success-border: var(--green-300);
+
+	--warning-bg: var(--amber-50);
+	--warning-fg: var(--amber-700);
+	--warning-border: var(--amber-300);
+
+	/* Blue notice, e.g. the dynamically-registered client badge. */
+	--accent-bg: var(--blue-50);
+	--accent-fg: var(--blue-700);
+
+	/* Status *glyphs* on a normal background. Icons carry meaning by shape as
+	   well as color, so they can sit a step lighter than the -fg roles. Status
+	   text keeps -fg, which holds the contrast ratio at small sizes. */
+	--success-icon: var(--green-600);
+	--danger-icon: var(--red-600);
+
+	--scrim: rgb(0 0 0 / 0.40);
+}
+
+/* ── Tier 2: roles — dark ────────────────────────────────────────────────── */
+.dark {
+	--background: var(--gray-950);
+	--surface: var(--ink-800);
+	--surface-sunken: var(--ink-900);
+	--surface-hover: rgb(255 255 255 / 0.06);
+
+	--foreground: #fafafa;
+	--muted-foreground: #a1a1aa;
+
+	--border: rgb(255 255 255 / 0.08);
+	--border-strong: rgb(255 255 255 / 0.14);
+
+	--brand: var(--brand-600);
+	/* Dark mode hovers lighten instead, for the same contrast reason. */
+	--brand-hover: var(--brand-500);
+	--brand-fg: var(--gray-0);
+	--brand-muted: var(--brand-800);
+
+	--danger-bg: var(--red-950-a);
+	--danger-bg-hover: var(--red-900-a);
+	--danger-fg: var(--red-200-dk);
+	--danger-border: var(--red-800);
+
+	--success-bg: var(--green-950-a);
+	--success-fg: var(--green-200-dk);
+	--success-border: var(--green-800);
+
+	--warning-bg: var(--amber-950-a);
+	--warning-fg: var(--amber-200-dk);
+	--warning-border: var(--amber-700);
+
+	--accent-bg: var(--blue-950-a);
+	--accent-fg: var(--blue-200-dk);
+
+	--success-icon: var(--green-400-dk);
+	--danger-icon: var(--red-400-dk);
+
+	--scrim: rgb(0 0 0 / 0.60);
+}
+
+/* "system" preference fallback for the brief window before the inline script in
+   layout.tsx runs (and if JS is disabled). Must remap the same roles as .dark. */
+@media (prefers-color-scheme: dark) {
+	:root:not(.light):not(.dark) {
+		--background: var(--gray-950);
+		--surface: var(--ink-800);
+		--surface-sunken: var(--ink-900);
+		--surface-hover: rgb(255 255 255 / 0.06);
+
+		--foreground: #fafafa;
+		--muted-foreground: #a1a1aa;
+
+		--border: rgb(255 255 255 / 0.08);
+		--border-strong: rgb(255 255 255 / 0.14);
+
+		--brand-hover: var(--brand-500);
+		--brand-muted: var(--brand-800);
+
+		--danger-bg: var(--red-950-a);
+		--danger-bg-hover: var(--red-900-a);
+		--danger-fg: var(--red-200-dk);
+		--danger-border: var(--red-800);
+
+		--success-bg: var(--green-950-a);
+		--success-fg: var(--green-200-dk);
+		--success-border: var(--green-800);
+
+		--warning-bg: var(--amber-950-a);
+		--warning-fg: var(--amber-200-dk);
+		--warning-border: var(--amber-700);
+
+		--accent-bg: var(--blue-950-a);
+		--accent-fg: var(--blue-200-dk);
+
+		--success-icon: var(--green-400-dk);
+		--danger-icon: var(--red-400-dk);
+
+		--scrim: rgb(0 0 0 / 0.60);
+	}
+}
+
+/* ── Tailwind mapping ────────────────────────────────────────────────────── */
+@theme inline {
+	--color-background: var(--background);
+	--color-surface: var(--surface);
+	--color-surface-sunken: var(--surface-sunken);
+	--color-surface-hover: var(--surface-hover);
+
+	--color-foreground: var(--foreground);
+	--color-muted-foreground: var(--muted-foreground);
+
+	--color-border: var(--border);
+	--color-border-strong: var(--border-strong);
+
+	--color-brand: var(--brand);
+	--color-brand-hover: var(--brand-hover);
+	--color-brand-fg: var(--brand-fg);
+	--color-brand-muted: var(--brand-muted);
+
+	--color-danger-bg: var(--danger-bg);
+	--color-danger-bg-hover: var(--danger-bg-hover);
+	--color-danger-fg: var(--danger-fg);
+	--color-danger-border: var(--danger-border);
+
+	--color-success-bg: var(--success-bg);
+	--color-success-fg: var(--success-fg);
+	--color-success-border: var(--success-border);
+
+	--color-warning-bg: var(--warning-bg);
+	--color-warning-fg: var(--warning-fg);
+	--color-warning-border: var(--warning-border);
+
+	--color-accent-bg: var(--accent-bg);
+	--color-accent-fg: var(--accent-fg);
+
+	--color-success-icon: var(--success-icon);
+	--color-danger-icon: var(--danger-icon);
+
+	--color-scrim: var(--scrim);
+
+	/* Radius scale. Named for intent rather than size so Tailwind's own
+	   rounded-sm|md|lg scale stays untouched. Buttons keep rounded-full. */
+	--radius-chip: 0.25rem;
+	--radius-control: 0.375rem;
+	--radius-card: 0.5rem;
+
+	--ease-panel: cubic-bezier(0.32, 0.72, 0, 1);
+
+	--font-sans: var(--font-geist-sans);
+	--font-mono: var(--font-geist-mono);
+}

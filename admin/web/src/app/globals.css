@@ -1,0 +1,14 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./theme.css";
+
+/* Drive the `dark:` variant off our explicit `.dark` class (set on <html> by
+   the theme switcher) instead of Tailwind v4's default prefers-color-scheme,
+   so the in-app toggle controls it. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+body {
+	background: var(--background);
+	color: var(--foreground);
+	font-family: var(--font-sans), system-ui, sans-serif;
+}
