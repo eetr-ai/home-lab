@@ -1,5 +1,13 @@
 # Contributing
 
+The conventions this repository follows in more detail — layering, testing, and
+the admin panel's interface rules — are in
+[docs/contributing/](docs/contributing/README.md). This file is the short version
+of the workflow.
+
+Run `task check` before opening a pull request; it is the same set the repository
+checks run.
+
 ## Workflow
 
 1. Create a branch from the latest `main` using a descriptive name such as
