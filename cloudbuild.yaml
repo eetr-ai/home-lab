@@ -59,5 +59,44 @@ steps:
       # repository-root context would ship every chart and playbook to the daemon.
       - admin/api
 
+  # The chart is published as an OCI artifact into the same repository as the
+  # images, which is what lets one `helm upgrade` reference one place.
+  #
+  # Its version comes from the release tag rather than from Chart.yaml. The
+  # tracked Chart.yaml version is a placeholder for local work; a published chart
+  # and the images it references have to carry the same version, and deriving both
+  # from the tag is what makes that true by construction rather than by remembering.
+  - id: publish-chart
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    # Independent of the image build, so it does not wait on it.
+    waitFor: ['check-substitutions']
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        # Pinned. Piping get-helm-3 from main would let the version change with no
+        # commit here, and how Helm packages a chart is exactly what this relies on.
+        helm_version=v4.1.1
+        curl -fsSL "https://get.helm.sh/helm-$${helm_version}-linux-amd64.tar.gz"           | tar -xz -C /tmp linux-amd64/helm
+        install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+        helm version --short
+
+        tag="${_TAG}"
+        case "$${tag}" in
+          admin-v*) version="$${tag#admin-v}" ;;
+          # A manual submit passes something like dev-local, which is not a
+          # version. Publish it as a prerelease of 0.0.0 so it sorts below every
+          # real release and can never be mistaken for one.
+          *)        version="0.0.0-$${tag}" ;;
+        esac
+
+        helm registry login           --username oauth2accesstoken           --password "$(gcloud auth print-access-token)"           "${_REGION}-docker.pkg.dev"
+
+        mkdir -p dist
+        helm package charts/admin           --version "$${version}"           --app-version "$${version}"           --destination dist
+        helm push "dist/home-lab-admin-$${version}.tgz" "oci://${_IMAGE_BASE}"
+
 images:
   - ${_IMAGE_BASE}/admin-api:${_TAG}
