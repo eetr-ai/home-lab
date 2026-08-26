@@ -35,6 +35,20 @@ spec:
               value: {{ required "admin.api.oidc.issuer is required" .Values.admin.api.oidc.issuer | quote }}
             - name: ADMIN_OIDC_AUDIENCE
               value: {{ .Values.admin.api.oidc.audience | quote }}
+            {{- if .Values.admin.api.postgres.enabled }}
+            - name: ADMIN_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.api.postgres.secret.name }}
+                  key: {{ .Values.admin.api.postgres.secret.key }}
+            {{- end }}
+            {{- if .Values.admin.api.mongo.enabled }}
+            - name: ADMIN_MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.api.mongo.secret.name }}
+                  key: {{ .Values.admin.api.mongo.secret.key }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8090

@@ -21,6 +21,7 @@ import (
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
+	"github.com/eetr-ai/home-lab/admin/api/internal/mongo"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
 )
@@ -70,6 +71,12 @@ func run(logger *slog.Logger) error {
 	}
 	defer closePostgres()
 
+	closeMongo, err := registerMongo(api, logger)
+	if err != nil {
+		return err
+	}
+	defer closeMongo(ctx)
+
 	root := stdhttp.NewServeMux()
 	health.New().Register(root)
 	openapi.New().Register(root)
@@ -102,6 +109,27 @@ func registerPostgres(ctx context.Context, mux *stdhttp.ServeMux, logger *slog.L
 	}
 	postgres.NewHandler(postgres.NewService(repo)).Register(mux)
 	logger.Info("serving the PostgreSQL endpoints")
+	return repo.Close, nil
+}
+
+// registerMongo wires the MongoDB slice when a connection string is set.
+//
+// Like PostgreSQL, configuring it does not connect: the driver dials lazily, so
+// an unreachable server costs a failed request rather than a panel that will not
+// start.
+func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Context), error) {
+	uri := os.Getenv("ADMIN_MONGO_URI")
+	if uri == "" {
+		logger.Warn("ADMIN_MONGO_URI is unset; the MongoDB endpoints are not served")
+		return func(context.Context) {}, nil
+	}
+
+	repo, err := mongo.NewRepository(uri)
+	if err != nil {
+		return nil, err
+	}
+	mongo.NewHandler(mongo.NewService(repo)).Register(mux)
+	logger.Info("serving the MongoDB endpoints")
 	return repo.Close, nil
 }
 
