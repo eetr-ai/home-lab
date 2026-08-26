@@ -89,7 +89,12 @@ export function parseAgentEvent(data: string): AgentEvent | null {
 		case "turn_end": {
 			const used = num(frame.contextTokens);
 			const max = num(frame.contextMaxTokens);
-			if (used === undefined || max === undefined || max <= 0) return null;
+			// A negative count is refused as well as a missing one. It cannot arrive
+			// from a healthy runtime, but the gauge divides by the maximum and hands
+			// the result to a progressbar's aria-valuenow — so a negative renders as
+			// a negative percentage announced to a screen reader, which is a worse
+			// outcome than showing no gauge at all.
+			if (used === undefined || used < 0 || max === undefined || max <= 0) return null;
 			return { type: "turn_end", iteration, contextTokens: used, contextMaxTokens: max };
 		}
 

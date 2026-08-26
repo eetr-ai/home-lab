@@ -742,6 +742,33 @@ flows:
                     ? toJson(body.body).replace("\\", "\\\\").replace("\"", "\\\"")
                     : ""
 
+            # The credential gets the same treatment, and for the same reason
+            # rather than a weaker one.
+            #
+            # A JWT is base64url and dots, so today this changes nothing. That is
+            # exactly why it is worth doing: the value comes from an external
+            # identity provider through the panel, nothing here constrains its
+            # alphabet, and the day one arrives with a quote in it the config line
+            # would end early — turning the rest of the header, and everything
+            # after it, into curl directives built from a credential. Escaping it
+            # costs one expression; assuming its shape costs that.
+            - type: set-variable
+              name: build-token
+              settings:
+                name: curlToken
+                value: 'vars.operatorToken.replace("\\", "\\\\").replace("\"", "\\\"")'
+
+            # The method, in a variable rather than inline in the config below.
+            # Two reasons, and neither is style: it is where the default lives, so
+            # it is the one place to read to know what an omitted method does; and
+            # a variable is visible in a trace and assertable in a test, while an
+            # expression buried in a multi-line string is neither.
+            - type: set-variable
+              name: build-method
+              settings:
+                name: requestMethod
+                value: 'has(body.method) && body.method != "" ? body.method : "GET"'
+
             # -K - reads curl's own config from stdin, which is where everything
             # that must not be in argv goes: the credential, and the body. A
             # process's arguments are readable by anything that can see the process
@@ -762,8 +789,8 @@ flows:
                 ["-sS", "--max-time", env.AGENT_HTTP_MAX_TIME,
                  "-w", "\n%{http_code}", "-K", "-", "--url", vars.adminUrl]
               stdin: >-
-                "request = \"" + (has(body.method) ? body.method : "GET") + "\"\n" +
-                "header = \"Authorization: Bearer " + vars.operatorToken + "\"\n" +
+                "request = \"" + vars.requestMethod + "\"\n" +
+                "header = \"Authorization: Bearer " + vars.curlToken + "\"\n" +
                 "header = \"Accept: application/json\"\n" +
                 (vars.requestBody != ""
                   ? "header = \"Content-Type: application/json\"\n" +

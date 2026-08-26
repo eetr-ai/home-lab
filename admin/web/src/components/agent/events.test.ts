@@ -110,8 +110,18 @@ describe("parseAgentEvent", () => {
 		['{"type":"turn_end","contextTokens":10}', "no maximum"],
 		['{"type":"turn_end","contextMaxTokens":100}', "no usage"],
 		['{"type":"turn_end","contextTokens":10,"contextMaxTokens":0}', "a zero maximum"],
+		// The gauge divides by the maximum and feeds aria-valuenow, so a negative
+		// would be announced to a screen reader as a negative percentage.
+		['{"type":"turn_end","contextTokens":-1,"contextMaxTokens":100}', "negative usage"],
+		['{"type":"turn_end","contextTokens":10,"contextMaxTokens":-100}', "a negative maximum"],
 	])("refuses a turn_end with %s", (data) => {
 		expect(parseAgentEvent(data)).toBeNull();
+	});
+
+	it("accepts a fresh conversation reporting zero used", () => {
+		expect(parseAgentEvent('{"type":"turn_end","contextTokens":0,"contextMaxTokens":100}')).toMatchObject(
+			{ contextTokens: 0, contextMaxTokens: 100 },
+		);
 	});
 
 	// NaN and Infinity are numbers, and would render as themselves.

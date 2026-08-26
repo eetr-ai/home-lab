@@ -416,8 +416,28 @@ fi
 
 # Probes answer on the runtime's admin port, not on the chat route: the chat flow
 # serves POST only, so a probe against it would fail a healthy pod.
+#
+# Each probe is read as its own block rather than grepped out of the whole pod. A
+# document-wide grep for `port: admin` is satisfied by either probe having it,
+# which passes while the other points somewhere that answers 405 — and a liveness
+# probe wrong that way restarts a pod that is working.
 grep -q 'containerPort: 39999' <<<"$agent_pod"
-grep -q 'path: /readyz' <<<"$agent_pod"
+for probe in readinessProbe livenessProbe; do
+  block=$(awk -v want="$probe" '
+    $0 ~ "^ *" want ":" { depth = match($0, /[^ ]/); inprobe = 1; next }
+    inprobe && match($0, /[^ ]/) <= depth { inprobe = 0 }
+    inprobe { print }
+  ' <<<"$agent_pod")
+  if ! grep -q 'port: admin' <<<"$block"; then
+    printf 'The agent %s must use the admin port; it reads [%s]\n' "$probe" "$block" >&2
+    exit 1
+  fi
+  if ! grep -qE 'path: /(readyz|healthz)$' <<<"$block"; then
+    printf 'The agent %s must probe /readyz or /healthz; it reads [%s]\n' "$probe" "$block" >&2
+    exit 1
+  fi
+done
+
 if grep -q 'path: /chat' <<<"$agent_pod"; then
   printf 'The agent must not be probed on its chat route; it serves POST only\n' >&2
   exit 1

@@ -44,7 +44,7 @@ inputs:
 # which is what makes "nothing in this file calls anything" true rather than hoped.
 #
 # The address names the branch because the block is inside one: a target under a
-# composite has to be reached through it, `can-call[then].admin-get`.
+# composite has to be reached through it, `can-call[then].admin-call`.
 mocks:
   call-admin-api.can-call[then].admin-call:
     default:
@@ -68,9 +68,14 @@ cases:
           - input:
               that:
                 - 'vars.adminUrl == "http://admin-api.test.invalid/api/kubernetes/nodes"'
-                # No method given, so it is a GET — the default lives in the flow
+                # No method given, so it is a GET. The default lives in the flow
                 # rather than in the schema, and this is what says so.
+                - 'vars.requestMethod == "GET"'
                 - 'vars.requestBody == ""'
+                # A token with nothing to escape passes through unchanged, which is
+                # the ordinary case and the one that would break if the escaping
+                # were wrong in the other direction.
+                - 'vars.curlToken == "test-token"'
 
   # The panel's SQL console is a POST that only reads, which is the whole reason
   # the method is the model's to choose. This proves the verb and the body reach
@@ -107,7 +112,33 @@ cases:
     expect:
       that: ['body.status == "200"']
     spies:
-      call-admin-api.can-call[then].admin-call: { count: 1 }
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          - input:
+              that: ['vars.requestMethod == "DELETE"']
+
+  # The credential is escaped for curl's config format exactly as the body is. A
+  # JWT is base64url and dots, so this changes nothing today — which is the point:
+  # the value comes from an external identity provider, nothing here constrains its
+  # alphabet, and an unescaped quote would end the header's value and turn what
+  # follows into curl directives built out of a credential.
+  - name: a token carrying a quote cannot break out of curl's config
+    input:
+      data: { path: /api/kubernetes/nodes }
+      vars: { operatorToken: 'ab"cd\ef' }
+    expect:
+      that: ['body.status == "200"']
+    spies:
+      call-admin-api.can-call[then].admin-call:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.curlToken == "ab\\\"cd\\\\ef"'
+                # ...and unescaping gives back exactly what arrived, so the API
+                # receives the token the operator actually holds.
+                - 'vars.curlToken.replace("\\\"", "\"").replace("\\\\", "\\") == vars.operatorToken'
 
   - name: query parameters are encoded onto the URL
     input: with query

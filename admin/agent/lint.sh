@@ -237,12 +237,17 @@ if guard is None:
     problems.append("admin_api has no path guard; a model-supplied path would reach the URL unchecked")
 else:
     expression = guard.get("value", "")
+    # Every clause, spelled out as it appears rather than by a keyword that would
+    # match a different expression. The list was short by one — the backslash
+    # clause — and "matches" alone would have been satisfied by any regex at all,
+    # which is the sort of assertion that reads as coverage and is not.
     for clause, why in [
-        ('startsWith("/api")', "the path prefix"),
+        ('body.path.startsWith("/api")', "the path prefix"),
         ('!body.path.startsWith("//")', "a protocol-relative path reaching another host"),
         ('!body.path.contains("..")', "a .. segment escaping the prefix"),
+        ('!body.path.contains("\\\\")', "a backslash some parsers read as a slash"),
         ('!body.path.contains(":")', "a scheme"),
-        ("matches", "whitespace splitting the URL into another argument"),
+        ('!body.path.matches("\\\\s")', "whitespace splitting the URL into another argument"),
     ]:
         if clause not in expression:
             problems.append(f"admin_api's path guard no longer refuses {why}")
@@ -261,17 +266,23 @@ else:
 
 # --- the operator's token never reaches the model -----------------------------
 #
-# It arrives as a header so that it lands in vars rather than in body. The one
-# place it may be named is the Authorization header admin_api sends; anywhere
-# else — the agent's input, a payload, a log line — puts a live credential into a
-# transcript, a memory object and a trace.
-# Where it may be named, spelled out. Two settings match exactly; the other two
-# carry prose around it and are checked by shape below. Anything else — the agent's
-# input, a payload, a log line, curl's argv — puts a live credential into a
-# transcript, a memory object and a trace.
+# It arrives as a header so that it lands in vars rather than in body. Anywhere it
+# is named other than the three places below — the agent's input, a payload, a log
+# line, curl's argv — puts a live credential into a transcript, a memory object and
+# a trace.
+#
+# `vars.operatorToken` is the RAW token, and it is exhaustively listed. What the
+# request actually carries is `vars.curlToken`, the escaped form. Keeping the two
+# names apart is what makes this checkable at all: an earlier version of this block
+# exempted the whole stdin expression on the strength of it containing the word
+# Authorization, which let the raw token be substituted back into the header with
+# nothing noticing. It was a mutation test that found that, not review.
 allowed_token_uses = {
     ("name", "operatorToken"),
     ("condition", 'vars.operatorToken != "" && vars.pathOk'),
+    # Escaped for curl's config format, exactly as the request body is. The raw
+    # token goes no further than this line; what reaches the header is curlToken.
+    ("value", r'vars.operatorToken.replace("\\", "\\\\").replace("\"", "\\\"")'),
 }
 seen_token_uses = set()
 for block in blocks:
@@ -282,13 +293,22 @@ for block in blocks:
         if use in allowed_token_uses:
             seen_token_uses.add(use)
             continue
-        # The curl config on stdin, which is the one place the credential itself
-        # is rendered, and the else-branch's presence check.
-        if key == "stdin" and "Authorization: Bearer " in value:
-            continue
+        # The else branch's presence check, which reads the variable without
+        # rendering it anywhere.
         if key == "value" and 'vars.operatorToken == ""' in value:
             continue
         problems.append(f"operatorToken reaches {key}: {value.strip()[:70]}")
+
+# ...and the request carries the escaped form, from the one block that builds it.
+for call in calls:
+    stdin = call.get("stdin", "")
+    if "vars.curlToken" not in stdin:
+        problems.append("curl's config does not send the escaped token")
+    if "operatorToken" in stdin:
+        problems.append(
+            "curl's config names the raw operatorToken; it must send vars.curlToken, "
+            "the form escaped for the config file"
+        )
 
 # Both directions: an allowed use that has vanished means the wiring was removed
 # and this list is now describing something that is not there.
