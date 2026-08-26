@@ -356,7 +356,7 @@ Changes to `main` are made through pull requests. A pull request must pass the
 repository checks and resolve all review conversations before it can be
 merged. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
-Every check is defined in [Taskfile.yml](Taskfile.yml) and run through
+Checks are defined in [Taskfile.yml](Taskfile.yml) and run through
 [go-task](https://taskfile.dev), so the command that gates a pull request is the
 same one you run locally:
 

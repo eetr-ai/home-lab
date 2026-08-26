@@ -6,6 +6,13 @@ version: '3'
 # command you run locally and the command that gates a pull request cannot drift.
 # The workflow calls these targets; it does not repeat their command lines.
 #
+# One exception, and it is deliberate: CI validates the rendered manifests with
+# kubeconform as a container action. Running it from a task would mean `docker
+# run`, which follows whichever Docker context happens to be active — and this
+# repository's own database module tells you to point that at the server. A task
+# that quietly ran in the wrong place is worse than one honest exception, so
+# `task check` renders the manifests and CI validates them.
+#
 # Module taskfiles live next to the code they drive and are imported under a
 # namespace as each module lands, following the same layout the rest of the
 # repository uses. Today the repository is infrastructure only, so the namespaces
@@ -116,8 +123,8 @@ tasks:
       - sh: command -v helm
         msg: 'helm not found. Install {{.HELM_VERSION}} or newer with: brew install helm'
     cmds:
-      - helm repo add traefik https://traefik.github.io/charts
-      - helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+      - helm repo add traefik https://traefik.github.io/charts --force-update
+      - helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/ --force-update
       - helm dependency build charts/platform
 
   helm:lint:

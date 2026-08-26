@@ -27,9 +27,11 @@ cluster. It is the only application code here.
 
 ## Working rules
 
-- **Run `task check` before opening a pull request.** Every check CI runs is
-  defined in [Taskfile.yml](Taskfile.yml), so the local and CI answers match.
-  `task --list` shows what is available.
+- **Run `task check` before opening a pull request.** It is what the repository
+  checks run, so the local and CI answers match. `task --list` shows the rest.
+  The one thing CI does on its own is validate the rendered manifests with
+  kubeconform, which runs as a container action; `task check` renders them and CI
+  checks them. [Taskfile.yml](Taskfile.yml) explains why that one stayed out.
 - **Break work into small, logical commits and land them as you go.** Use
   [Conventional Commits](https://www.conventionalcommits.org/) — release
   automation depends on them. Individual commits do not need separate approval;
