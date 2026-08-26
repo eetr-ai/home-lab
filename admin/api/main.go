@@ -21,6 +21,7 @@ import (
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
+	"github.com/eetr-ai/home-lab/admin/api/internal/kube"
 	"github.com/eetr-ai/home-lab/admin/api/internal/mongo"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
@@ -77,6 +78,10 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeMongo(ctx)
 
+	if err := registerKubernetes(api, logger); err != nil {
+		return err
+	}
+
 	root := stdhttp.NewServeMux()
 	health.New().Register(root)
 	openapi.New().Register(root)
@@ -131,6 +136,27 @@ func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Con
 	mongo.NewHandler(mongo.NewService(repo)).Register(mux)
 	logger.Info("serving the MongoDB endpoints")
 	return repo.Close, nil
+}
+
+// registerKubernetes wires the cluster slice unless it is switched off.
+//
+// Unlike the databases this needs no connection string: in the cluster the pod's
+// own ServiceAccount is the credential, and off-cluster a kubeconfig is. It is on
+// by default for that reason, and ADMIN_KUBERNETES_DISABLED exists for running the
+// API somewhere with neither.
+func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
+	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == "true" {
+		logger.Warn("ADMIN_KUBERNETES_DISABLED is set; the cluster endpoints are not served")
+		return nil
+	}
+
+	clientset, err := kube.NewClientset()
+	if err != nil {
+		return err
+	}
+	kube.NewHandler(kube.NewService(kube.NewRepository(clientset))).Register(mux)
+	logger.Info("serving the Kubernetes endpoints")
+	return nil
 }
 
 // newVerifier builds the token verifier from the environment.

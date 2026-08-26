@@ -23,7 +23,25 @@ internal/
   auth/                  bearer-token verification, and who a caller is
   health/                the probe endpoint
   openapi/               the generated description, embedded and served
+  postgres/              databases, roles, and extensions
+  mongo/                 databases, collections, and users
+  kube/                  reading the cluster
 ```
+
+Each managed service is served only when configured, so a panel with no MongoDB
+answers 404 for those routes rather than pretending. The description still lists
+them, so a caller can see the capability exists and is not switched on here.
+
+| Variable | Serves |
+| --- | --- |
+| `ADMIN_POSTGRES_DSN` | the PostgreSQL endpoints |
+| `ADMIN_MONGO_URI` | the MongoDB endpoints |
+| `ADMIN_KUBERNETES_DISABLED` | set to `true` to serve none of the cluster endpoints |
+
+The cluster slice needs no connection string: in the cluster the pod's
+ServiceAccount is the credential, and off-cluster it falls back to a kubeconfig so
+the API can run on a laptop against the same cluster — with that operator's
+permissions rather than the panel's. It is read-only either way.
 
 ## Authentication
 

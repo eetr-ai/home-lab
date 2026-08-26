@@ -61,6 +61,7 @@ func (h *Handler) listDatabases(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			request	body		postgres.CreateDatabaseRequest	true	"The database to create"
 //	@Success		201		{object}	postgres.Database
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
@@ -87,6 +88,7 @@ func (h *Handler) createDatabase(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			database	path	string	true	"Database name"
 //	@Success		204
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
@@ -107,6 +109,7 @@ func (h *Handler) dropDatabase(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			database	path		string	true	"Database name"
 //	@Success		200			{array}		postgres.Extension
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400			{object}	http.ErrorBody
 //	@Failure		404			{object}	http.ErrorBody
 //	@Router			/api/postgres/databases/{database}/extensions [get]
@@ -131,6 +134,7 @@ func (h *Handler) listExtensions(w http.ResponseWriter, r *http.Request) {
 //	@Param			database	path		string							true	"Database name"
 //	@Param			request		body		postgres.CreateExtensionRequest	true	"The extension to install"
 //	@Success		201			{object}	postgres.Extension
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400			{object}	http.ErrorBody
 //	@Failure		404			{object}	http.ErrorBody
 //	@Router			/api/postgres/databases/{database}/extensions [post]
@@ -175,6 +179,7 @@ func (h *Handler) listRoles(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			request	body		postgres.CreateRoleRequest	true	"The role to create"
 //	@Success		201		{object}	postgres.Role
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
 //	@Router			/api/postgres/roles [post]
@@ -200,6 +205,7 @@ func (h *Handler) createRole(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Param			role	path	string	true	"Role name"
 //	@Success		204
+//	@Failure		401	{object}	http.ErrorBody
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody

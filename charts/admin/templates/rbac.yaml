@@ -1,0 +1,57 @@
+{{- if .Values.admin.api.kubernetes.enabled }}
+{{- /*
+Read-only, cluster-wide.
+
+Cluster-wide because the panel's job is to say what is running everywhere, and a
+Role per namespace would mean editing this chart whenever a namespace is added.
+Read-only because the panel does not change workloads: that is what the
+repository's Helm releases and kubectl are for, and an API that could scale or
+delete would need a far more careful answer to "who is allowed to" than "whoever
+can sign in".
+
+The verbs here are the whole of it. tests/validate-admin-chart.sh fails the build
+if a write verb ever appears.
+
+The resources are the whole of it too, and the list is exactly what the API reads
+— nothing is granted "in case a later endpoint wants it". Services, nodes and
+replicasets were listed here originally and no code ever asked for them; a
+standing grant for something unused is a permission nobody is reviewing. Add one
+back in the same change that reads it.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-read
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+rules:
+  # ListNamespaces, ListPods, ListEvents.
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - pods
+      - events
+    verbs: ["get", "list", "watch"]
+  # ListWorkloads, which is these three kinds and no others.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-read
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-read
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ .Release.Namespace }}
+{{- end }}
