@@ -32,6 +32,15 @@ jobs:
           go-version-file: admin/api/go.mod
           cache-dependency-path: admin/api/go.sum
 
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          # Read from the module so CI runs the version the app is developed
+          # against, and a bump needs editing in one place.
+          node-version-file: admin/web/.nvmrc
+          cache: npm
+          cache-dependency-path: admin/web/package-lock.json
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v4
 

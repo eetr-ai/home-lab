@@ -13,3 +13,10 @@ updates:
       interval: monthly
     labels:
       - dependencies
+
+  - package-ecosystem: npm
+    directory: /admin/web
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies

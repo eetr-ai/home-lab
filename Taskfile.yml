@@ -22,6 +22,9 @@ includes:
   admin-api:
     taskfile: ./admin/api/Taskfile.yml
     dir: ./admin/api
+  admin-web:
+    taskfile: ./admin/web/Taskfile.yml
+    dir: ./admin/web
 
 vars:
   # Pinned so a local run and a CI run resolve the same tool. These match the
@@ -49,11 +52,14 @@ tasks:
       - task: helm:lint
       - task: admin-api:lint
       - task: admin-api:openapi:check
+      - task: admin-web:lint
+      - task: admin-web:typecheck
 
   test:
     desc: Run the module tests and the repository regression tests
     cmds:
       - task: admin-api:test
+      - task: admin-web:test
       - task: tests:inventory
       - task: tests:databases
       - task: tests:chart
@@ -68,6 +74,7 @@ tasks:
     desc: Build every module
     cmds:
       - task: admin-api:build
+      - task: admin-web:build
 
   # --- Terraform ------------------------------------------------------------
 
