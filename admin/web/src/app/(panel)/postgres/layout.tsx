@@ -6,6 +6,7 @@ const tabs = [
 	{ href: "/postgres/databases", label: "Databases" },
 	{ href: "/postgres/roles", label: "Roles" },
 	{ href: "/postgres/extensions", label: "Extensions" },
+	{ href: "/postgres/query", label: "Query" },
 ];
 
 /**

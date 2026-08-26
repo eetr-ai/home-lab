@@ -622,6 +622,53 @@
                 },
                 "type": "object"
             },
+            "mongo.FindRequest": {
+                "properties": {
+                    "collection": {
+                        "type": "string"
+                    },
+                    "filter": {
+                        "additionalProperties": {},
+                        "description": "Filter is a MongoDB query document. Empty matches everything.",
+                        "type": "object"
+                    },
+                    "limit": {
+                        "description": "Limit caps the documents returned, up to the server-side maximum.",
+                        "type": "integer"
+                    },
+                    "projection": {
+                        "additionalProperties": {},
+                        "description": "Projection selects fields. Empty returns whole documents.",
+                        "type": "object"
+                    },
+                    "sort": {
+                        "additionalProperties": {},
+                        "description": "Sort orders the results, e.g. {\"createdAt\": -1}.",
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "mongo.FindResult": {
+                "properties": {
+                    "documents": {
+                        "description": "Documents are rendered as extended-JSON strings, one per document. The panel\ndisplays them; carrying BSON's types faithfully through JSON would mean a\ntype map to keep current for no gain.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "elapsedMs": {
+                        "type": "integer"
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the result was cut at the limit, so the panel can say\nso rather than presenting a partial answer as the whole one.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "mongo.Role": {
                 "properties": {
                     "database": {
@@ -629,6 +676,22 @@
                     },
                     "name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "mongo.UpdateUserRequest": {
+                "properties": {
+                    "password": {
+                        "description": "Password, when set, replaces the existing one. Empty leaves it alone — a\npassword cannot be read back, so an edit form that omits it means \"unchanged\"\nrather than \"remove\".",
+                        "type": "string"
+                    },
+                    "roles": {
+                        "items": {
+                            "$ref": "#/components/schemas/mongo.Role"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -725,6 +788,47 @@
                 },
                 "type": "object"
             },
+            "postgres.QueryRequest": {
+                "properties": {
+                    "sql": {
+                        "description": "SQL is a single read-only statement. It is not parsed or filtered here —\nPostgreSQL enforces the read-only part itself. See Service.Query.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.QueryResult": {
+                "properties": {
+                    "columns": {
+                        "description": "Columns are in the order the statement selected them.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "elapsedMs": {
+                        "description": "ElapsedMs is how long the server took, which is most of what a query is run\nfor when it is being tuned rather than read.",
+                        "type": "integer"
+                    },
+                    "rows": {
+                        "description": "Rows hold values already rendered as strings. The panel displays them and\ndoes not compute on them, and preserving every PostgreSQL type through JSON\nwould mean a type map that has to be kept current for no gain.",
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "description": "Truncated reports that the result was cut at the row cap, so the panel can\nsay so rather than presenting a partial answer as the whole one.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "postgres.Role": {
                 "properties": {
                     "canCreateDatabase": {
@@ -747,6 +851,36 @@
                         "type": "boolean"
                     },
                     "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.UpdateDatabaseRequest": {
+                "properties": {
+                    "owner": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.UpdateRoleRequest": {
+                "properties": {
+                    "canCreateDatabase": {
+                        "type": "boolean"
+                    },
+                    "canCreateRole": {
+                        "type": "boolean"
+                    },
+                    "canLogin": {
+                        "type": "boolean"
+                    },
+                    "connectionLimit": {
+                        "description": "ConnectionLimit is -1 for unlimited, which is PostgreSQL's own default.",
+                        "type": "integer"
+                    },
+                    "password": {
+                        "description": "Password, when set, replaces the existing one. Never sent as plaintext: a\nSCRAM verifier is derived from it first, the same as on create.",
                         "type": "string"
                     }
                 },
@@ -2005,6 +2139,93 @@
                 ]
             }
         },
+        "/api/mongo/databases/{database}/find": {
+            "post": {
+                "description": "POST because the query goes in the body — it is a read, not a change. A\nfind and nothing else: aggregate can write through $out and $merge, and\nrunCommand is the whole server. Filters carrying $where, $function, or\n$accumulator are refused at any depth: each runs JavaScript in the server's\nengine, forcing a full collection scan and occupying a core until the\ndeadline. Results are capped at 200 documents and the query at 15 seconds.",
+                "parameters": [
+                    {
+                        "description": "Database to query",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/mongo.FindRequest",
+                                        "summary": "request",
+                                        "description": "The query"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The query",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/mongo.FindResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Find documents",
+                "tags": [
+                    "mongo"
+                ]
+            }
+        },
         "/api/mongo/databases/{database}/users": {
             "get": {
                 "description": "MongoDB scopes a user to the database it was created in, which is where it authenticates.",
@@ -2227,6 +2448,110 @@
                 "tags": [
                     "mongo"
                 ]
+            },
+            "put": {
+                "description": "The whole role set, not a set of grants: MongoDB's updateUser replaces the\narray outright. An empty password leaves the existing one in place.",
+                "parameters": [
+                    {
+                        "description": "Database the user belongs to",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User name",
+                        "in": "path",
+                        "name": "user",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/mongo.UpdateUserRequest",
+                                        "summary": "request",
+                                        "description": "The desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/mongo.User"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a user",
+                "tags": [
+                    "mongo"
+                ]
             }
         },
         "/api/postgres/databases": {
@@ -2428,6 +2753,94 @@
                 "tags": [
                     "postgres"
                 ]
+            },
+            "put": {
+                "description": "Only the owner. Encoding cannot be changed after creation, and a rename\nwould break every connection string pointing at it.",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.UpdateDatabaseRequest",
+                                        "summary": "request",
+                                        "description": "The desired owner"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired owner",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a database",
+                "tags": [
+                    "postgres"
+                ]
             }
         },
         "/api/postgres/databases/{database}/extensions": {
@@ -2579,6 +2992,103 @@
                     }
                 ],
                 "summary": "Install an extension",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}/query": {
+            "post": {
+                "description": "POST because the statement goes in the body — it is a read, not a change.\nRuns over a separate connection authenticated as a non-superuser role, which\nis the boundary: dropping privileges within the panel's own superuser\nsession is reversible by a submitted RESET ROLE. A READ ONLY transaction and\na statement timeout sit behind that. Answers 503 when no such credential is\nconfigured, rather than falling back to the superuser. Results are capped at\n200 rows and the statement at 15 seconds.",
+                "parameters": [
+                    {
+                        "description": "Database to run against",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.QueryRequest",
+                                        "summary": "request",
+                                        "description": "The statement"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The statement",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.QueryResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Run a read-only query",
                 "tags": [
                     "postgres"
                 ]
@@ -2761,6 +3271,101 @@
                     }
                 ],
                 "summary": "Drop a role",
+                "tags": [
+                    "postgres"
+                ]
+            },
+            "put": {
+                "description": "The whole desired state, not a set of changes: every attribute is written,\nincluding the negative form, because ALTER ROLE leaves an unmentioned one\nalone. An empty password leaves the existing one in place; a supplied one\nis converted to a SCRAM verifier before it reaches the server.",
+                "parameters": [
+                    {
+                        "description": "Role name",
+                        "in": "path",
+                        "name": "role",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.UpdateRoleRequest",
+                                        "summary": "request",
+                                        "description": "The desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.Role"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a role",
                 "tags": [
                     "postgres"
                 ]

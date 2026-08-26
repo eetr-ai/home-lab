@@ -84,7 +84,12 @@ linters:
       # that share a pool and a transaction lifetime adds indirection without
       # adding a seam, so the limit accommodates a repository rather than forcing
       # that. It still catches an interface that has become a grab bag.
-      max: 12
+      #
+      # Raised from 12 when editing and querying were added: the database slices
+      # now cover three entities plus a query, at one method per operation. Raise
+      # it again only for the same reason — a port that grew because the slice
+      # gained an operation, not one that grew because it gained a concern.
+      max: 16
     goconst:
       min-len: 3
       min-occurrences: 3

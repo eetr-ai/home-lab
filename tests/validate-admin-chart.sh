@@ -101,6 +101,21 @@ if grep -E -A 1 'ADMIN_(POSTGRES_DSN|MONGO_URI)$' <<<"$configured" | grep -q '^ 
   exit 1
 fi
 
+# The query console's credential is separate from the superuser one and off by
+# default. Without it the API answers 503 rather than running submitted SQL as
+# the superuser, which is the whole reason it is its own value.
+if grep -q 'ADMIN_POSTGRES_QUERY_DSN' <<<"$configured"; then
+  printf 'The query console credential must not be configured by default\n' >&2
+  exit 1
+fi
+
+with_query=$(render --set admin.api.postgres.enabled=true --set admin.api.postgres.query.enabled=true)
+grep -q 'name: ADMIN_POSTGRES_QUERY_DSN' <<<"$with_query"
+if grep -A 1 'ADMIN_POSTGRES_QUERY_DSN$' <<<"$with_query" | grep -q '^ *value:'; then
+  printf 'The query credential was rendered as a literal value\n' >&2
+  exit 1
+fi
+
 # What the panel may do to the cluster. This is the assertion that holds it to
 # exactly that, so it reads the rendered document rather than grepping the whole
 # output: a grant anywhere in the release would otherwise be invisible, and an
