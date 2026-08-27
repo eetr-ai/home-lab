@@ -33,7 +33,7 @@ jobs:
           cache-dependency-path: admin/api/go.sum
 
       - name: Install Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           # Read from the module so CI runs the version the app is developed
           # against, and a bump needs editing in one place.
@@ -48,7 +48,7 @@ jobs:
         run: python3 -m pip install ansible-core==2.21.3
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v4.1.1
 
