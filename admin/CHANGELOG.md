@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.1.0...admin-v1.2.0) (2026-08-26)
+
+
+### Features
+
+* **admin-web:** the assistant's drawer, its Markdown, and page scope in the URL ([#32](https://github.com/eetr-ai/home-lab/issues/32)) ([909e6fc](https://github.com/eetr-ai/home-lab/commit/909e6fc0268a4408b24d1f595df686e140d58bf6))
+* Sous, an assistant for the admin panel ([#29](https://github.com/eetr-ai/home-lab/issues/29)) ([ce7831c](https://github.com/eetr-ai/home-lab/commit/ce7831c5dd41dc8a627a0781a86816f3b265f933))
+
+
+### Bug Fixes
+
+* **admin-api:** the query console runs as the panel's own superuser ([#30](https://github.com/eetr-ai/home-lab/issues/30)) ([ad5768c](https://github.com/eetr-ai/home-lab/commit/ad5768c3a39c430d624bc2780f20ae9e150bc7a9))
+
 ## [1.1.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.0.0...admin-v1.1.0) (2026-08-26)
 
 
