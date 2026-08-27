@@ -52,6 +52,37 @@ spec:
         # users. It costs a recursive chown of a directory holding a few small
         # files, which is why it is set rather than reasoned about.
         fsGroup: 65532
+      # The image creates /data/workspace and /data/store and owns them, but the
+      # volume below mounts over /data and an empty PVC hides both. The file
+      # connector stats its root as it starts, so without this the pod crash-loops
+      # on a first install and only on a first install — the directories survive
+      # once something has made them.
+      #
+      # The agent image rather than a smaller one: it is already being pulled, so
+      # this adds no image to the pod and no second pull secret to get wrong.
+      initContainers:
+        - name: init-data-dirs
+          image: {{ include "home-lab-admin.agentImage" . | quote }}
+          imagePullPolicy: {{ .Values.admin.agent.image.pullPolicy }}
+          command:
+            - /bin/mkdir
+            - -p
+            - /data/workspace
+            - /data/store
+          resources:
+            {{- toYaml .Values.admin.agent.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: admin-agent
           image: {{ include "home-lab-admin.agentImage" . | quote }}
