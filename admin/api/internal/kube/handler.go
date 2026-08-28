@@ -8,17 +8,22 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 )
 
 // Handler exposes the Kubernetes slice over HTTP.
 type Handler struct {
 	service *Service
+	guard   *auth.Guard
 }
 
 // NewHandler builds the handler.
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+//
+// The guard is transport, not domain: which scope a route needs is a property of
+// the route, so it lives here rather than in the service.
+func NewHandler(service *Service, guard *auth.Guard) *Handler {
+	return &Handler{service: service, guard: guard}
 }
 
 // maxStreamDuration caps a single log stream.
@@ -46,9 +51,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}",
 		h.readWorkload)
 	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/restart",
-		h.restartWorkload)
+		h.guard.Require(auth.ScopeWrite, h.restartWorkload))
 	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale",
-		h.scaleWorkload)
+		h.guard.Require(auth.ScopeWrite, h.scaleWorkload))
 }
 
 // listNamespaces returns every namespace in the cluster.

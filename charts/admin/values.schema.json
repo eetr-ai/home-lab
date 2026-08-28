@@ -85,6 +85,10 @@
                 },
                 "audience": {
                   "type": "string"
+                },
+                "requireScopes": {
+                  "type": "boolean",
+                  "description": "Refuse a token that names no scopes. Leave false until the provider issues the panel's client admin:read and admin:write."
                 }
               }
             },

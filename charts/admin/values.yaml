@@ -33,6 +33,20 @@ admin:
       issuer: https://auth.example.invalid
       audience: ""
 
+      # Whether a token that names no scopes may still do everything.
+      #
+      # The API reads `scope`/`scp` off every token and refuses a caller whose
+      # token names scopes but not the one a route needs. A token naming none is
+      # unrestricted, because that is what every token this API has accepted has
+      # looked like — the panel's own client is issued one, and requiring scopes
+      # before the provider emits them would lock the panel out of its own API.
+      #
+      # So while this is false, scopes bound only the callers that declare
+      # themselves — which today means a pipeline's client-credentials token, and
+      # that is the credential worth bounding. Turn it on once the provider issues
+      # the panel's client `admin:read admin:write`, and not before.
+      requireScopes: false
+
     # The managed services. Each is served only when configured, so a panel with
     # no MongoDB answers 404 for those routes rather than pretending.
     #

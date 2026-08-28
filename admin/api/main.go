@@ -30,6 +30,11 @@ import (
 const (
 	defaultPort = "8090"
 
+	// How a boolean is spelled in this process's environment. One spelling, so a
+	// switch cannot be on in one place and off in another because someone wrote
+	// "TRUE".
+	envTrue = "true"
+
 	// Discovery is one HTTP call to the identity provider at startup. Bounded so
 	// an unreachable provider fails the process quickly and visibly, rather than
 	// leaving it hanging with no logs and no listener.
@@ -59,6 +64,16 @@ func run(logger *slog.Logger) error {
 	// Routes under /api require a verified caller. Everything else does not, and
 	// the two are separate muxes so that is a property of the wiring rather than
 	// something each handler has to remember.
+	// What a caller may do, as opposed to whether it is a caller at all. Off by
+	// default: the panel's own token names no scopes today, and requiring them
+	// before the identity provider issues them would lock the panel out of its
+	// own API. See auth.NewGuard.
+	requireScopes := os.Getenv("ADMIN_OIDC_REQUIRE_SCOPES") == envTrue
+	if requireScopes {
+		logger.Info("refusing any token that names no scopes")
+	}
+	guard := auth.NewGuard(requireScopes)
+
 	api := stdhttp.NewServeMux()
 	auth.NewHandler().Register(api)
 
@@ -78,7 +93,7 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeMongo(ctx)
 
-	if err := registerKubernetes(api, logger); err != nil {
+	if err := registerKubernetes(api, guard, logger); err != nil {
 		return err
 	}
 
@@ -145,8 +160,8 @@ func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Con
 // own ServiceAccount is the credential, and off-cluster a kubeconfig is. It is on
 // by default for that reason, and ADMIN_KUBERNETES_DISABLED exists for running the
 // API somewhere with neither.
-func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
-	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == "true" {
+func registerKubernetes(mux *stdhttp.ServeMux, guard *auth.Guard, logger *slog.Logger) error {
+	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == envTrue {
 		logger.Warn("ADMIN_KUBERNETES_DISABLED is set; the cluster endpoints are not served")
 		return nil
 	}
@@ -177,13 +192,13 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 	// kubelet's other read endpoints, so it is opt-in: the chart withholds the
 	// grant unless this is switched on, and without it the panel reports every
 	// other node figure and no disk.
-	nodeStats := os.Getenv("ADMIN_KUBERNETES_NODE_STATS") == "true"
+	nodeStats := os.Getenv("ADMIN_KUBERNETES_NODE_STATS") == envTrue
 	if nodeStats {
 		logger.Info("reading node disk usage from the kubelet")
 	}
 
 	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
-	kube.NewHandler(kube.NewService(repo)).Register(mux)
+	kube.NewHandler(kube.NewService(repo), guard).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
 	return nil
 }

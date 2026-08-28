@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 )
 
 // scaleRecorder is a repository that records only what it was asked to scale, so
@@ -61,9 +63,12 @@ func TestScaleRequiresAnExplicitCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &scaleRecorder{}
 			mux := http.NewServeMux()
-			NewHandler(NewService(repo)).Register(mux)
+			NewHandler(NewService(repo), auth.NewGuard(false)).Register(mux)
 
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodPut,
+			// The route is scoped, so it needs a caller the way Middleware would
+			// have left one. Scopeless, which is what the panel presents today.
+			ctx := auth.WithSubject(t.Context(), auth.Subject{ID: "operator"})
+			request := httptest.NewRequestWithContext(ctx, http.MethodPut,
 				"/api/kubernetes/namespaces/default/workloads/Deployment/api/scale",
 				strings.NewReader(test.body))
 			recorder := httptest.NewRecorder()

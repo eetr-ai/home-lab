@@ -48,6 +48,15 @@ func SubjectFrom(ctx context.Context) (Subject, bool) {
 	return subject, ok
 }
 
+// WithSubject puts a verified caller on a context.
+//
+// Middleware is the only production caller; it is exported because the context
+// key is not, and a handler test that exercises a scoped route otherwise has no
+// way to stand in for authentication short of an identity provider.
+func WithSubject(ctx context.Context, subject Subject) context.Context {
+	return context.WithValue(ctx, subjectKey, subject)
+}
+
 // Middleware rejects any request that does not carry a token the verifier
 // accepts, and puts the caller on the context of the ones that do.
 func Middleware(verifier TokenVerifier) func(http.Handler) http.Handler {
@@ -69,7 +78,7 @@ func Middleware(verifier TokenVerifier) func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), subjectKey, subject)))
+			next.ServeHTTP(w, r.WithContext(WithSubject(r.Context(), subject)))
 		})
 	}
 }

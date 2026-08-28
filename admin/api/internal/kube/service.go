@@ -32,10 +32,12 @@ type repository interface {
 // repository's Helm releases; this changes only how many of it there are and
 // when it last started.
 //
-// Note that the API itself does not decide who may do this. Every verified caller
-// can, the same as for the database slices; the panel gates writes on
-// ADMIN_WRITE_EMAILS in its own layer. That is a real limit and worth knowing
-// about before handing a token to anything.
+// Who may do this is decided in the transport layer, not here: both writes are
+// wrapped in auth.Guard.Require(auth.ScopeWrite), so a token that names scopes
+// and not that one is refused. A token that names no scopes at all is still
+// unrestricted — see NewGuard for why, and for what has to happen before that
+// stops being true. The panel additionally gates writes on ADMIN_WRITE_EMAILS in
+// its own layer, which is the gate that covers the operator today.
 type Service struct {
 	repo repository
 }
