@@ -11,6 +11,26 @@ export interface Namespace {
 	status: string;
 	/** RFC 3339. */
 	createdAt: string;
+	labels?: Record<string, string>;
+	/**
+	 * Whether the panel may delete it. Decided by the API from the name and the
+	 * labels, not by the cluster, so the panel renders the answer rather than
+	 * working one out of its own.
+	 */
+	protected: boolean;
+	/** Why, when it is. Shown next to the namespace in place of a delete action. */
+	protectedReason?: string;
+}
+
+/** POST /api/kubernetes/namespaces */
+export interface CreateNamespace {
+	name: string;
+	/**
+	 * The API applies its own labels over these — Pod Security enforcement, who
+	 * manages it, and the Helm marker — and refuses any key under kubernetes.io
+	 * or k8s.io.
+	 */
+	labels?: Record<string, string>;
 }
 
 export interface Workload {

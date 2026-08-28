@@ -4,6 +4,7 @@ import type {
 	ClusterEvent,
 	ClusterNode,
 	ClusterSummary,
+	CreateNamespace,
 	Namespace,
 	Pod,
 	Storage,
@@ -20,12 +21,36 @@ import type {
  * releases. The API's ClusterRole holds exactly the verbs for those two and
  * nothing more.
  *
+ * Namespaces can also be created and deleted, which is the one place the panel
+ * brings something into being. What it may not delete is decided by the API, and
+ * a namespace arrives already carrying that answer.
+ *
  * Pod logs are not here. They stream, and `call()` buffers a whole response and
  * gives up after twenty seconds — see src/app/api/kubernetes/logs/route.ts.
  */
 
 export function listNamespaces(): Promise<ActionResult<Namespace[]>> {
 	return call<Namespace[]>("GET", "/api/kubernetes/namespaces");
+}
+
+export function readNamespace(namespace: string): Promise<ActionResult<Namespace>> {
+	return call<Namespace>("GET", `/api/kubernetes/namespaces/${seg(namespace)}`);
+}
+
+export function createNamespace(request: CreateNamespace): Promise<ActionResult<Namespace>> {
+	return call<Namespace>("POST", "/api/kubernetes/namespaces", request);
+}
+
+/**
+ * Deletes a namespace and everything in it.
+ *
+ * `force` is only about emptiness — the API refuses a namespace that still runs
+ * workloads without it. It is not a way past protection, and a protected
+ * namespace is refused either way.
+ */
+export function deleteNamespace(namespace: string, force: boolean): Promise<ActionResult<void>> {
+	const query = force ? "?force=true" : "";
+	return call<void>("DELETE", `/api/kubernetes/namespaces/${seg(namespace)}${query}`);
 }
 
 export function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {
