@@ -134,7 +134,13 @@ async function coordinate(
 				await deps.store.write(outcomeKey, await deps.seal(outcome), OUTCOME_TTL_MS);
 				return outcome;
 			} finally {
-				await deps.store.release(lockKey, deps.holder);
+				// Releasing is best-effort, and this catch is load-bearing. The
+				// exchange has already happened by now — the token is rotated, the old
+				// one is dead — so letting a failed release throw would replace a
+				// successful outcome with a failure and sign the operator out over a
+				// refresh that worked. The lock expires on its own; the answer does
+				// not come round again.
+				await deps.store.release(lockKey, deps.holder).catch(() => {});
 			}
 		}
 

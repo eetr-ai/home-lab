@@ -195,6 +195,45 @@ describe("sharedRefresh", () => {
 		if (!got.ok) expect(got.error).toContain("ECONNREFUSED");
 	});
 
+	// The exchange has already happened when the release runs: the token is
+	// rotated and the old one is dead. Letting a failed release throw would replace
+	// a successful outcome with a failure and sign the operator out over a refresh
+	// that worked — and the answer does not come round again.
+	it("keeps a successful outcome when releasing the lock fails", async () => {
+		const clock = { now: 1_000 };
+		const { store } = fakeStore(clock);
+		const releasing: LockStore = {
+			...store,
+			release: async () => {
+				throw new Error("connection reset");
+			},
+		};
+
+		const got = await sharedRefresh("rt-1", async () => OK, deps(releasing, clock));
+
+		expect(got).toEqual(OK);
+	});
+
+	// ...and the outcome is still readable afterwards, so the waiters this exists
+	// for are served even though the lock was left behind to expire on its own.
+	it("still publishes the outcome when the release fails", async () => {
+		const clock = { now: 1_000 };
+		const { store } = fakeStore(clock);
+		const releasing: LockStore = {
+			...store,
+			release: async () => {
+				throw new Error("connection reset");
+			},
+		};
+		await sharedRefresh("rt-1", async () => OK, deps(releasing, clock));
+
+		const loserExchange = vi.fn(async () => OK);
+		const second = await sharedRefresh("rt-1", loserExchange, deps(releasing, clock));
+
+		expect(second).toEqual(OK);
+		expect(loserExchange).not.toHaveBeenCalled();
+	});
+
 	it("gives up rather than waiting forever on a lock nobody releases", async () => {
 		const clock = { now: 1_000 };
 		const { store } = fakeStore(clock);

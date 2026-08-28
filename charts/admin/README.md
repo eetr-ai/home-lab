@@ -208,10 +208,10 @@ what eetr-auth issued when the client was registered, and it is shown once.
 operator who can sign in may write, which is right for one person; set it to a
 comma-separated list to hand somebody the panel read-only.
 
-`admin.web.replicas` is 1, and raising it needs a change first: sessions are
-stateless, but the token refresh is deduplicated per process, so two replicas can
-present the same rotating refresh token at once — and eetr-auth's OAuth 2.1 reuse
-detection answers that by revoking the whole family.
+`admin.web.replicas` is 2, which `admin.web.redis` is what makes safe — see
+[How many of each, and why they differ](#how-many-of-each-and-why-they-differ).
+Raising it with the coordination switched off is a render failure rather than a
+setting that reintroduces the race.
 
 ### Reading the cluster
 

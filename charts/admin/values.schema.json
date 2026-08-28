@@ -199,6 +199,9 @@
                       "minLength": 1
                     }
                   }
+                },
+                "enabled": {
+                  "type": "boolean"
                 }
               },
               "if": {
@@ -216,7 +219,10 @@
                   "url",
                   "secret"
                 ]
-              }
+              },
+              "required": [
+                "enabled"
+              ]
             }
           }
         },
