@@ -154,24 +154,44 @@ admin:
       tag: "0.0.0"
       pullPolicy: IfNotPresent
 
-    # One, deliberately, and this is not the same kind of "one" as the agent's.
+    # Two, now that the token refresh is coordinated.
     #
-    # Sessions are stateless — the Auth.js cookie is a JWE carrying the operator's
-    # access and refresh tokens — so more replicas would serve requests perfectly
-    # well. What does not survive is the token REFRESH. eetr-auth rotates refresh
-    # tokens with OAuth 2.1 reuse detection, so presenting a superseded one
-    # cascade-revokes the family and signs the operator out everywhere. Two
-    # concurrent requests from one browser both carry the same cookie — neither
-    # response has returned, so neither can have seen the other's rotation — and
-    # src/lib/auth/refresh.ts collapses them into one exchange with an in-process
-    # Map. Two replicas is two Maps, and the collapse fails whenever the pair lands
-    # on different pods.
+    # This was one for a long time and the reason is worth keeping, because it is
+    # what the `redis` block below is for. Sessions themselves are stateless — the
+    # Auth.js cookie is a JWE carrying the operator's access and refresh tokens —
+    # so more replicas always served requests fine. What did not survive was the
+    # token REFRESH: eetr-auth rotates refresh tokens with OAuth 2.1 reuse
+    # detection, so presenting a superseded one cascade-revokes the family and
+    # signs the operator out everywhere. Two concurrent requests from one browser
+    # carry the same cookie — neither response has returned, so neither can have
+    # seen the other's rotation — and the single-flight collapsing them was an
+    # in-process Map. Two replicas was two Maps.
     #
-    # Storing the token elsewhere does not fix it: a cookie has no compare-and-swap,
-    # and it is the input to the race rather than a lock on it. What fixes it is a
-    # shared lock, which is why platform.redis exists — the panel's refresh moving
-    # behind it is what lets this become 2.
-    replicas: 1
+    # Raising this without `redis` below configured is a render failure rather
+    # than a setting that quietly reintroduces that race — see the template.
+    replicas: 2
+
+    # Where the replicas agree with each other about a token refresh.
+    #
+    # THE SECRET IS A SEPARATE ONE FROM THE PLATFORM CHART'S, and that is
+    # Kubernetes rather than a choice: a Secret is namespaced, so platform-system's
+    # `redis-password` cannot be read from here. Create one in this namespace
+    # holding the same value:
+    #
+    #   kubectl -n admin create secret generic admin-redis \
+    #     --from-literal=password="$REDIS_PASSWORD"
+    #
+    # The panel also has to be allowed to reach Redis at all: the platform chart's
+    # NetworkPolicy admits only namespaces labelled for it, and the installer
+    # applies that label the same way it applies the Gateway's.
+    redis:
+      enabled: true
+      # The platform chart's Service. In-cluster, so this never leaves the cluster
+      # network and is a plain redis:// rather than rediss://.
+      url: redis://redis.platform-system.svc.cluster.local:6379
+      secret:
+        name: admin-redis
+        key: password
 
     resources:
       requests:

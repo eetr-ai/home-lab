@@ -21,7 +21,8 @@ repository has a cohesive set of configurable Kubernetes resources.
 | `ServiceAccount/admin-api` | The API's identity, and what the read-only ClusterRole is bound to |
 | `ClusterRole` + binding | Read-only cluster access for the API — see below |
 | `HTTPRoute/admin-api` | **Disabled by default** — see below |
-| `Deployment/admin-web` | The panel. No ServiceAccount token: it asks the API. **One replica** — see below |
+| `Deployment/admin-web` | The panel. No ServiceAccount token: it asks the API. **Two replicas** — see below |
+| `PodDisruptionBudget/admin-web` | `minAvailable: 1`, emitted only above one replica |
 | `Service/admin-web` | ClusterIP on port 80 |
 | `HTTPRoute/admin-web` | Enabled — a panel nobody can reach is not a panel |
 | `Deployment/admin-agent` | **Disabled by default.** One replica, `Recreate` — see below |
@@ -39,7 +40,7 @@ the Go code is:
 templates/
   _helpers.tpl
   api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml pdb.yaml
-  web/    deployment.yaml service.yaml httproute.yaml
+  web/    deployment.yaml service.yaml httproute.yaml pdb.yaml
   agent/  deployment.yaml service.yaml pvc.yaml
 ```
 
@@ -65,21 +66,33 @@ does nothing about a node failing, which is why the count is two rather than one
 with a budget. It is not emitted at one replica on purpose: `minAvailable: 1` over
 a single replica can never be satisfied, so the drain hangs instead of proceeding.
 
-**`admin-web` runs one, and raising it is an outage.** Sessions themselves are
-stateless — the Auth.js cookie is a JWE carrying the tokens — so more replicas
-would serve requests fine. The token *refresh* is what does not survive.
-eetr-auth rotates refresh tokens with OAuth 2.1 reuse detection, so presenting a
-superseded one cascade-revokes the family and signs the operator out everywhere.
-Two concurrent requests from one browser carry the same cookie — neither response
-has returned, so neither can have seen the other's rotation — and
-`src/lib/auth/refresh.ts` collapses them into one exchange using an in-process
-`Map`. Two replicas is two Maps, and the collapse fails whenever the pair lands on
-different pods.
+**`admin-web` runs two, but only because its refresh is coordinated.** It ran one
+for a long time, and the reason is what the `admin.web.redis` block now answers.
+Sessions themselves are stateless — the Auth.js cookie is a JWE carrying the
+tokens — so more replicas always served requests fine. The token *refresh* is what
+did not survive: eetr-auth rotates refresh tokens with OAuth 2.1 reuse detection,
+so presenting a superseded one cascade-revokes the family and signs the operator
+out everywhere. Two concurrent requests from one browser carry the same cookie —
+neither response has returned, so neither can have seen the other's rotation — and
+the single-flight collapsing them was an in-process `Map`. Two replicas was two
+Maps.
 
-Moving the token somewhere else does not help: a cookie has no compare-and-swap,
-and it is the *input* to the race rather than a lock on it. What fixes it is a
-shared lock, which is what `platform.redis` is there for. Until the panel's
-refresh moves behind it, this stays at one.
+Moving the token somewhere else was never the fix: a cookie has no
+compare-and-swap, and it is the *input* to the race rather than a lock on it. The
+fix is a shared lock, and the important half is that **the loser of the race must
+receive the winner's result** — by the time it is unblocked its own refresh token
+is the superseded one, so it cannot simply retry. See
+[the assistant's sibling docs](../../admin/web/src/lib/auth/shared-refresh.ts) for
+the rules, which are tested against a fake rather than a live Redis.
+
+**Raising `replicas` above one without `admin.web.redis.enabled` is a render
+failure**, not a setting that quietly reintroduces the race.
+
+Redis needs two things from this namespace, and both are the installer's job: a
+`admin-redis` Secret holding the same password as the platform chart's (a Secret
+is namespaced, so `platform-system`'s cannot be read from here), and the
+`home-lab.example/redis-access` label, which is what the platform's NetworkPolicy
+admits on.
 
 **`admin-agent` runs one, for a different reason** — see [The assistant](#the-assistant).
 

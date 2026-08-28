@@ -16,9 +16,11 @@
  *     parallel server actions finding the same expired token would otherwise
  *     present it twice, which is precisely the replay reuse detection punishes.
  *
- * The single-flight below is per process. That is enough while the web runs at
- * one replica (see charts/admin/values.yaml), and it is the seam to replace with
- * a shared lock — Redis, say — if it ever runs at more.
+ * The single-flight below is per process, and it is now the FIRST of two tiers
+ * rather than the only one. It still earns its place: two requests landing on the
+ * same pod are collapsed here without a network round trip. What it cannot do is
+ * see the other replicas, so `coordinate` below hands the exchange to a shared
+ * lock when one is configured — see shared-refresh.ts.
  */
 import { nextTokenSet, type TokenResponse, type TokenSet } from "./token-set";
 
@@ -32,6 +34,15 @@ export interface RefreshDeps {
 	now: () => number;
 	/** Overridden in tests; defaults to {@link EXCHANGE_TIMEOUT_MS}. */
 	timeoutMs?: number;
+	/**
+	 * Runs the exchange once across every replica and gives each caller the same
+	 * answer. Absent means single-process behaviour: the in-process map below is
+	 * the whole of the deduplication, which is correct only at one replica.
+	 */
+	coordinate?: (
+		refreshToken: string,
+		exchange: () => Promise<RefreshOutcome>,
+	) => Promise<RefreshOutcome>;
 }
 
 /**
@@ -64,7 +75,13 @@ export function refreshTokenSet(previous: TokenSet, deps: RefreshDeps): Promise<
 	const running = inFlight.get(refreshToken);
 	if (running) return running;
 
-	const exchange = exchangeOnce(previous, refreshToken, deps).finally(() => {
+	// The coordinator wraps the exchange rather than replacing it, so the rules
+	// above — the deadline, the credential, what counts as a failure — are the same
+	// whether or not one is configured.
+	const once = () => exchangeOnce(previous, refreshToken, deps);
+	const attempt = deps.coordinate ? deps.coordinate(refreshToken, once) : once();
+
+	const exchange = attempt.finally(() => {
 		// Cleared on settle, not on success: leaving the entry would pin every later
 		// refresh of this session to one stale answer.
 		inFlight.delete(refreshToken);

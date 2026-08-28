@@ -401,22 +401,51 @@ grep -q 'minAvailable: 1' <<<"$api_pdb"
 # ...and it is NOT emitted at one replica, which is the case that matters: a
 # budget of minAvailable: 1 over a single replica can never be satisfied, so the
 # drain hangs rather than proceeding.
-if render --set admin.api.replicas=1 2>/dev/null | grep -q 'kind: PodDisruptionBudget'; then
-  printf 'No PodDisruptionBudget may be emitted at one replica; it would deadlock a drain\n' >&2
+# Scoped to the API's own template. Grepping the whole render would answer for
+# whichever component still had a budget, which is how this check started passing
+# for the wrong reason the moment the web grew one.
+if render --set admin.api.replicas=1 --show-only templates/api/pdb.yaml >/dev/null 2>&1; then
+  printf 'No API PodDisruptionBudget may be emitted at one replica; it would deadlock a drain\n' >&2
   exit 1
 fi
 
-# THE WEB STAYS AT ONE, and this is the assertion most worth having here, because
-# raising it looks like an improvement and is an outage. eetr-auth rotates refresh
-# tokens with reuse detection: two replicas can present the same one, and the
-# answer is the whole family revoked and the operator signed out. The single-flight
-# that prevents it is an in-process Map in src/lib/auth/refresh.ts, so it reaches
-# exactly one pod. Raising this needs that lock moved behind platform.redis first.
-if grep -qE '^  replicas: [2-9]' <<<"$web_pod"; then
-  printf 'admin-web must run exactly one replica until its token refresh takes a shared lock\n' >&2
+# THE WEB MAY NOW RUN TWO, because its token refresh is coordinated — but only
+# because it is. This pairing is the assertion worth having here: raising the
+# replica count without the shared lock looks like an improvement and is an
+# outage, since eetr-auth's reuse detection answers two replicas presenting the
+# same refresh token by revoking the whole family.
+grep -q '^  replicas: 2$' <<<"$web_pod"
+
+# The coordination is wired to the pod, not merely available in the chart.
+grep -q 'name: REDIS_URL' <<<"$web_pod"
+web_redis_password=$(grep -A3 'name: REDIS_PASSWORD' <<<"$web_pod")
+grep -q 'secretKeyRef' <<<"$web_redis_password"
+
+# ...and more than one replica WITHOUT it is a render failure rather than a
+# setting that quietly reintroduces the race. Asserted on the message, because a
+# check that only asks whether helm exited non-zero would pass on any unrelated
+# breakage in this chart.
+web_unsafe=$(render --set admin.web.redis.enabled=false 2>&1 >/dev/null) && {
+  printf 'Two web replicas without a shared refresh lock must be refused\n' >&2
+  exit 1
+}
+if ! grep -q 'requires admin.web.redis.enabled' <<<"$web_unsafe"; then
+  printf 'The refusal must name the setting that fixes it; got: %s\n' "$web_unsafe" >&2
   exit 1
 fi
-grep -q '^  replicas: 1$' <<<"$web_pod"
+
+# ...and one replica without it is still perfectly legal, which is what makes the
+# guard a statement about coordination rather than about Redis.
+render --set admin.web.redis.enabled=false --set admin.web.replicas=1 >/dev/null
+
+web_pdb=$(render --show-only templates/web/pdb.yaml)
+grep -q 'kind: PodDisruptionBudget' <<<"$web_pdb"
+grep -q 'minAvailable: 1' <<<"$web_pdb"
+if render --set admin.web.replicas=1 --set admin.web.redis.enabled=false \
+  --show-only templates/web/pdb.yaml >/dev/null 2>&1; then
+  printf 'No web PodDisruptionBudget may be emitted at one replica\n' >&2
+  exit 1
+fi
 
 agent_pod=$(render --show-only templates/agent/deployment.yaml)
 

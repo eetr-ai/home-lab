@@ -1,0 +1,18 @@
+{{- if gt (int .Values.admin.web.replicas) 1 }}
+# The same shape as the API's, and for the same reasons — see the comment there.
+# Voluntary disruption only, and not emitted at one replica, where minAvailable: 1
+# can never be satisfied and the drain would hang instead of proceeding.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-web
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin-web
+{{- end }}
