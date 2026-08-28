@@ -62,16 +62,25 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (Subject, er
 	// The subject is the identifier; everything else here is optional. A token
 	// with no email and no scope claim is still perfectly valid, so a failure to
 	// read the claims is not a failure to authenticate.
+	// Every field is raw. A provider that spells `scope` as an array rather than
+	// as a space-delimited string is within its rights, and decoding it into a
+	// string fails the whole struct — which would leave this token looking like
+	// one that named no scopes at all, and a scopeless token is unrestricted.
+	// Reading it as an authorization decision is exactly how that becomes a
+	// bypass, so no claim's shape is allowed to decide another claim's fate.
 	var claims struct {
-		Email string          `json:"email"`
-		Scope string          `json:"scope"`
+		Email json.RawMessage `json:"email"`
+		Scope json.RawMessage `json:"scope"`
 		Scp   json.RawMessage `json:"scp"`
 	}
 	_ = token.Claims(&claims)
 
+	var email string
+	_ = json.Unmarshal(claims.Email, &email)
+
 	return Subject{
 		ID:     token.Subject,
-		Email:  claims.Email,
+		Email:  email,
 		Scopes: parseScopes(claims.Scope, claims.Scp),
 	}, nil
 }

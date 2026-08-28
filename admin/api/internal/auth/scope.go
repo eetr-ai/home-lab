@@ -42,36 +42,40 @@ func (s Subject) HasScope(scope string) bool {
 
 // parseScopes reads the scopes out of the two claims providers actually use.
 //
-// `scope` is the OAuth spelling and RFC 9068's: one space-delimited string. `scp`
-// is what several providers emit instead, and they disagree about whether it is
-// an array or a string — so both shapes are read. When both claims are present
-// `scope` wins, because it is the one the specification names.
+// `scope` is the OAuth spelling and RFC 9068's; `scp` is what several providers
+// emit instead. Neither has one shape in practice — both appear as a
+// space-delimited string and as an array of strings, depending on who issued the
+// token — so both claims are read both ways. When `scope` yields anything it
+// wins, because it is the one the specification names.
 //
-// Both are handled because getting this wrong is invisible: a token whose scopes
-// were not found looks exactly like a token that was issued without any, and the
-// difference only shows up as a refusal nobody can explain.
+// All four combinations are handled because getting this wrong is invisible and
+// it fails open: a token whose scopes were not found looks exactly like a token
+// issued without any, and a token with no scopes is unrestricted. The difference
+// has to be found here or it is never found at all.
 //
 // Anything else — a number, an array with a number in it — yields no scopes
 // rather than a panic or a partial read.
-func parseScopes(scope string, scp json.RawMessage) []string {
-	if fields := strings.Fields(scope); len(fields) > 0 {
-		return dedupe(fields)
+func parseScopes(scope, scp json.RawMessage) []string {
+	if scopes := readScopeClaim(scope); len(scopes) > 0 {
+		return scopes
 	}
+	return readScopeClaim(scp)
+}
 
-	if len(scp) == 0 {
+// readScopeClaim reads one claim, whichever of its two shapes it arrived in.
+func readScopeClaim(claim json.RawMessage) []string {
+	if len(claim) == 0 {
 		return nil
 	}
 
 	var list []string
-	if err := json.Unmarshal(scp, &list); err == nil {
+	if err := json.Unmarshal(claim, &list); err == nil {
 		return dedupe(list)
 	}
 
 	var delimited string
-	if err := json.Unmarshal(scp, &delimited); err == nil {
-		if fields := strings.Fields(delimited); len(fields) > 0 {
-			return dedupe(fields)
-		}
+	if err := json.Unmarshal(claim, &delimited); err == nil {
+		return dedupe(strings.Fields(delimited))
 	}
 
 	return nil

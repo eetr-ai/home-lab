@@ -26,10 +26,10 @@ type WhoamiResponse struct {
 	Subject string `json:"subject"`
 	// Email is the caller's email when the token carried the claim.
 	Email string `json:"email,omitempty"`
-	// Scopes are the permissions the API read out of the token, and empty when it
-	// carried none. Reported because a scope claim the API failed to find looks
-	// exactly like one that was never issued, and this is where a machine client
-	// finds out which it is before its first 403.
+	// Scopes are the permissions the API read out of the token, and absent when it
+	// named none. Reported because a scope claim the API failed to parse looks
+	// exactly like one that was never issued, and a token naming no scopes is
+	// unrestricted — so this is the only place a client can tell the two apart.
 	Scopes []string `json:"scopes,omitempty"`
 }
 

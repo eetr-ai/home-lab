@@ -15,7 +15,16 @@ func TestParseScopes(t *testing.T) {
 	}{
 		{
 			name:  "the space-delimited scope claim",
-			scope: "admin:read admin:deploy",
+			scope: `"admin:read admin:deploy"`,
+			want:  []string{"admin:read", "admin:deploy"},
+		},
+		{
+			// A provider is within its rights to spell `scope` as an array, and
+			// one that does must not read as a token with no scopes at all --
+			// a scopeless token is unrestricted, so failing to parse this fails
+			// open.
+			name:  "scope as an array",
+			scope: `["admin:read","admin:deploy"]`,
 			want:  []string{"admin:read", "admin:deploy"},
 		},
 		{
@@ -30,7 +39,7 @@ func TestParseScopes(t *testing.T) {
 		},
 		{
 			name:  "scope wins when both are present",
-			scope: "admin:deploy",
+			scope: `"admin:deploy"`,
 			scp:   `["admin:read"]`,
 			want:  []string{"admin:deploy"},
 		},
@@ -40,12 +49,12 @@ func TestParseScopes(t *testing.T) {
 		},
 		{
 			name:  "a claim that is only whitespace",
-			scope: "   ",
+			scope: `"   "`,
 			want:  nil,
 		},
 		{
 			name:  "ragged whitespace between scopes",
-			scope: "  admin:read \t admin:write  ",
+			scope: `"  admin:read \t admin:write  "`,
 			want:  []string{"admin:read", "admin:write"},
 		},
 		{
@@ -54,27 +63,43 @@ func TestParseScopes(t *testing.T) {
 			want: nil,
 		},
 		{
+			name:  "scope is a number and scp is good",
+			scope: `42`,
+			scp:   `["admin:read"]`,
+			want:  []string{"admin:read"},
+		},
+		{
+			// An empty scope claim is not an answer, so the other one is read.
+			name:  "scope is present but empty",
+			scope: `""`,
+			scp:   `["admin:read"]`,
+			want:  []string{"admin:read"},
+		},
+		{
 			name: "scp is an array with a non-string in it",
 			scp:  `["admin:read", 7]`,
 			want: nil,
 		},
 		{
 			name:  "a duplicated scope is carried once",
-			scope: "admin:read admin:read",
+			scope: `"admin:read admin:read"`,
 			want:  []string{"admin:read"},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var scp json.RawMessage
+			var scope, scp json.RawMessage
+			if test.scope != "" {
+				scope = json.RawMessage(test.scope)
+			}
 			if test.scp != "" {
 				scp = json.RawMessage(test.scp)
 			}
 
-			got := parseScopes(test.scope, scp)
+			got := parseScopes(scope, scp)
 			if !slices.Equal(got, test.want) {
-				t.Errorf("parseScopes(%q, %s) = %v, want %v", test.scope, test.scp, got, test.want)
+				t.Errorf("parseScopes(%s, %s) = %v, want %v", test.scope, test.scp, got, test.want)
 			}
 		})
 	}

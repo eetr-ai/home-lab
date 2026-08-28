@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -68,6 +69,11 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 type claims struct {
 	jwt.Claims
 	Email string `json:"email,omitempty"`
+	// Scope is any, not a string, so a test can mint a token spelling it the way
+	// a provider that uses an array does. That shape is the whole point of the
+	// test below.
+	Scope any `json:"scope,omitempty"`
+	Scp   any `json:"scp,omitempty"`
 }
 
 // signWith mints a token with an arbitrary key, so a test can present one this
@@ -230,5 +236,59 @@ func TestOIDCVerifierRejectsSymmetricallySignedTokens(t *testing.T) {
 func TestNewOIDCVerifierRequiresAnIssuer(t *testing.T) {
 	if _, err := NewOIDCVerifier(context.Background(), "", testAudience); err == nil {
 		t.Fatal("NewOIDCVerifier() accepted an empty issuer")
+	}
+}
+
+// A provider that spells `scope` as an array must not read as a token with no
+// scopes at all.
+//
+// This is a regression test with teeth: the claims struct is decoded in one call,
+// so a field whose JSON type is wrong fails the whole decode and leaves every
+// other claim empty too. A token that came with admin:read would then look
+// scopeless — and a scopeless token is unrestricted, so the mistake fails open.
+// That is the worst direction for an authorization bug to fail in.
+func TestVerifyReadsEveryClaimShapeWithoutLosingTheOthers(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	verifier, err := NewOIDCVerifier(t.Context(), issuer.url, testAudience)
+	if err != nil {
+		t.Fatalf("build verifier: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		scope any
+		scp   any
+		want  []string
+	}{
+		{name: "scope as a space-delimited string", scope: "admin:read admin:write",
+			want: []string{"admin:read", "admin:write"}},
+		{name: "scope as an array", scope: []string{"admin:read", "admin:write"},
+			want: []string{"admin:read", "admin:write"}},
+		{name: "scp as an array", scp: []string{"admin:deploy"},
+			want: []string{"admin:deploy"}},
+		{name: "scp as a string", scp: "admin:deploy", want: []string{"admin:deploy"}},
+		{name: "no scope claim at all", want: nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c := issuer.validClaims()
+			c.Scope, c.Scp = test.scope, test.scp
+
+			subject, err := verifier.Verify(t.Context(), issuer.signWith(t, issuer.key, c))
+			if err != nil {
+				t.Fatalf("verify: %v", err)
+			}
+			if !slices.Equal(subject.Scopes, test.want) {
+				t.Errorf("scopes = %v, want %v", subject.Scopes, test.want)
+			}
+			// The claim that is not being varied has to survive the one that is.
+			if subject.Email != "operator@example.invalid" {
+				t.Errorf("email = %q; a sibling claim's shape lost it", subject.Email)
+			}
+			if subject.ID != "user-abc" {
+				t.Errorf("subject = %q, want the token's subject claim", subject.ID)
+			}
+		})
 	}
 }

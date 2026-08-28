@@ -13,7 +13,7 @@
 export interface Whoami {
 	subject: string;
 	email: string;
-	/** Absent when the token names no scopes, which the API reads as unrestricted. */
+	/** Absent when the token named none, which the API reads as unrestricted. */
 	scopes?: string[];
 }
 

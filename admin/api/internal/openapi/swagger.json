@@ -8,7 +8,7 @@
                         "type": "string"
                     },
                     "scopes": {
-                        "description": "Scopes are the permissions the API read out of the token, and empty when it\ncarried none. Reported because a scope claim the API failed to find looks\nexactly like one that was never issued, and this is where a machine client\nfinds out which it is before its first 403.",
+                        "description": "Scopes are the permissions the API read out of the token, and absent when it\nnamed none. Reported because a scope claim the API failed to parse looks\nexactly like one that was never issued, and a token naming no scopes is\nunrestricted — so this is the only place a client can tell the two apart.",
                         "items": {
                             "type": "string"
                         },
