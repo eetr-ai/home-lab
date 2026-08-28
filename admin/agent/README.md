@@ -4,10 +4,9 @@ An [Octo](https://juancavallotti.github.io/octo/) app that answers questions
 about this installation, reached from a drawer in the panel.
 
 It is not a service with a flow engine bolted on. `config.yaml` is the whole of
-it — one `ai-agent` block, nine tools and six skills — run by Octo's public
+it — one `ai-agent` block, six tools and six skills — run by Octo's public
 standalone runtime. There is no orchestrator and no Octo platform here: one
-process, one integration, in-process queues, and a key/value store serialized to
-disk.
+process, one integration, in-process queues, and memory on disk.
 
 ```text
 config.yaml   the definition: connectors, the chat flow, the agent, its tools
@@ -23,7 +22,7 @@ lint.sh       the checks whose failure mode is a crash-loop rather than an error
 | `admin_api` | Call the panel's API, **as the operator who asked** |
 | `read_workspace_file`, `write_workspace_file`, `list_workspace` | A directory of its own on the volume |
 | `run_command` | `curl`, `jq` and GNU `find`, as argv — there is no shell |
-| `recall_facts`, `remember_fact`, `forget_fact` | What it remembers about a person between conversations |
+| `remember`, `forget`, `search_memory` | What it remembers about a person between conversations — the runtime's, not this file's |
 | `navigate_to` | Move the operator's browser to a page in the panel |
 
 Each tool is a `flow-ref` to a sourceless flow rather than an inline chain, which
@@ -56,23 +55,32 @@ a laptop — and why `lint.sh` checks the defaults against the Dockerfile.
 
 **The operator's token arrives as a header.** `X-Operator-Token` lands in the
 flow's `vars` and never in `body`, so it cannot reach the model's input, its
-memory, or a trace. `lint.sh` asserts the three settings allowed to name it — the
-variable that holds it, the check that it is there, and the header it rides — and
-fails on a fourth.
+memory, or a trace. That matters more than it did: conversation history is durable
+and never compacted, so a credential reaching it would be written to the volume
+rather than lost on the next restart. `lint.sh` asserts the three settings allowed
+to name it — the variable that holds it, the check that it is there, and the
+`Authorization` header it is rendered into — and fails on a fourth.
 
-**The path guard is the only thing keeping the agent on the panel's own host.**
-`admin_api` was a [`rest-dynamic`](https://juancavallotti.github.io/octo/reference/connectors/http)
-block, where a connector `baseURL` made leaving impossible and `pathPrefix` was a
-runtime refusal. It cannot be: that block refuses a rendered `Authorization`
-header, and the connector's own `auth` is configured at startup — so a credential
-that differs per operator has nowhere to live. See
-[juancavallotti/octo#378](https://github.com/juancavallotti/octo/issues/378).
+**The boundary is the connector's, again.** `admin_api` goes out through a
+[`rest-dynamic`](https://juancavallotti.github.io/octo/reference/connectors/http)
+block: the connector's `baseURL` fixes the host, and `pathPrefix` and
+`allowMethods` refuse on the parsed path before a request is made.
 
-So the tool is curl, the credential rides on stdin as a curl config file (never
-argv, which is readable from the process list and is what a trace records), and
-the prefix is a CEL guard that fails closed. That guard is a worse place for a
-boundary than a runtime refusal, and it is why `config_test.yaml` gives every way
-out of the base URL its own case.
+It spent a while as curl instead, because that block used to refuse a rendered
+`Authorization` header while a connector's own `auth` is fixed at startup — so a
+credential that differs per operator had nowhere to live
+([juancavallotti/octo#378](https://github.com/juancavallotti/octo/issues/378)).
+The prefix was rebuilt as a CEL guard and the credential handed to curl on stdin
+as a config file. octo v0.8.8 lifted the refusal and all of that is gone. What
+replaced it is stronger rather than shorter: the checks run on the **parsed**
+path, so `%2e%2e` is refused alongside a literal `..` and a `..` inside a query
+*value* no longer fails a call that could not have traversed anything.
+
+The connector carries **no `auth`**, deliberately. There is no deployment
+credential for this API and there must not be one — a connector credential is
+applied only when a request arrives without one, which is exactly the case this
+agent must refuse rather than answer as somebody else. `lint.sh` fails if one
+appears.
 
 ## The image
 
@@ -97,10 +105,18 @@ which is the right weight for changing what an agent is told it may do.
 Two [dolphin](https://juancavallotti.github.io/octo/testing) suites, one per
 flow — which is dolphin's unit, and why a flow worth testing gets its own file.
 
-`config_test.yaml` covers `call-admin-api`, the flow behind `admin_api` and the
-one carrying the guard that replaced a runtime refusal. Sixteen cases: the
-request it builds, the reply it reads, and one per way out of the base URL, each
-asserting through a spy `count: 0` that no request was made at all.
+`config_test.yaml` covers `call-admin-api`, the flow behind `admin_api`. Eleven
+cases: the request it hands the block, the reply it reads back, the API being
+unreachable, and the refusal branch — each of the refusals asserting through a spy
+`count: 0` that no request was made at all.
+
+It is smaller than it was, and deliberately. When the prefix was a CEL guard,
+every way out of the base URL needed a case here, because a clause dropped from an
+expression is silent. Now that bounding is the runtime's, and it is not testable
+from here — the block is mocked, so its checks never run. The coverage moved in
+two directions rather than vanishing: that `pathPrefix`, `allowMethods` and
+`failOnError` are **present** is asserted by `lint.sh`, and that they **work** is
+octo's own suite.
 
 `run_program_test.yaml` covers `run-program`, behind `run_command`. Six cases:
 which binary each name selects, and the refusals. The refusals are the reason it
@@ -119,11 +135,15 @@ Deliberately a second image: a test runner that drives `octo` is not something t
 production image should carry, since `octo` runs whatever definition it is pointed
 at.
 
-Some of the cases are there because they already caught something. `cli-run` hands
-back stdout with a trailing newline, so splitting it naively leaves an empty last
-element — the status reads as `""` and the code stays stuck on the end of the
-body. That is a wrong answer rather than a failure, it survived a live end-to-end
-check, and four cases fail on it.
+Some of the cases are there because they already caught something. The `run-program`
+refusals are the surviving example: the block picked its program with a ternary
+that tested for curl, then for jq, and let everything else fall through to *find*,
+so `program: "bash"` quietly ran find with the model's arguments.
+
+A whole class of them retired with the curl workaround. `cli-run` hands back stdout
+with a trailing newline, so splitting it naively left an empty last element and the
+status read as `""` — a wrong answer rather than a failure, which survived a live
+end-to-end check. There is no stdout to split any more.
 
 ## Working on it
 
