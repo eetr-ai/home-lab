@@ -10,17 +10,26 @@ metadata:
 spec:
   # One, and this is not a value anybody may raise.
   #
-  # Octo's standalone runtime holds its object store — the agent's memory and its
-  # facts — in a process-local map, loads it from disk once at startup, and flushes
-  # whole namespaces back. Two replicas would each answer from their own copy and
-  # each overwrite the other's file; a shared store needs the runtime's Kubernetes
-  # services provider, which needs the whole Octo platform. Until that is here,
-  # more replicas silently lose conversations rather than serving more of them.
+  # The reason narrowed with octo v0.8.8 and did not go away. It used to be that
+  # the standalone runtime held the whole store in a process-local map and flushed
+  # whole namespaces back, so a second replica would answer from its own copy and
+  # overwrite the first's file. Memory is per-thread on disk now, and durable, so
+  # a restart no longer costs a conversation — but it is still coordinated only
+  # WITHIN a process: the per-thread lock is an in-process mutex, leader election
+  # grants unconditionally because there is nothing to elect, and the transcript is
+  # appended with O_APPEND, which is not atomic on NFS. The version check that
+  # guards a working-memory write is read-then-write under that same in-process
+  # lock, so across two pods it is a race rather than a compare-and-swap.
+  #
+  # A store two replicas could share needs the runtime's Kubernetes services
+  # provider, and that needs ORCHESTRATOR_URL and NATS_URL — the whole Octo
+  # platform, not a component of it. Until that is here, more replicas corrupt
+  # conversations rather than serving more of them.
   replicas: 1
   # Recreate for the same reason, and it is load-bearing rather than tidy: the
-  # default RollingUpdate briefly runs two pods, which is exactly the case above.
-  # The cost is a few seconds with no agent during a rollout, which is the right
-  # trade for a chat panel.
+  # default RollingUpdate briefly runs two pods writing to one volume, which is
+  # exactly the case above. The cost is a few seconds with no agent during a
+  # rollout, which is the right trade for a chat panel.
   strategy:
     type: Recreate
   selector:

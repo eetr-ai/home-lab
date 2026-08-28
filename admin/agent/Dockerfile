@@ -24,9 +24,9 @@
 # build argument: two things naming the same image is two things that can disagree,
 # and only one of them would be the one Docker pulls.
 #
-# octo v0.8.7. To move it, read the new digest from Docker Hub and replace both:
+# octo v0.8.8. To move it, read the new digest from Docker Hub and replace both:
 #   docker buildx imagetools inspect juancavallotti/octo-runtime:<version>
-ARG OCTO_DIGEST=sha256:def7231a93f6a562865a0c0d91526d8d8d88d4ad935ac96e5ef240c862823d54
+ARG OCTO_DIGEST=sha256:42df97d040ee8af0c3f96c63c5f3c5f1f7ea0c10a6a53af82bc6cc04a8d16f55
 FROM juancavallotti/octo-runtime@${OCTO_DIGEST} AS octo
 
 FROM alpine:3.22
