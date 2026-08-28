@@ -145,6 +145,60 @@ grep -q -- '--appendonly no' <<<"$redis_deploy"
 # reaching the memory ceiling has to fail a write loudly instead.
 grep -q -- '--maxmemory-policy noeviction' <<<"$redis_deploy"
 
+# An unusable Secret reference is refused before it reaches the cluster, and the
+# refusal names the VALUE rather than a line in a template.
+#
+# ASSERTED ON THE MESSAGE, not on the exit code, and that distinction is the whole
+# of these checks. A null passwordSecret already failed before either guard
+# existed — "nil pointer evaluating interface {}.name" against a line in
+# redis.yaml — so a check that only asks whether helm exited non-zero passes
+# without either guard present and pins nothing. It reads as coverage and is not.
+redis_values=$(mktemp)
+trap 'rm -f "$redis_values"' EXIT
+printf 'platform:\n  redis:\n    passwordSecret: null\n' >"$redis_values"
+
+# The schema layer. Its message names the path in the values, which is what tells
+# somebody which line of their own file to go and fix.
+schema_error=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system --kube-version "$kube_version" \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --values "$redis_values" 2>&1 >/dev/null) && {
+  printf 'A null redis.passwordSecret must be refused while Redis is enabled\n' >&2
+  exit 1
+}
+if ! grep -q "missing property 'passwordSecret'" <<<"$schema_error"; then
+  printf 'The schema must be what refuses a null redis.passwordSecret, naming the property\n' >&2
+  exit 1
+fi
+
+# The template guard behind it, for `--skip-schema-validation`, which renders
+# straight past the schema. Its job is to replace the nil-pointer message, so that
+# is what is asserted — both that its own sentence appears and that the raw Go
+# template error does not.
+template_error=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system --kube-version "$kube_version" \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --values "$redis_values" --skip-schema-validation 2>&1 >/dev/null) && {
+  printf 'The template must refuse a null redis.passwordSecret even past the schema\n' >&2
+  exit 1
+}
+if ! grep -q 'platform.redis.passwordSecret is required' <<<"$template_error"; then
+  printf 'Past the schema, the refusal must name the value rather than a nil pointer\n' >&2
+  exit 1
+fi
+if grep -q 'nil pointer' <<<"$template_error"; then
+  printf 'The template guard is gone; a null passwordSecret fails as a nil pointer\n' >&2
+  exit 1
+fi
+
+# ...and it is required only when Redis is actually installed. A cluster that has
+# switched Redis off must not be made to invent a Secret reference for it.
+printf 'platform:\n  redis:\n    enabled: false\n    passwordSecret: null\n' >"$redis_values"
+helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system --kube-version "$kube_version" \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --values "$redis_values" >/dev/null
+
 # The password comes from a Secret rather than from values; this repository is
 # public. Asserted on the REDIS_PASSWORD entry ITSELF rather than as two
 # independent greps: separate checks for the name and for a secretKeyRef both pass

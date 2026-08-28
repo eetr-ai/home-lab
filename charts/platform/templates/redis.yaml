@@ -1,4 +1,12 @@
 {{- if .Values.platform.redis.enabled }}
+{{- /*
+  Bound once, with a message, because the schema is not the only way in:
+  `--skip-schema-validation` renders straight past it, and a nil passwordSecret
+  then fails as "nil pointer evaluating interface {}.name" against a line number
+  in this file. That names the symptom and not the value, which is the kind of
+  error this repository spends comments avoiding.
+*/}}
+{{- $redisSecret := required "platform.redis.passwordSecret is required when Redis is enabled" .Values.platform.redis.passwordSecret }}
 # Redis, as a coordination point for things that cannot be coordinated in one
 # process.
 #
@@ -81,8 +89,8 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.platform.redis.passwordSecret.name }}
-                  key: {{ .Values.platform.redis.passwordSecret.key }}
+                  name: {{ required "platform.redis.passwordSecret.name is required" $redisSecret.name }}
+                  key: {{ required "platform.redis.passwordSecret.key is required" $redisSecret.key }}
           ports:
             - name: redis
               containerPort: 6379
