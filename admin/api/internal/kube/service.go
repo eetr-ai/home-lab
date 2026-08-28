@@ -4,13 +4,20 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
+
+	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
 
 // repository is the cluster access this service needs. Declared here, where it is
 // consumed, so the service can be tested without a cluster.
 type repository interface {
 	ListNamespaces(ctx context.Context) ([]Namespace, error)
+	ReadNamespace(ctx context.Context, name string) (Namespace, error)
+	CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error)
+	DeleteNamespace(ctx context.Context, name, uid string) error
 	ListWorkloads(ctx context.Context, namespace string) ([]Workload, error)
 	ListPods(ctx context.Context, namespace string) ([]Pod, error)
 	ListEvents(ctx context.Context, namespace string) ([]Event, error)
@@ -37,17 +44,58 @@ type repository interface {
 // ADMIN_WRITE_EMAILS in its own layer. That is a real limit and worth knowing
 // about before handing a token to anything.
 type Service struct {
-	repo repository
+	repo        repository
+	policy      nspolicy.Policy
+	podSecurity string
 }
 
-// NewService builds the service.
-func NewService(repo repository) *Service {
-	return &Service{repo: repo}
+// NewService builds the service, and refuses a Pod Security level Kubernetes
+// would not accept.
+//
+// The policy is what decides which namespaces may not be deleted. It is passed in
+// rather than read here because it is the same policy the Helm slice enforces, and
+// two slices deciding protection separately is two answers to one question.
+//
+// podSecurity is the Pod Security admission level stamped on a namespace this
+// panel creates. Empty means baseline, which is the level that stops the things
+// nobody wants — host mounts, privileged containers, host networking — while
+// still running ordinary charts.
+//
+// It is checked here rather than trusted, and returning an error rather than
+// falling back is the point. Kubernetes accepts exactly three values on that
+// label; anything else is refused by the API server, so a typo like "basline"
+// would leave every namespace creation failing with a message about a label
+// nobody typed. Failing at startup turns that into one clear line in the log
+// before the process serves anything. The chart's schema constrains this too,
+// and that is not enough on its own: the value also arrives from an environment
+// variable, and a rule that holds only when the chart wrote it is not a rule.
+func NewService(repo repository, policy nspolicy.Policy, podSecurity string) (*Service, error) {
+	if podSecurity == "" {
+		podSecurity = defaultPodSecurity
+	}
+	if !slices.Contains(podSecurityLevels, podSecurity) {
+		return nil, fmt.Errorf(
+			"%w: pod security level %q is not one of %s",
+			ErrInvalidName, podSecurity, strings.Join(podSecurityLevels, ", "))
+	}
+	return &Service{repo: repo, policy: policy, podSecurity: podSecurity}, nil
 }
 
-// ListNamespaces returns every namespace in the cluster.
+// ListNamespaces returns every namespace in the cluster, each carrying whether
+// the panel may delete it.
+//
+// Every namespace, including the protected ones: protection is about writing, and
+// hiding platform-system from the list would take away the reading this panel
+// exists for.
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
-	return s.repo.ListNamespaces(ctx)
+	namespaces, err := s.repo.ListNamespaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range namespaces {
+		s.applyPolicy(&namespaces[i])
+	}
+	return namespaces, nil
 }
 
 // ListWorkloads returns the Deployments, StatefulSets, and DaemonSets in one

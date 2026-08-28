@@ -275,6 +275,41 @@ if grep -qE '(^\*/|/\*)' <<<"$granted_pairs"; then
   exit 1
 fi
 
+# Creating and deleting namespaces is the widest write this ClusterRole can hold,
+# so assert both halves: absent by default, and exactly two verbs when asked for.
+#
+# The forbidden-verbs assertion above already fails on a create or delete leaking
+# into the default render, which is why this one only has to prove that turning it
+# on grants these two pairs and nothing else. The two have to be wrong in the same
+# way to pass.
+if grep -q 'namespaces create' <<<"$granted_pairs"; then
+  printf 'Namespace management must not be granted by default\n' >&2
+  exit 1
+fi
+
+manage_pairs=$(render --set admin.api.kubernetes.namespaces.manage=true \
+  --show-only templates/api/rbac.yaml | extract_pairs \
+  | grep -E ' (create|delete|deletecollection|bind|escalate|impersonate)$' || true)
+expected_manage_pairs=$(LC_ALL=C sort <<'MANAGE'
+core/namespaces create
+core/namespaces delete
+MANAGE
+)
+if [[ $manage_pairs != "$expected_manage_pairs" ]]; then
+  printf 'Enabling namespace management must grant create and delete on namespaces, and nothing else.\n' >&2
+  diff <(printf '%s\n' "$expected_manage_pairs") <(printf '%s\n' "$manage_pairs") >&2 || true
+  exit 1
+fi
+
+# The panel refuses to delete the namespace it is running in, and it learns which
+# one that is from the downward API. A literal here would silently stop matching
+# the day the chart is installed under another release name -- and the failure
+# would be the panel deleting itself.
+if ! grep -A3 'name: POD_NAMESPACE' "$output_file" | grep -q 'fieldPath: metadata.namespace'; then
+  printf 'POD_NAMESPACE must come from the downward API, not from a literal\n' >&2
+  exit 1
+fi
+
 # Reading node disk usage means reaching the kubelet through the node proxy, which
 # also opens its other read endpoints. That is a deliberate choice, so assert both
 # halves: it is absent by default, and it appears — with `get` and nothing else —

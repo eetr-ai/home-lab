@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
 
 // fakeRepo records the namespace it was asked about, so a test can check that an
@@ -17,6 +19,39 @@ type fakeRepo struct {
 	// tail records what the log request was narrowed to, so a test can check the
 	// cap was applied rather than passed through.
 	tail int64
+	// namespaces is what ReadNamespace answers with, keyed by name. A name that
+	// is not here reads as absent.
+	namespaces map[string]Namespace
+	// workloads is how many ListWorkloads reports, so a delete test can put
+	// something in a namespace without building a workload.
+	workloads int
+	// created and deleted record the writes that reached the cluster, which is how
+	// a test asserts that a refusal happened before anything did.
+	created []NamespaceSpec
+	deleted []string
+	// deletedUID is the precondition the delete carried, so a test can assert the
+	// object deleted is the one that was read.
+	deletedUID string
+}
+
+func (f *fakeRepo) ReadNamespace(_ context.Context, name string) (Namespace, error) {
+	f.asked = append(f.asked, "namespace:"+name)
+	namespace, ok := f.namespaces[name]
+	if !ok {
+		return Namespace{}, ErrNotFound
+	}
+	return namespace, nil
+}
+
+func (f *fakeRepo) CreateNamespace(_ context.Context, spec NamespaceSpec) (Namespace, error) {
+	f.created = append(f.created, spec)
+	return Namespace{Name: spec.Name, Labels: spec.Labels}, nil
+}
+
+func (f *fakeRepo) DeleteNamespace(_ context.Context, name, uid string) error {
+	f.deletedUID = uid
+	f.deleted = append(f.deleted, name)
+	return nil
 }
 
 func (f *fakeRepo) ListNamespaces(context.Context) ([]Namespace, error) {
@@ -26,7 +61,7 @@ func (f *fakeRepo) ListNamespaces(context.Context) ([]Namespace, error) {
 
 func (f *fakeRepo) ListWorkloads(_ context.Context, namespace string) ([]Workload, error) {
 	f.asked = append(f.asked, "workloads:"+namespace)
-	return nil, nil
+	return make([]Workload, f.workloads), nil
 }
 
 func (f *fakeRepo) ListPods(_ context.Context, namespace string) ([]Pod, error) {
@@ -88,7 +123,7 @@ func TestNamespaceIsValidatedBeforeTheClusterIsAsked(t *testing.T) {
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
 			repo := &fakeRepo{}
-			service := NewService(repo)
+			service := newTestService(repo)
 
 			if err := call(service, "Not A Namespace"); !errors.Is(err, ErrInvalidName) {
 				t.Fatalf("%s error = %v, want %v", name, err, ErrInvalidName)
@@ -130,7 +165,7 @@ func TestPodNamesAreValidatedAsSubdomains(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &fakeRepo{}
-			_, err := NewService(repo).PodLogs(t.Context(), "default", test.pod, LogOptions{})
+			_, err := newTestService(repo).PodLogs(t.Context(), "default", test.pod, LogOptions{})
 
 			if test.wantErr {
 				if !errors.Is(err, ErrInvalidName) {
@@ -166,7 +201,7 @@ func TestLogTailIsCapped(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &fakeRepo{}
-			if _, err := NewService(repo).PodLogs(
+			if _, err := newTestService(repo).PodLogs(
 				t.Context(), "default", "pod", LogOptions{Tail: test.ask}); err != nil {
 				t.Fatalf("PodLogs error = %v", err)
 			}
@@ -181,7 +216,7 @@ func TestLogTailIsCapped(t *testing.T) {
 // matches — so the request must be refused rather than sent and rejected.
 func TestUnsupportedKindsAreRefused(t *testing.T) {
 	repo := &fakeRepo{}
-	service := NewService(repo)
+	service := newTestService(repo)
 
 	if err := service.ScaleWorkload(t.Context(), KindDaemonSet, "default", "node-exporter", 3); !errors.Is(err, ErrUnsupportedKind) {
 		t.Errorf("ScaleWorkload(DaemonSet) error = %v, want %v", err, ErrUnsupportedKind)
@@ -215,7 +250,7 @@ func TestReplicaCountIsBounded(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &fakeRepo{}
-			err := NewService(repo).ScaleWorkload(t.Context(), KindDeployment, "default", "api", test.replicas)
+			err := newTestService(repo).ScaleWorkload(t.Context(), KindDeployment, "default", "api", test.replicas)
 
 			if test.wantErr {
 				if !errors.Is(err, ErrInvalidName) {
@@ -235,4 +270,19 @@ func TestReplicaCountIsBounded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// newTestService builds a service with the policy this lab actually runs: the
+// panel in "admin", platform-system protected by configuration, and "apps"
+// managed.
+func newTestService(repo repository) *Service {
+	service, err := NewService(repo, nspolicy.New(nspolicy.Config{
+		Own:       "admin",
+		Protected: []string{"platform-system"},
+		Managed:   []string{"apps"},
+	}), "")
+	if err != nil {
+		panic(err)
+	}
+	return service
 }

@@ -36,6 +36,11 @@ const maxStreamDuration = 30 * time.Minute
 // note on Service.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/namespaces", h.listNamespaces)
+	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}", h.readNamespace)
+	mux.HandleFunc("POST /api/kubernetes/namespaces",
+		h.createNamespace)
+	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}",
+		h.deleteNamespace)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads", h.listWorkloads)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/pods", h.listPods)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/events", h.listEvents)
@@ -68,6 +73,93 @@ func (h *Handler) listNamespaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, namespaces)
+}
+
+// readNamespace returns one namespace and whether the panel may delete it.
+//
+//	@Summary		Read a namespace
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace name"
+//	@Success		200			{object}	kube.Namespace
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace} [get]
+func (h *Handler) readNamespace(w http.ResponseWriter, r *http.Request) {
+	namespace, err := h.service.ReadNamespace(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, namespace)
+}
+
+// createNamespace creates a namespace.
+//
+//	@Summary		Create a namespace
+//	@Description	The panel applies its own labels over any the request supplies: the
+//	@Description	Pod Security enforcement level, who manages it, and the marker that
+//	@Description	makes it a candidate for Helm. A request may not set a label under
+//	@Description	kubernetes.io or k8s.io, since one of those decides whether a pod may
+//	@Description	run privileged.
+//	@Tags			kubernetes
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		kube.NamespaceSpec	true	"The namespace to create"
+//	@Success		201		{object}	kube.Namespace
+//	@Failure		400		{object}	http.ErrorBody
+//	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
+//	@Failure		409		{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces [post]
+func (h *Handler) createNamespace(w http.ResponseWriter, r *http.Request) {
+	var spec NamespaceSpec
+	if !httpx.DecodeJSON(w, r, &spec) {
+		return
+	}
+
+	namespace, err := h.service.CreateNamespace(r.Context(), spec)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, namespace)
+}
+
+// deleteNamespace deletes a namespace and everything in it.
+//
+//	@Summary		Delete a namespace
+//	@Description	Refused for a protected namespace, and for one that still runs
+//	@Description	workloads unless force=true. Deletion cascades to everything in the
+//	@Description	namespace and is asynchronous: a 204 means the deletion was accepted,
+//	@Description	and the namespace stays in the listing as Terminating until it finishes.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path	string	true	"Namespace name"
+//	@Param			force		query	boolean	false	"Delete even though it still runs workloads"
+//	@Success		204
+//	@Failure		400	{object}	http.ErrorBody
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Failure		404	{object}	http.ErrorBody
+//	@Failure		409	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace} [delete]
+func (h *Handler) deleteNamespace(w http.ResponseWriter, r *http.Request) {
+	// Only an explicit "true" forces. Anything else — absent, empty, "1", a typo —
+	// is not the deliberate act this guard exists to require.
+	force := r.URL.Query().Get("force") == "true"
+
+	err := h.service.DeleteNamespace(r.Context(), r.PathValue("namespace"), force)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusNoContent, nil)
 }
 
 // listWorkloads returns the controllers running pods in one namespace.
@@ -410,6 +502,15 @@ func respondError(w http.ResponseWriter, err error) {
 		// would let the second operator overwrite the first without either knowing.
 		httpx.Error(w, http.StatusConflict, "conflict",
 			"the workload changed while this request was in flight — try again")
+	case errors.Is(err, ErrProtected):
+		// 403 rather than 409: this is a statement about the object, not a
+		// temporary condition, so there is nothing to retry. The reason travels
+		// with it because the panel shows it next to the namespace.
+		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
+	case errors.Is(err, ErrAlreadyExists):
+		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
+	case errors.Is(err, ErrNotEmpty):
+		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, ErrForbidden):
 		// Almost always the panel's own ClusterRole binding rather than anything
 		// the caller did, so it says so rather than reading as a 500.

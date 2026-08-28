@@ -99,6 +99,23 @@ rules:
       - deployments/scale
       - statefulsets/scale
     verbs: ["get", "update"]
+{{- if .Values.admin.api.kubernetes.namespaces.manage }}
+  # CreateNamespace and DeleteNamespace.
+  #
+  # The first create and the first delete this role has ever held, and the reason
+  # the warning above exists. RBAC cannot say "any namespace except these" — it
+  # grants a verb on a resource, cluster-wide — so what actually keeps this off
+  # kube-system, platform-system, and the panel's own namespace is the policy in
+  # internal/nspolicy, the same shape of guarantee as restartPatch above.
+  #
+  # Deleting a namespace cascades to everything in it, so this is the widest write
+  # in the file. It is off by default, and switching it on is a decision about
+  # trusting that policy rather than about convenience.
+  - apiGroups: [""]
+    resources:
+      - namespaces
+    verbs: ["create", "delete"]
+{{- end }}
   # Live CPU and memory, served by metrics-server.
   #
   # No watch: the metrics API does not implement one, and granting a verb the
