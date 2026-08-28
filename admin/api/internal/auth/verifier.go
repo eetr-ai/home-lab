@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -58,13 +59,19 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (Subject, er
 		return Subject{}, fmt.Errorf("verify the bearer token: %w", err)
 	}
 
-	// The subject is the identifier; the email is a convenience for logs. A token
-	// without an email claim is still perfectly valid, so a failure to read the
-	// claims is not a failure to authenticate.
+	// The subject is the identifier; everything else here is optional. A token
+	// with no email and no scope claim is still perfectly valid, so a failure to
+	// read the claims is not a failure to authenticate.
 	var claims struct {
-		Email string `json:"email"`
+		Email string          `json:"email"`
+		Scope string          `json:"scope"`
+		Scp   json.RawMessage `json:"scp"`
 	}
 	_ = token.Claims(&claims)
 
-	return Subject{ID: token.Subject, Email: claims.Email}, nil
+	return Subject{
+		ID:     token.Subject,
+		Email:  claims.Email,
+		Scopes: parseScopes(claims.Scope, claims.Scp),
+	}, nil
 }

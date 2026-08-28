@@ -22,6 +22,10 @@ type Subject struct {
 	// Email is present when the token carries the email claim, and empty
 	// otherwise. Useful for logs; never an identifier.
 	Email string
+	// Scopes are the permissions the token names, and nil when it names none.
+	// Nil is not "no permissions" — see HasScope in scope.go for why the
+	// difference matters.
+	Scopes []string
 }
 
 // TokenVerifier verifies a raw bearer token and reports whose it is.

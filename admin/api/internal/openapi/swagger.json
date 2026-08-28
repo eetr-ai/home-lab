@@ -7,6 +7,14 @@
                         "description": "Email is the caller's email when the token carried the claim.",
                         "type": "string"
                     },
+                    "scopes": {
+                        "description": "Scopes are the permissions the API read out of the token, and empty when it\ncarried none. Reported because a scope claim the API failed to find looks\nexactly like one that was never issued, and this is where a machine client\nfinds out which it is before its first 403.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "subject": {
                         "description": "Subject is the identity provider's stable subject claim.",
                         "type": "string"
@@ -3363,7 +3371,7 @@
         },
         "/api/whoami": {
             "get": {
-                "description": "Reports the subject and email the presented bearer token belongs to.",
+                "description": "Reports the subject, email, and scopes the presented bearer token belongs to.",
                 "responses": {
                     "200": {
                         "content": {

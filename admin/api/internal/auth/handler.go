@@ -26,6 +26,11 @@ type WhoamiResponse struct {
 	Subject string `json:"subject"`
 	// Email is the caller's email when the token carried the claim.
 	Email string `json:"email,omitempty"`
+	// Scopes are the permissions the API read out of the token, and empty when it
+	// carried none. Reported because a scope claim the API failed to find looks
+	// exactly like one that was never issued, and this is where a machine client
+	// finds out which it is before its first 403.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // whoami reports who the presented token belongs to.
@@ -36,7 +41,7 @@ type WhoamiResponse struct {
 // fresh client, or an agent — needs to know.
 //
 //	@Summary		Describe the authenticated caller
-//	@Description	Reports the subject and email the presented bearer token belongs to.
+//	@Description	Reports the subject, email, and scopes the presented bearer token belongs to.
 //	@Tags			identity
 //	@Produce		json
 //	@Security		BearerAuth
@@ -52,5 +57,5 @@ func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusUnauthorized, "unauthorized", "the request carries no verified caller")
 		return
 	}
-	httpx.JSON(w, http.StatusOK, WhoamiResponse{Subject: subject.ID, Email: subject.Email})
+	httpx.JSON(w, http.StatusOK, WhoamiResponse{Subject: subject.ID, Email: subject.Email, Scopes: subject.Scopes})
 }
