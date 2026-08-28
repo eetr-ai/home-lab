@@ -15,12 +15,13 @@ repository has a cohesive set of configurable Kubernetes resources.
 
 | Resource | Notes |
 | --- | --- |
-| `Deployment/admin-api` | Unprivileged, read-only root filesystem, distroless image |
+| `Deployment/admin-api` | Unprivileged, read-only root filesystem, distroless image. **Two replicas** — see below |
+| `PodDisruptionBudget/admin-api` | `minAvailable: 1`, emitted only above one replica |
 | `Service/admin-api` | ClusterIP on port 80 |
 | `ServiceAccount/admin-api` | The API's identity, and what the read-only ClusterRole is bound to |
 | `ClusterRole` + binding | Read-only cluster access for the API — see below |
 | `HTTPRoute/admin-api` | **Disabled by default** — see below |
-| `Deployment/admin-web` | The panel. No ServiceAccount token: it asks the API |
+| `Deployment/admin-web` | The panel. No ServiceAccount token: it asks the API. **One replica** — see below |
 | `Service/admin-web` | ClusterIP on port 80 |
 | `HTTPRoute/admin-web` | Enabled — a panel nobody can reach is not a panel |
 | `Deployment/admin-agent` | **Disabled by default.** One replica, `Recreate` — see below |
@@ -37,13 +38,50 @@ the Go code is:
 ```text
 templates/
   _helpers.tpl
-  api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml
+  api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml pdb.yaml
   web/    deployment.yaml service.yaml httproute.yaml
   agent/  deployment.yaml service.yaml pvc.yaml
 ```
 
 Helm walks the directory, so nesting costs nothing and everything one half of the
 panel needs is in one place.
+
+## How many of each, and why they differ
+
+The three components run different replica counts, and the differences are
+decisions rather than oversights. "Make them consistent" is the change to resist.
+
+**`admin-api` runs two.** It holds no state: the operator's bearer token comes
+with each request, the cluster reads go through the pod's own ServiceAccount, and
+database connections are per-request. There is nothing in one process a second
+would disagree with. This is availability, not throughput — a panel one operator
+uses is not short of capacity — so what it buys is that a drained node or an
+OOM-killed pod does not take the API down. Anti-affinity is *preferred* rather
+than required, because `required` on a single-node cluster leaves the second
+replica `Pending` forever, which turns redundancy into an outage.
+
+The `PodDisruptionBudget` covers voluntary disruption only — a node drain. It
+does nothing about a node failing, which is why the count is two rather than one
+with a budget. It is not emitted at one replica on purpose: `minAvailable: 1` over
+a single replica can never be satisfied, so the drain hangs instead of proceeding.
+
+**`admin-web` runs one, and raising it is an outage.** Sessions themselves are
+stateless — the Auth.js cookie is a JWE carrying the tokens — so more replicas
+would serve requests fine. The token *refresh* is what does not survive.
+eetr-auth rotates refresh tokens with OAuth 2.1 reuse detection, so presenting a
+superseded one cascade-revokes the family and signs the operator out everywhere.
+Two concurrent requests from one browser carry the same cookie — neither response
+has returned, so neither can have seen the other's rotation — and
+`src/lib/auth/refresh.ts` collapses them into one exchange using an in-process
+`Map`. Two replicas is two Maps, and the collapse fails whenever the pair lands on
+different pods.
+
+Moving the token somewhere else does not help: a cookie has no compare-and-swap,
+and it is the *input* to the race rather than a lock on it. What fixes it is a
+shared lock, which is what `platform.redis` is there for. Until the panel's
+refresh moves behind it, this stays at one.
+
+**`admin-agent` runs one, for a different reason** — see [The assistant](#the-assistant).
 
 ## Before installing
 
@@ -274,8 +312,9 @@ The claim is `ReadWriteMany` on `nfs-client` anyway, and for a different reason:
 the store has to be where the pod lands, so a pod rescheduled onto another node
 has to find it. RWX is also what keeps raising the replica count a values change
 once there is somewhere shared to put the store, rather than a storage migration
-as well. **Note the class's reclaim policy: deleting this PVC deletes the
-conversations with it.**
+as well. The class retains, so deleting this PVC leaves the conversations on the
+export as `archived-<name>` rather than destroying them — recoverable, but not
+reclaimed either.
 
 **It calls the API as whoever is asking.** The panel's own route handler attaches
 the signed-in operator's bearer token to every chat request, and the agent's

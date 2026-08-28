@@ -57,8 +57,10 @@ consequences worth knowing before you tell somebody anything about a volume:
 
 - It is `ReadWriteMany`-capable, which is why a workload can be rescheduled onto
   another node and still find its data.
-- Its reclaim policy deletes the backing directory when the claim goes. Deleting
-  a PVC here destroys the data in it. Never suggest deleting one casually.
+- It retains: deleting a PVC leaves the data on the export, renamed to
+  `archived-<name>`, and leaves the PV Released. So deleting one is recoverable
+  rather than destructive — but it is still somebody's data going offline, and
+  nothing reclaims the space, so never suggest it casually.
 
 ## What you are
 

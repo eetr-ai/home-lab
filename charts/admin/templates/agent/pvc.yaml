@@ -11,8 +11,9 @@
 # one replica and says why. RWX is what keeps raising it a values change and a
 # shared KV store away, rather than a storage migration as well.
 #
-# Note the reclaim policy this class installs with: deleting this PVC deletes the
-# data with it. See docs/nfs-server.md.
+# The class retains, which this volume is much of the reason for: deleting this
+# PVC leaves the conversations on the export as `archived-<name>` rather than
+# destroying them. Recoverable, not reclaimed — see charts/platform/values.yaml.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -1,0 +1,30 @@
+{{- if gt (int .Values.admin.api.replicas) 1 }}
+# What stops a drain taking the whole API down at once.
+#
+# A PodDisruptionBudget bounds VOLUNTARY disruption only — draining a node for
+# maintenance, or the cluster autoscaler if there ever is one. It does not protect
+# against a node failing, an OOM kill, or anything else involuntary; nothing can,
+# and a budget that reads as though it does is worse than none.
+#
+# minAvailable rather than maxUnavailable, expressed as a count rather than a
+# percentage: the replica count here is small enough that a percentage rounds into
+# surprises, and "at least one API is serving" is the sentence actually meant.
+#
+# Guarded on replicas > 1 because a budget of minAvailable: 1 over a single
+# replica is not conservative, it is a deadlock: the drain can never satisfy it,
+# so the node never drains and the eviction hangs until somebody notices. A single
+# replica is better off evicted and rescheduled.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: admin-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-api
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin-api
+{{- end }}

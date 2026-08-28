@@ -7,6 +7,7 @@ for applications:
 - cert-manager `v1.21.1` with Cloudflare DNS-01 issuers.
 - NFS Subdirectory External Provisioner chart `4.0.18`.
 - cloudflared `2026.8.2` for a remotely managed tunnel.
+- An optional Redis `8.10.1` as a coordination point, off by default.
 - An optional whoami `v1.12.0` end-to-end test.
 
 Cilium is not a dependency. It is a cluster bootstrap prerequisite and remains
@@ -72,8 +73,63 @@ kubectl create secret generic cloudflared-token \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
+If you are enabling Redis (`platform.redis.enabled`), it needs one too:
+
+```bash
+kubectl create secret generic redis-password \
+  --namespace platform-system \
+  --from-literal=password="$(openssl rand -base64 32)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
 These Secrets are not owned by Helm. Helm values contain only their names and
 keys.
+
+## Redis
+
+Off by default, because a standing service with a credential and nothing calling
+it is a liability rather than a convenience. Turn it on when something needs it.
+
+It is a **coordination point, not a store**: one replica, no persistence, and a
+restart is an empty cache. Both of those are deliberate. A lock has to have a
+single authority, so a second Redis is not more availability — it is a second
+answer to a question that must have exactly one, and replication would make the
+failure it prevents possible again on a split brain. `maxmemory-policy` is
+`noeviction` for the same reason: an evicted lock is not a lock, so reaching the
+ceiling fails a write loudly instead.
+
+Two controls, not one. The password says who you are; the NetworkPolicy says
+where you may say it from — only namespaces carrying
+`home-lab.example/redis-access: "true"`, the same shape the Gateway uses to decide
+which namespaces may attach a route.
+
+Its first intended caller is the admin panel's token refresh, which is what would
+let `admin-web` run more than one replica. That is not wired up yet: the panel
+still deduplicates refreshes in a process-local map, and its chart still pins one
+replica for that reason.
+
+## Storage
+
+There is one StorageClass, `nfs-client`, it is the cluster default, and **it
+retains**. A deleted PVC leaves its PV `Released` and the provisioner renames the
+directory on the export to `archived-<name>` rather than emptying it.
+
+Both halves are needed and they do different jobs: `reclaimPolicy: Retain` leaves
+the PV so the data has something to be reattached through, and
+`archiveOnDelete: true` leaves the directory so there is data to reattach. Retain
+with the directory emptied is a PV pointing at nothing, which reads as safe and is
+not.
+
+This was `Delete`, and it was changed globally rather than by adding a second
+class for the one volume that needed it — the admin agent's memory, which is
+months of conversations. Two classes is a choice at every future PVC, and the day
+somebody forgets to make it is the day it mattered.
+
+**The cost is that nothing reclaims space.** Every deleted claim leaves an
+`archived-` directory until somebody removes it. That is a standing chore rather
+than a solved problem; the prefix is what makes it scriptable, since orphaned data
+is exactly the set matching `archived-*` and nothing live is ever named that
+way.
 
 ## Configure and install
 
@@ -127,6 +183,8 @@ helm uninstall home-lab-platform --namespace platform-system
 ```
 
 Uninstalling does not remove the Gateway API CRDs, retained cert-manager CRDs,
-external Secrets, Cloudflare tunnel, DNS routes, or NFS data unrelated to PVC
-deletion. Removing a PVC is destructive because `nfs-client` uses the `Delete`
-reclaim policy.
+external Secrets, Cloudflare tunnel, DNS routes, or NFS data. Removing a PVC is
+recoverable rather than destructive: `nfs-client` retains, so the PV is left
+Released and the provisioner renames the directory to `archived-<name>` rather
+than deleting it. The cost is that nothing reclaims that space — the export grows
+until the archived directories are removed by hand.

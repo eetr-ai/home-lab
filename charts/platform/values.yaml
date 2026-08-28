@@ -41,6 +41,55 @@ platform:
       tag: v1.12.0
       pullPolicy: IfNotPresent
 
+  # Redis, for the things a multi-replica Deployment cannot keep in a variable.
+  #
+  # Off by default, and it stays off until something needs it: a standing service
+  # with a credential and nothing calling it is a liability rather than a
+  # convenience. Its first consumer is the admin panel's token refresh, which is
+  # what lets admin-web run more than one replica — see charts/admin.
+  #
+  # It holds coordination and nothing durable: one replica, no persistence, and a
+  # restart is an empty cache. See the comment on the template for why more
+  # replicas would make it worse rather than safer.
+  redis:
+    enabled: false
+
+    image:
+      repository: redis
+      tag: 8.10.1-alpine
+      pullPolicy: IfNotPresent
+
+    # Not a secret in the values sense but not a value either: it unlocks the
+    # coordination point, so it comes from a Secret created outside Helm like every
+    # other credential here. The installer verifies it exists before Helm runs.
+    #
+    # Create it with:
+    #   kubectl -n platform-system create secret generic redis-password \
+    #     --from-literal=password="$(openssl rand -base64 32)"
+    passwordSecret:
+      name: redis-password
+      key: password
+
+    # Which namespaces may reach it, by label — the same shape the Gateway uses to
+    # decide which namespaces may attach a route. A password says who you are; this
+    # says where you may say it from.
+    clientNamespaceLabel:
+      key: home-lab.example/redis-access
+      value: "true"
+
+    # A ceiling rather than a target. `noeviction` in the template is deliberate:
+    # this holds locks, and silently evicting one turns a lock into a suggestion.
+    # Reaching this limit fails writes loudly instead, which is the failure worth
+    # having.
+    maxmemory: 128mb
+
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        memory: 192Mi
+
 traefik:
   fullnameOverride: traefik
   deployment:
@@ -96,14 +145,42 @@ nfs-provisioner:
     path: /export/kubernetes
     mountOptions:
       - nfsvers=4.1
+  # The cluster's one class, and it RETAINS.
+  #
+  # This was Delete with archiveOnDelete false, which is the tidy default for a
+  # cluster that is rebuilt on purpose: a deleted PVC left nothing behind on the
+  # export to wonder about. It is the wrong default the first time somebody
+  # deletes a claim holding something a person wrote — the admin agent's memory is
+  # months of conversations and curated facts, and a `helm uninstall` took it.
+  #
+  # Deliberately changed globally rather than by adding a second class for the one
+  # volume that needed it. Two classes is a choice at every future PVC, and the
+  # day somebody forgets to make it is the day it mattered; one class that keeps
+  # data is a decision made once. The cost is that the export now grows, and that
+  # is accepted and deliberate — see the note below.
+  #
+  # The two settings do different halves and both are needed. reclaimPolicy
+  # governs the PV: Retain leaves it Released rather than deleting it, so the data
+  # has something to be reattached through. archiveOnDelete governs the
+  # provisioner's own behaviour on the export, renaming the directory to
+  # `archived-<name>` rather than removing it. Retain alone would leave a PV
+  # pointing at a directory the provisioner had already emptied.
+  #
+  # `onDelete` is deliberately absent. It overrides archiveOnDelete when set, so
+  # naming both is two settings answering one question, and only one of them wins.
+  #
+  # WHAT THIS COSTS. Nothing reclaims space now: every deleted claim leaves an
+  # `archived-` directory on the NFS export until somebody removes it. That is a
+  # standing chore rather than a solved problem, and the prefix is what makes it a
+  # scriptable one — orphaned data is exactly the set matching `archived-*`, and
+  # nothing live is ever named that way.
   storageClass:
     create: true
     defaultClass: true
     name: nfs-client
     provisionerName: home-lab.example/nfs-subdir
-    reclaimPolicy: Delete
-    archiveOnDelete: false
-    onDelete: delete
+    reclaimPolicy: Retain
+    archiveOnDelete: true
     allowVolumeExpansion: true
 
 metrics-server:

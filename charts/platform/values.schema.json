@@ -1,36 +1,77 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["platform", "nfs-provisioner"],
+  "required": [
+    "platform",
+    "nfs-provisioner"
+  ],
   "properties": {
     "platform": {
       "type": "object",
-      "required": ["baseDomain", "acmeEmail", "gateway", "issuers", "cloudflared", "whoami"],
+      "required": [
+        "baseDomain",
+        "acmeEmail",
+        "gateway",
+        "issuers",
+        "cloudflared",
+        "whoami",
+        "redis"
+      ],
       "properties": {
-        "baseDomain": { "type": "string", "minLength": 1 },
-        "acmeEmail": { "type": "string", "minLength": 3 },
-        "gateway": { "type": "object" },
-        "issuers": { "type": "object" },
-        "cloudflared": { "type": "object" },
-        "whoami": { "type": "object" }
+        "baseDomain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acmeEmail": {
+          "type": "string",
+          "minLength": 3
+        },
+        "gateway": {
+          "type": "object"
+        },
+        "issuers": {
+          "type": "object"
+        },
+        "cloudflared": {
+          "type": "object"
+        },
+        "whoami": {
+          "type": "object"
+        },
+        "redis": {
+          "type": "object"
+        }
       }
     },
     "metrics-server": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" }
+        "enabled": {
+          "type": "boolean"
+        }
       }
     },
     "nfs-provisioner": {
       "type": "object",
-      "required": ["nfs"],
+      "required": [
+        "nfs"
+      ],
       "properties": {
         "nfs": {
           "type": "object",
-          "required": ["server", "path"],
+          "required": [
+            "server",
+            "path"
+          ],
           "properties": {
-            "server": { "type": "string", "minLength": 1 },
-            "path": { "type": "string", "pattern": "^/" }
+            "server": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            }
           }
         }
       }

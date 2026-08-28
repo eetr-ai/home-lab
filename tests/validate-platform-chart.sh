@@ -72,4 +72,68 @@ if grep -q 'name: metrics-server' <<<"$without_metrics"; then
 fi
 grep -q '^kind: Gateway$' <<<"$without_metrics"
 
+# --- the cluster's storage keeps what it is given -----------------------------
+#
+# One class, and it retains. This was Delete with archiveOnDelete false, and the
+# first time a claim holding real data was removed that turned out to be the wrong
+# default. Both halves are asserted because they do different jobs: reclaimPolicy
+# leaves the PV Released so the data has something to be reattached through, and
+# archiveOnDelete leaves the directory on the export instead of emptying it.
+# Retain with archiveOnDelete false is a PV pointing at nothing, which reads as
+# safe and is not.
+storage_class=$(awk '/^kind: StorageClass$/,/^---$/' "$output_file")
+grep -q 'reclaimPolicy: Retain' <<<"$storage_class"
+grep -q 'archiveOnDelete: "true"' <<<"$storage_class"
+if grep -q 'reclaimPolicy: Delete' <<<"$storage_class"; then
+  printf 'The default StorageClass must retain; deleting a claim must not destroy its data\n' >&2
+  exit 1
+fi
+# onDelete overrides archiveOnDelete when set, so naming both is two settings
+# answering one question with only one of them winning.
+if grep -q 'onDelete:' <<<"$storage_class"; then
+  printf 'onDelete overrides archiveOnDelete; set one of them, not both\n' >&2
+  exit 1
+fi
+
+# --- Redis is off until something needs it ------------------------------------
+if grep -q 'app.kubernetes.io/name: redis' "$output_file"; then
+  printf 'Redis must be disabled by default; it is a standing credential with no caller yet\n' >&2
+  exit 1
+fi
+
+redis=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system \
+  --kube-version "$kube_version" \
+  --api-versions policy/v1/PodDisruptionBudget \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --set platform.redis.enabled=true \
+  --show-only templates/redis.yaml)
+
+# One replica, and not for want of raising it: a lock has to have one authority,
+# so a second Redis is a second answer to a question that must have exactly one.
+# Recreate is the second half — the default RollingUpdate runs two pods behind one
+# Service for a few seconds, which is the same failure for a shorter time.
+redis_deploy=$(awk '/^kind: Deployment$/,/^---$/' <<<"$redis")
+grep -q '^  replicas: 1$' <<<"$redis_deploy"
+grep -q 'type: Recreate' <<<"$redis_deploy"
+
+# Nothing durable lives here, and the flags are what say so. Persistence off both
+# ways: --save "" stops snapshots, --appendonly no stops the log.
+grep -q -- '--appendonly no' <<<"$redis_deploy"
+
+# noeviction, deliberately. This holds locks, and an evicted lock is not a lock —
+# reaching the memory ceiling has to fail a write loudly instead.
+grep -q -- '--maxmemory-policy noeviction' <<<"$redis_deploy"
+
+# The password comes from a Secret rather than from values; this repository is
+# public. Asserted as the wiring rather than as "no literal", so a value moved
+# back inline fails here.
+grep -q 'secretKeyRef' <<<"$redis_deploy"
+grep -q 'name: REDIS_PASSWORD' <<<"$redis_deploy"
+
+# ...and authentication is not the only control. The NetworkPolicy is what says a
+# leaked credential can only be spent from a namespace somebody labelled.
+grep -q 'kind: NetworkPolicy' <<<"$redis"
+grep -q 'home-lab.example/redis-access' <<<"$redis"
+
 printf 'Platform chart validation passed.\n'
