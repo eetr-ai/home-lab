@@ -1,19 +1,13 @@
 package kube
 
 import (
-	"errors"
 	"fmt"
-	"time"
 
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
-)
 
-// defaultRequestTimeout bounds a single call to the API server. Kept under the
-// HTTP server's 30-second write timeout so a stalled read fails as a request.
-const defaultRequestTimeout = 20 * time.Second
+	"github.com/eetr-ai/home-lab/admin/api/internal/restconfig"
+)
 
 // NewClientset builds a Kubernetes client for wherever this is running.
 //
@@ -26,17 +20,9 @@ const defaultRequestTimeout = 20 * time.Second
 // a failed request rather than a process that will not start, the same as the
 // database slices.
 func NewClientset() (*kubernetes.Clientset, error) {
-	config, err := restConfig()
+	config, err := restconfig.New()
 	if err != nil {
 		return nil, err
-	}
-
-	// Without this a request to an unresponsive API server has no deadline of its
-	// own and hangs until the caller gives up. Kept under the HTTP server's write
-	// timeout, so a stalled cluster read fails as a request rather than as a
-	// response that was never written.
-	if config.Timeout == 0 {
-		config.Timeout = defaultRequestTimeout
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -44,28 +30,6 @@ func NewClientset() (*kubernetes.Clientset, error) {
 		return nil, fmt.Errorf("build the Kubernetes client: %w", err)
 	}
 	return clientset, nil
-}
-
-// restConfig prefers the in-cluster configuration and falls back to a kubeconfig.
-func restConfig() (*rest.Config, error) {
-	config, err := rest.InClusterConfig()
-	if err == nil {
-		return config, nil
-	}
-	// Only "there is no service account here" is a reason to look elsewhere. A
-	// malformed in-cluster configuration is a real failure, and silently falling
-	// back would hide it behind whatever kubeconfig happened to be on the machine.
-	if !errors.Is(err, rest.ErrNotInCluster) {
-		return nil, fmt.Errorf("read the in-cluster configuration: %w", err)
-	}
-
-	rules := clientcmd.NewDefaultClientConfigLoadingRules()
-	config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		rules, &clientcmd.ConfigOverrides{}).ClientConfig()
-	if err != nil {
-		return nil, fmt.Errorf("read a kubeconfig: %w", err)
-	}
-	return config, nil
 }
 
 // NewMetricsClientset builds a client for the metrics API, when one is wanted.
@@ -76,12 +40,9 @@ func restConfig() (*rest.Config, error) {
 // absence surfaces as a failed read, which the repository degrades to "no
 // reading" rather than to an error.
 func NewMetricsClientset() (*metricsclient.Clientset, error) {
-	config, err := restConfig()
+	config, err := restconfig.New()
 	if err != nil {
 		return nil, err
-	}
-	if config.Timeout == 0 {
-		config.Timeout = defaultRequestTimeout
 	}
 
 	clientset, err := metricsclient.NewForConfig(config)
@@ -93,24 +54,18 @@ func NewMetricsClientset() (*metricsclient.Clientset, error) {
 
 // NewStreamClientset builds a second client for long-lived reads.
 //
-// The clientset NewClientset returns carries a 20-second deadline on every
-// request, and rest.Config.Timeout becomes http.Client.Timeout — which bounds
-// reading the response body, not just getting a reply. A follow stream is a
-// response body that never ends, so it would be cut at twenty seconds, mid-line.
-// There is no per-request escape: rest.Request.Timeout only narrows a deadline,
-// it cannot lift one.
+// The clientset NewClientset returns bounds every request, and that bound covers
+// reading the response body rather than just getting a reply. A follow stream is
+// a response body that never ends, so it would be cut mid-line. See
+// restconfig.NewUnbounded for why there is no per-request escape.
 //
-// So this client has no deadline of its own. What bounds a stream instead is the
-// caller hanging up, which cancels the request context, and the handler's own cap
-// on how long one may run.
+// What bounds a stream instead is the caller hanging up, which cancels the
+// request context, and the handler's own cap on how long one may run.
 func NewStreamClientset() (*kubernetes.Clientset, error) {
-	config, err := restConfig()
+	config, err := restconfig.NewUnbounded()
 	if err != nil {
 		return nil, err
 	}
-	// Explicit rather than "leave it alone": a kubeconfig may carry a timeout of
-	// its own, and inheriting one here would reintroduce exactly this bug.
-	config.Timeout = 0
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
