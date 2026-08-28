@@ -72,4 +72,150 @@ if grep -q 'name: metrics-server' <<<"$without_metrics"; then
 fi
 grep -q '^kind: Gateway$' <<<"$without_metrics"
 
+# --- the cluster's storage keeps what it is given -----------------------------
+#
+# One class, and deleting a claim must not destroy its data. Two settings say so
+# together, and the pairing is the whole assertion.
+#
+# reclaimPolicy MUST be Delete, which is the opposite of how it reads. It selects
+# which handler runs, and only Delete hands the volume to this provisioner —
+# Retain leaves the PV Released and never calls it, so archiveOnDelete would be
+# read by nobody and nothing would ever be renamed. So `Retain` here is the
+# regression, not the safe choice, and it is asserted against by name because it
+# is what somebody reaching for safety would reach for.
+storage_class=$(awk '/^kind: StorageClass$/,/^---$/' "$output_file")
+grep -q 'reclaimPolicy: Delete' <<<"$storage_class"
+grep -q 'archiveOnDelete: "true"' <<<"$storage_class"
+if grep -q 'archiveOnDelete: "false"' <<<"$storage_class"; then
+  printf 'archiveOnDelete must be true; deleting a claim would otherwise destroy its data\n' >&2
+  exit 1
+fi
+if grep -q 'reclaimPolicy: Retain' <<<"$storage_class"; then
+  printf 'reclaimPolicy must be Delete, or the provisioner never runs and nothing is archived\n' >&2
+  exit 1
+fi
+# onDelete overrides archiveOnDelete whenever it is set, so naming both is two
+# settings answering one question with only one of them winning.
+if grep -q 'onDelete:' <<<"$storage_class"; then
+  printf 'onDelete overrides archiveOnDelete; set one of them, not both\n' >&2
+  exit 1
+fi
+
+# --- Redis installs by default, and switches off cleanly ----------------------
+#
+# The exception among the optional services here, so both halves are asserted the
+# way metrics-server's are: it renders by default, and disabling it leaves nothing
+# behind rather than a Service pointing at no pods.
+grep -q 'app.kubernetes.io/name: redis' "$output_file"
+
+without_redis=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system \
+  --kube-version "$kube_version" \
+  --api-versions policy/v1/PodDisruptionBudget \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --set platform.redis.enabled=false)
+if grep -q 'app.kubernetes.io/name: redis' <<<"$without_redis"; then
+  printf 'Disabling Redis must leave nothing of it behind\n' >&2
+  exit 1
+fi
+
+redis=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system \
+  --kube-version "$kube_version" \
+  --api-versions policy/v1/PodDisruptionBudget \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --show-only templates/redis.yaml)
+
+# One replica, and not for want of raising it: a lock has to have one authority,
+# so a second Redis is a second answer to a question that must have exactly one.
+# Recreate is the second half — the default RollingUpdate runs two pods behind one
+# Service for a few seconds, which is the same failure for a shorter time.
+redis_deploy=$(awk '/^kind: Deployment$/,/^---$/' <<<"$redis")
+grep -q '^  replicas: 1$' <<<"$redis_deploy"
+grep -q 'type: Recreate' <<<"$redis_deploy"
+
+# Nothing durable lives here, and the flags are what say so. BOTH are asserted
+# because they disable different mechanisms: --save "" stops RDB snapshots and
+# --appendonly no stops the append-only log, and either one alone leaves the pod
+# writing state it is not supposed to keep.
+grep -q -- '--save ""' <<<"$redis_deploy"
+grep -q -- '--appendonly no' <<<"$redis_deploy"
+
+# noeviction, deliberately. This holds locks, and an evicted lock is not a lock —
+# reaching the memory ceiling has to fail a write loudly instead.
+grep -q -- '--maxmemory-policy noeviction' <<<"$redis_deploy"
+
+# An unusable Secret reference is refused before it reaches the cluster, and the
+# refusal names the VALUE rather than a line in a template.
+#
+# ASSERTED ON THE MESSAGE, not on the exit code, and that distinction is the whole
+# of these checks. A null passwordSecret already failed before either guard
+# existed — "nil pointer evaluating interface {}.name" against a line in
+# redis.yaml — so a check that only asks whether helm exited non-zero passes
+# without either guard present and pins nothing. It reads as coverage and is not.
+redis_values=$(mktemp)
+trap 'rm -f "$redis_values"' EXIT
+printf 'platform:\n  redis:\n    passwordSecret: null\n' >"$redis_values"
+
+# The schema layer. Its message names the path in the values, which is what tells
+# somebody which line of their own file to go and fix.
+schema_error=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system --kube-version "$kube_version" \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --values "$redis_values" 2>&1 >/dev/null) && {
+  printf 'A null redis.passwordSecret must be refused while Redis is enabled\n' >&2
+  exit 1
+}
+if ! grep -q "missing property 'passwordSecret'" <<<"$schema_error"; then
+  printf 'The schema must be what refuses a null redis.passwordSecret, naming the property\n' >&2
+  exit 1
+fi
+
+# The template guard behind it, for `--skip-schema-validation`, which renders
+# straight past the schema. Its job is to replace the nil-pointer message, so that
+# is what is asserted — both that its own sentence appears and that the raw Go
+# template error does not.
+template_error=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system --kube-version "$kube_version" \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --values "$redis_values" --skip-schema-validation 2>&1 >/dev/null) && {
+  printf 'The template must refuse a null redis.passwordSecret even past the schema\n' >&2
+  exit 1
+}
+if ! grep -q 'platform.redis.passwordSecret is required' <<<"$template_error"; then
+  printf 'Past the schema, the refusal must name the value rather than a nil pointer\n' >&2
+  exit 1
+fi
+if grep -q 'nil pointer' <<<"$template_error"; then
+  printf 'The template guard is gone; a null passwordSecret fails as a nil pointer\n' >&2
+  exit 1
+fi
+
+# ...and it is required only when Redis is actually installed. A cluster that has
+# switched Redis off must not be made to invent a Secret reference for it.
+printf 'platform:\n  redis:\n    enabled: false\n    passwordSecret: null\n' >"$redis_values"
+helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system --kube-version "$kube_version" \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --values "$redis_values" >/dev/null
+
+# The password comes from a Secret rather than from values; this repository is
+# public. Asserted on the REDIS_PASSWORD entry ITSELF rather than as two
+# independent greps: separate checks for the name and for a secretKeyRef both pass
+# on a manifest where the secret reference belongs to some other variable and the
+# password is inline, which is exactly the state worth failing on.
+redis_password_env=$(grep -A3 'name: REDIS_PASSWORD' <<<"$redis_deploy")
+grep -q 'valueFrom' <<<"$redis_password_env"
+grep -q 'secretKeyRef' <<<"$redis_password_env"
+
+# ...and authentication is not the only control. The NetworkPolicy is what says a
+# leaked credential can only be spent from a namespace somebody labelled.
+#
+# Checked where the label actually has to be — under the ingress rule's
+# namespaceSelector — rather than anywhere in the document. The loose form passes
+# on a policy that merely mentions the label in a comment or carries it as its own
+# metadata, neither of which admits anybody.
+grep -q 'kind: NetworkPolicy' <<<"$redis"
+grep -A2 'namespaceSelector:' <<<"$redis" | grep -q 'home-lab.example/redis-access: "true"'
+
 printf 'Platform chart validation passed.\n'

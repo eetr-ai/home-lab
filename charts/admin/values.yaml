@@ -78,11 +78,23 @@ admin:
       tag: "0.0.0"
       pullPolicy: IfNotPresent
 
-    replicas: 1
+    # Two, because this is the one service here that can actually take it.
+    #
+    # The API holds no state: every request carries the operator's bearer token,
+    # the Kubernetes reads go through the pod's own ServiceAccount, and the
+    # database connections are per-request. There is nothing in a process that a
+    # second process would disagree with, so a request arriving mid-rollout is
+    # served by whichever replica is ready.
+    #
+    # This is availability rather than throughput — a panel one operator uses is
+    # not short of capacity. What two replicas buy is that a node drained for
+    # maintenance, or a pod OOM-killed, does not take the panel's API with it. The
+    # PodDisruptionBudget beside this covers the first of those; nothing covers the
+    # second, which is why the number is 2 and not 1.
+    replicas: 2
 
-    # The API holds no state, so a request that arrives mid-rollout is served by
-    # whichever replica is ready. Resources are sized for a panel one operator
-    # uses, not for throughput.
+    # Sized for a panel one operator uses, not for throughput. Per replica, so the
+    # count above multiplies these.
     resources:
       requests:
         cpu: 25m
@@ -142,11 +154,23 @@ admin:
       tag: "0.0.0"
       pullPolicy: IfNotPresent
 
-    # One, deliberately. Sessions are stateless — the cookie carries them — so
-    # more replicas would serve fine, but the token refresh is deduplicated per
-    # process. Two replicas can therefore present the same rotating refresh token
-    # at once, and eetr-auth's reuse detection answers that by revoking the whole
-    # family. Raising this means moving that lock somewhere shared first.
+    # One, deliberately, and this is not the same kind of "one" as the agent's.
+    #
+    # Sessions are stateless — the Auth.js cookie is a JWE carrying the operator's
+    # access and refresh tokens — so more replicas would serve requests perfectly
+    # well. What does not survive is the token REFRESH. eetr-auth rotates refresh
+    # tokens with OAuth 2.1 reuse detection, so presenting a superseded one
+    # cascade-revokes the family and signs the operator out everywhere. Two
+    # concurrent requests from one browser both carry the same cookie — neither
+    # response has returned, so neither can have seen the other's rotation — and
+    # src/lib/auth/refresh.ts collapses them into one exchange with an in-process
+    # Map. Two replicas is two Maps, and the collapse fails whenever the pair lands
+    # on different pods.
+    #
+    # Storing the token elsewhere does not fix it: a cookie has no compare-and-swap,
+    # and it is the input to the race rather than a lock on it. What fixes it is a
+    # shared lock, which is why platform.redis exists — the panel's refresh moving
+    # behind it is what lets this become 2.
     replicas: 1
 
     resources:

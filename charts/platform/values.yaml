@@ -41,6 +41,63 @@ platform:
       tag: v1.12.0
       pullPolicy: IfNotPresent
 
+  # Redis, for the things a multi-replica Deployment cannot keep in a variable.
+  #
+  # ON by default, unlike the other optional services here, and that is a
+  # deliberate exception rather than an oversight. The rest of them — cloudflared,
+  # whoami, the issuers — each need something outside the cluster to be true
+  # before they are useful. This one does not: it is a coordination point for
+  # whatever needs one, and the cluster is expected to grow callers for it. Its
+  # first is the admin panel's token refresh, which is what will let admin-web run
+  # more than one replica (see charts/admin).
+  #
+  # The cost of that choice is a real prerequisite: the password Secret must exist
+  # before the first install, and the installer refuses to run without it. That is
+  # written down in the README beside the other two Secrets rather than left to be
+  # discovered on a failed install.
+  #
+  # It holds coordination and nothing durable: one replica, no persistence, and a
+  # restart is an empty cache. See the comment on the template for why more
+  # replicas would make it worse rather than safer.
+  redis:
+    enabled: true
+
+    image:
+      repository: redis
+      tag: 8.10.1-alpine
+      pullPolicy: IfNotPresent
+
+    # Not a secret in the values sense but not a value either: it unlocks the
+    # coordination point, so it comes from a Secret created outside Helm like every
+    # other credential here. The installer verifies it exists before Helm runs.
+    #
+    # Create it with:
+    #   kubectl -n platform-system create secret generic redis-password \
+    #     --from-literal=password="$(openssl rand -base64 32)"
+    passwordSecret:
+      name: redis-password
+      key: password
+
+    # Which namespaces may reach it, by label — the same shape the Gateway uses to
+    # decide which namespaces may attach a route. A password says who you are; this
+    # says where you may say it from.
+    clientNamespaceLabel:
+      key: home-lab.example/redis-access
+      value: "true"
+
+    # A ceiling rather than a target. `noeviction` in the template is deliberate:
+    # this holds locks, and silently evicting one turns a lock into a suggestion.
+    # Reaching this limit fails writes loudly instead, which is the failure worth
+    # having.
+    maxmemory: 128mb
+
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        memory: 192Mi
+
 traefik:
   fullnameOverride: traefik
   deployment:
@@ -96,14 +153,45 @@ nfs-provisioner:
     path: /export/kubernetes
     mountOptions:
       - nfsvers=4.1
+  # The cluster's one class, and deleting a claim no longer destroys its data.
+  #
+  # This was `archiveOnDelete: false` with `onDelete: delete`, which really did
+  # remove the directory — tidy for a cluster rebuilt on purpose, and wrong the
+  # first time a claim held something a person wrote. The admin agent's memory is
+  # months of conversations and curated facts, and a `helm uninstall` took it.
+  #
+  # Changed globally rather than by adding a second class for the one volume that
+  # needed it. Two classes is a choice at every future PVC, and the day somebody
+  # forgets to make it is the day it mattered; one class that keeps data is a
+  # decision made once.
+  #
+  # READ reclaimPolicy CAREFULLY — it is a trap here, and it must stay `Delete`.
+  # It does NOT mean the data is deleted. It selects which handler runs when the
+  # claim goes, and only `Delete` hands the volume to THIS provisioner; `Retain`
+  # means Kubernetes leaves the PV Released and the provisioner is never called at
+  # all. archiveOnDelete is read by that handler and nowhere else, so `Retain`
+  # would silently skip the archiving — the directory would survive under its
+  # original name by never being visited, which happens to keep the data and
+  # provides none of the labelling below. Delete is what makes the rename run.
+  #
+  # This pair is also the provisioner chart's own default, for the same reason.
+  #
+  # `onDelete` is deliberately absent. It overrides archiveOnDelete whenever it is
+  # set, so naming both is two settings answering one question with only one of
+  # them winning — and the one that was set here said `delete`.
+  #
+  # WHAT THIS COSTS. Nothing reclaims space now: every deleted claim leaves an
+  # `archived-` directory on the NFS export until somebody removes it. That is a
+  # standing chore rather than a solved problem, and the prefix is what makes it a
+  # scriptable one — orphaned data is exactly the set matching `archived-*`, and
+  # nothing live is ever named that way.
   storageClass:
     create: true
     defaultClass: true
     name: nfs-client
     provisionerName: home-lab.example/nfs-subdir
     reclaimPolicy: Delete
-    archiveOnDelete: false
-    onDelete: delete
+    archiveOnDelete: true
     allowVolumeExpansion: true
 
 metrics-server:

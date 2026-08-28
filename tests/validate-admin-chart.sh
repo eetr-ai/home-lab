@@ -370,6 +370,54 @@ if grep -q 'name: admin-agent' <<<"$(render_defaults)"; then
   exit 1
 fi
 
+# --- the API runs more than one, and the web deliberately does not -------------
+#
+# These two sit together because the difference between them is the whole point,
+# and reading either alone invites "make them consistent".
+api_pod=$(render --show-only templates/api/deployment.yaml)
+
+# The API holds no state — the operator's token comes with each request, the
+# cluster reads go through the pod's ServiceAccount — so a second replica is just
+# more of the same. Two, so a drained node or an OOM kill does not take the panel's
+# API with it.
+grep -q '^  replicas: 2$' <<<"$api_pod"
+
+# ...and it is spread across nodes only where the cluster can manage it. Required
+# anti-affinity on a one-node cluster leaves the second replica Pending forever,
+# which turns redundancy into an outage; this asserts the preferred form is what
+# is emitted.
+grep -q 'preferredDuringSchedulingIgnoredDuringExecution' <<<"$api_pod"
+if grep -q 'requiredDuringSchedulingIgnoredDuringExecution' <<<"$api_pod"; then
+  printf 'The API must not require anti-affinity; a single-node cluster would leave a replica Pending\n' >&2
+  exit 1
+fi
+
+# A budget so a node drain cannot take both at once. It bounds voluntary
+# disruption only, which is why it is not the reason the count is 2.
+api_pdb=$(render --show-only templates/api/pdb.yaml)
+grep -q 'kind: PodDisruptionBudget' <<<"$api_pdb"
+grep -q 'minAvailable: 1' <<<"$api_pdb"
+
+# ...and it is NOT emitted at one replica, which is the case that matters: a
+# budget of minAvailable: 1 over a single replica can never be satisfied, so the
+# drain hangs rather than proceeding.
+if render --set admin.api.replicas=1 2>/dev/null | grep -q 'kind: PodDisruptionBudget'; then
+  printf 'No PodDisruptionBudget may be emitted at one replica; it would deadlock a drain\n' >&2
+  exit 1
+fi
+
+# THE WEB STAYS AT ONE, and this is the assertion most worth having here, because
+# raising it looks like an improvement and is an outage. eetr-auth rotates refresh
+# tokens with reuse detection: two replicas can present the same one, and the
+# answer is the whole family revoked and the operator signed out. The single-flight
+# that prevents it is an in-process Map in src/lib/auth/refresh.ts, so it reaches
+# exactly one pod. Raising this needs that lock moved behind platform.redis first.
+if grep -qE '^  replicas: [2-9]' <<<"$web_pod"; then
+  printf 'admin-web must run exactly one replica until its token refresh takes a shared lock\n' >&2
+  exit 1
+fi
+grep -q '^  replicas: 1$' <<<"$web_pod"
+
 agent_pod=$(render --show-only templates/agent/deployment.yaml)
 
 # One replica, and not because nobody got round to raising it. The standalone Octo

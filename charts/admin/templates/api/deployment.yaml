@@ -16,6 +16,21 @@ spec:
       labels:
         app.kubernetes.io/name: admin-api
     spec:
+      # Spread across nodes where the cluster can manage it. Preferred rather than
+      # required, and that is the whole point on a home lab: `required` on a
+      # single-node cluster leaves the second replica Pending forever, which turns
+      # a redundancy feature into an outage. Two replicas on one node still
+      # survive the thing that actually happens most — a rollout, and a pod being
+      # evicted or OOM-killed.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: admin-api
       serviceAccountName: admin-api
       automountServiceAccountToken: true
       {{- with .Values.admin.imagePullSecrets }}

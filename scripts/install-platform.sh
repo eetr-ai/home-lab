@@ -80,7 +80,17 @@ cloudflared_secret_spec=$(printf '%s\n' "$rendered_chart" | awk '
   in_token && $1 == "key:" { print name ":" $2; exit }
 ')
 
-for secret_spec in "$issuer_secret_spec" "$cloudflared_secret_spec"; do
+# Same shape as cloudflared's above. Yields nothing when platform.redis.enabled is
+# false, and the loop skips an empty spec — so a cluster not running Redis is not
+# asked for a Secret it has no use for.
+redis_secret_spec=$(printf '%s\n' "$rendered_chart" | awk '
+  $0 == "# Source: home-lab-platform/templates/redis.yaml" { in_template = 1; next }
+  in_template && $1 == "-" && $2 == "name:" && $3 == "REDIS_PASSWORD" { in_token = 1; next }
+  in_token && $1 == "name:" { name = $2; next }
+  in_token && $1 == "key:" { print name ":" $2; exit }
+')
+
+for secret_spec in "$issuer_secret_spec" "$cloudflared_secret_spec" "$redis_secret_spec"; do
   [[ -n $secret_spec ]] || continue
   secret_name=${secret_spec%%:*}
   secret_key=${secret_spec#*:}
