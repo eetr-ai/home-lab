@@ -391,9 +391,9 @@ credential, so there is no per-namespace pull secret to create first — see the
 - Reusing a reserved address after recreating a VM changes its SSH host key.
   Remove only the confirmed stale entry with `ssh-keygen -R ADDRESS`.
 - Deleting an NFS-backed PVC leaves its data behind rather than destroying it:
-  the default StorageClass retains, and the provisioner renames the directory to
-  `archived-<name>` on the export. Nothing reclaims that space automatically, so
-  the export grows until somebody removes the archived directories.
+  the provisioner renames the directory on the export to `archived-<name>`.
+  Nothing reclaims that space automatically, so the export grows until somebody
+  removes the archived directories.
 - Terraform state, generated inventory, fetched kubeconfig, local Helm values,
   and all credential files must remain ignored and backed up appropriately.
 

@@ -312,9 +312,9 @@ The claim is `ReadWriteMany` on `nfs-client` anyway, and for a different reason:
 the store has to be where the pod lands, so a pod rescheduled onto another node
 has to find it. RWX is also what keeps raising the replica count a values change
 once there is somewhere shared to put the store, rather than a storage migration
-as well. The class retains, so deleting this PVC leaves the conversations on the
-export as `archived-<name>` rather than destroying them — recoverable, but not
-reclaimed either.
+as well. Deleting this PVC leaves the conversations on the export as
+`archived-<name>` rather than destroying them — recoverable, but not reclaimed
+either.
 
 **It calls the API as whoever is asking.** The panel's own route handler attaches
 the signed-in operator's bearer token to every chat request, and the agent's

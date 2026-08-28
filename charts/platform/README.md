@@ -110,20 +110,23 @@ replica for that reason.
 
 ## Storage
 
-There is one StorageClass, `nfs-client`, it is the cluster default, and **it
-retains**. A deleted PVC leaves its PV `Released` and the provisioner renames the
-directory on the export to `archived-<name>` rather than emptying it.
+There is one StorageClass, `nfs-client`, it is the cluster default, and
+**deleting a claim no longer destroys its data**. The provisioner renames the
+directory on the export to `archived-<name>` instead of removing it.
 
-Both halves are needed and they do different jobs: `reclaimPolicy: Retain` leaves
-the PV so the data has something to be reattached through, and
-`archiveOnDelete: true` leaves the directory so there is data to reattach. Retain
-with the directory emptied is a PV pointing at nothing, which reads as safe and is
-not.
+**`reclaimPolicy` stays `Delete`, and that is not a contradiction.** It does not
+say whether the data is deleted; it selects which handler runs when the claim
+goes, and only `Delete` hands the volume to this provisioner. `Retain` would leave
+the PV `Released` and never call the provisioner at all — so `archiveOnDelete`
+would be read by nobody and nothing would ever be renamed. `Delete` is what makes
+the archiving run. It is also the provisioner chart's own default, for the same
+reason.
 
-This was `Delete`, and it was changed globally rather than by adding a second
-class for the one volume that needed it — the admin agent's memory, which is
-months of conversations. Two classes is a choice at every future PVC, and the day
-somebody forgets to make it is the day it mattered.
+What changed is `archiveOnDelete`, from `false` to `true`, and the removal of an
+`onDelete: delete` that overrode it. Changed globally rather than by adding a
+second class for the one volume that needed it — the admin agent's memory, which
+is months of conversations. Two classes is a choice at every future PVC, and the
+day somebody forgets to make it is the day it mattered.
 
 **The cost is that nothing reclaims space.** Every deleted claim leaves an
 `archived-` directory until somebody removes it. That is a standing chore rather
@@ -184,7 +187,6 @@ helm uninstall home-lab-platform --namespace platform-system
 
 Uninstalling does not remove the Gateway API CRDs, retained cert-manager CRDs,
 external Secrets, Cloudflare tunnel, DNS routes, or NFS data. Removing a PVC is
-recoverable rather than destructive: `nfs-client` retains, so the PV is left
-Released and the provisioner renames the directory to `archived-<name>` rather
-than deleting it. The cost is that nothing reclaims that space — the export grows
-until the archived directories are removed by hand.
+recoverable rather than destructive: the provisioner renames the directory to
+`archived-<name>` instead of deleting it. The cost is that nothing reclaims that
+space — the export grows until the archived directories are removed by hand.

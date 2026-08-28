@@ -11,9 +11,11 @@
 # one replica and says why. RWX is what keeps raising it a values change and a
 # shared KV store away, rather than a storage migration as well.
 #
-# The class retains, which this volume is much of the reason for: deleting this
-# PVC leaves the conversations on the export as `archived-<name>` rather than
-# destroying them. Recoverable, not reclaimed — see charts/platform/values.yaml.
+# This volume is much of the reason the class archives rather than deletes:
+# removing this PVC leaves the conversations on the export as `archived-<name>`
+# rather than destroying them. Recoverable, not reclaimed — and note that the
+# class's reclaimPolicy stays `Delete` for that to work at all; see
+# charts/platform/values.yaml.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

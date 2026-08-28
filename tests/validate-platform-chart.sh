@@ -74,22 +74,28 @@ grep -q '^kind: Gateway$' <<<"$without_metrics"
 
 # --- the cluster's storage keeps what it is given -----------------------------
 #
-# One class, and it retains. This was Delete with archiveOnDelete false, and the
-# first time a claim holding real data was removed that turned out to be the wrong
-# default. Both halves are asserted because they do different jobs: reclaimPolicy
-# leaves the PV Released so the data has something to be reattached through, and
-# archiveOnDelete leaves the directory on the export instead of emptying it.
-# Retain with archiveOnDelete false is a PV pointing at nothing, which reads as
-# safe and is not.
+# One class, and deleting a claim must not destroy its data. Two settings say so
+# together, and the pairing is the whole assertion.
+#
+# reclaimPolicy MUST be Delete, which is the opposite of how it reads. It selects
+# which handler runs, and only Delete hands the volume to this provisioner —
+# Retain leaves the PV Released and never calls it, so archiveOnDelete would be
+# read by nobody and nothing would ever be renamed. So `Retain` here is the
+# regression, not the safe choice, and it is asserted against by name because it
+# is what somebody reaching for safety would reach for.
 storage_class=$(awk '/^kind: StorageClass$/,/^---$/' "$output_file")
-grep -q 'reclaimPolicy: Retain' <<<"$storage_class"
+grep -q 'reclaimPolicy: Delete' <<<"$storage_class"
 grep -q 'archiveOnDelete: "true"' <<<"$storage_class"
-if grep -q 'reclaimPolicy: Delete' <<<"$storage_class"; then
-  printf 'The default StorageClass must retain; deleting a claim must not destroy its data\n' >&2
+if grep -q 'archiveOnDelete: "false"' <<<"$storage_class"; then
+  printf 'archiveOnDelete must be true; deleting a claim would otherwise destroy its data\n' >&2
   exit 1
 fi
-# onDelete overrides archiveOnDelete when set, so naming both is two settings
-# answering one question with only one of them winning.
+if grep -q 'reclaimPolicy: Retain' <<<"$storage_class"; then
+  printf 'reclaimPolicy must be Delete, or the provisioner never runs and nothing is archived\n' >&2
+  exit 1
+fi
+# onDelete overrides archiveOnDelete whenever it is set, so naming both is two
+# settings answering one question with only one of them winning.
 if grep -q 'onDelete:' <<<"$storage_class"; then
   printf 'onDelete overrides archiveOnDelete; set one of them, not both\n' >&2
   exit 1
@@ -117,8 +123,11 @@ redis_deploy=$(awk '/^kind: Deployment$/,/^---$/' <<<"$redis")
 grep -q '^  replicas: 1$' <<<"$redis_deploy"
 grep -q 'type: Recreate' <<<"$redis_deploy"
 
-# Nothing durable lives here, and the flags are what say so. Persistence off both
-# ways: --save "" stops snapshots, --appendonly no stops the log.
+# Nothing durable lives here, and the flags are what say so. BOTH are asserted
+# because they disable different mechanisms: --save "" stops RDB snapshots and
+# --appendonly no stops the append-only log, and either one alone leaves the pod
+# writing state it is not supposed to keep.
+grep -q -- '--save ""' <<<"$redis_deploy"
 grep -q -- '--appendonly no' <<<"$redis_deploy"
 
 # noeviction, deliberately. This holds locks, and an evicted lock is not a lock —
@@ -126,14 +135,22 @@ grep -q -- '--appendonly no' <<<"$redis_deploy"
 grep -q -- '--maxmemory-policy noeviction' <<<"$redis_deploy"
 
 # The password comes from a Secret rather than from values; this repository is
-# public. Asserted as the wiring rather than as "no literal", so a value moved
-# back inline fails here.
-grep -q 'secretKeyRef' <<<"$redis_deploy"
-grep -q 'name: REDIS_PASSWORD' <<<"$redis_deploy"
+# public. Asserted on the REDIS_PASSWORD entry ITSELF rather than as two
+# independent greps: separate checks for the name and for a secretKeyRef both pass
+# on a manifest where the secret reference belongs to some other variable and the
+# password is inline, which is exactly the state worth failing on.
+redis_password_env=$(grep -A3 'name: REDIS_PASSWORD' <<<"$redis_deploy")
+grep -q 'valueFrom' <<<"$redis_password_env"
+grep -q 'secretKeyRef' <<<"$redis_password_env"
 
 # ...and authentication is not the only control. The NetworkPolicy is what says a
 # leaked credential can only be spent from a namespace somebody labelled.
+#
+# Checked where the label actually has to be — under the ingress rule's
+# namespaceSelector — rather than anywhere in the document. The loose form passes
+# on a policy that merely mentions the label in a comment or carries it as its own
+# metadata, neither of which admits anybody.
 grep -q 'kind: NetworkPolicy' <<<"$redis"
-grep -q 'home-lab.example/redis-access' <<<"$redis"
+grep -A2 'namespaceSelector:' <<<"$redis" | grep -q 'home-lab.example/redis-access: "true"'
 
 printf 'Platform chart validation passed.\n'
