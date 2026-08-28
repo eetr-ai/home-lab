@@ -17,11 +17,11 @@
 # beside octo — the same trick the runtime binary arrives by, and for the same
 # reason: no Go toolchain here.
 #
-# octo v0.8.7, matching the runtime digest in Dockerfile. The two are pinned
+# octo v0.8.8, matching the runtime digest in Dockerfile. The two are pinned
 # separately because they are different images, but they should move together: a
 # dolphin and an octo from different commits would have the suite passing against
 # a runtime that is not the one the deployment runs.
-ARG OCTO_EDITOR_DIGEST=sha256:4ec26252d96ade6d3498107464b0a5a3a419ad560de51763981d7979034f60b0
+ARG OCTO_EDITOR_DIGEST=sha256:a56d7e8cb000f593c66322a0a838d936539e07ee27c1f2109e1584e884f078da
 FROM juancavallotti/octo@${OCTO_EDITOR_DIGEST} AS editor
 
 # The agent image itself, so the suite runs against the runtime, the definition

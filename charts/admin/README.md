@@ -261,14 +261,23 @@ default: `admin.agent.model` (an OpenRouter model id, vendor-prefixed —
 Three things about it are worth understanding before you run it.
 
 **It runs exactly one replica, and that is not an oversight.** The agent is an
-[Octo](https://juancavallotti.github.io/octo/) app on Octo's standalone runtime,
-whose object store — the agent's memory and its remembered facts — is a map held
-in the process and serialized to `OCTO_STORAGE_DIR`. It is read once at startup
-and written back a namespace at a time, so two replicas would each answer from
-their own copy and each overwrite the other's file. That is also why the
-Deployment is `Recreate`: a rolling update runs two pods for a few seconds, which
-is the same problem for a shorter time. Sharing the store across replicas needs
-the runtime's Kubernetes services provider, which needs the whole Octo platform.
+[Octo](https://juancavallotti.github.io/octo/) app on Octo's standalone runtime.
+Its memory — the working transcript, the recorded conversation history and the
+facts it keeps about an operator — lives under `OCTO_STORAGE_DIR` as per-thread
+files, so it is durable and survives a restart.
+
+Durable is not the same as shareable. The runtime coordinates those writes only
+*within* a process: the per-thread lock is an in-process mutex, leader election
+grants unconditionally because there is nothing to elect, and the transcript is
+appended with `O_APPEND`, which is not atomic on NFS. The version check guarding a
+working-memory write is read-then-write under that same in-process lock, so across
+two pods it is a race rather than a compare-and-swap. That is also why the
+Deployment is `Recreate`: a rolling update runs two pods against one volume for a
+few seconds, which is the same problem for a shorter time.
+
+A store two replicas could share needs the runtime's Kubernetes services module,
+and that needs `ORCHESTRATOR_URL` and `NATS_URL` — the whole Octo platform rather
+than a component of it.
 
 The claim is `ReadWriteMany` on `nfs-client` anyway, and for a different reason:
 the store has to be where the pod lands, so a pod rescheduled onto another node
