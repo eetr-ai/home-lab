@@ -39,9 +39,8 @@ env:
   - name: LLM_REASONING
     default: medium
 
-  # The admin API, in-cluster. The agent calls it with curl rather than through a
-  # connector — see the comment on call-admin-api for why — so this is the base a
-  # model-chosen path is appended to, and the guard there is what keeps it under it.
+  # The admin API, in-cluster. The base URL of the adminApi connector below, which
+  # is the boundary a model-chosen path is resolved against and cannot leave.
   - name: ADMIN_API_URL
     required: true
 
@@ -80,6 +79,14 @@ env:
   # the block with nothing to show for it.
   - name: AGENT_HTTP_MAX_TIME
     default: "20"
+
+  # How long one admin_api call may take. The adminApi connector's own bound, and
+  # a duration rather than the bare seconds above because that is what the setting
+  # takes. Kept separate from AGENT_HTTP_MAX_TIME on purpose: that one is curl's,
+  # for the calls the model makes itself with run_command, and the two have
+  # different callers even on the days the number agrees.
+  - name: AGENT_API_TIMEOUT
+    default: 20s
 
   # How many tool-calling turns one answer may take before the guardrail ends it.
   # Lower than Dr. Octo's 60 because nothing here delegates: a turn is one tool
@@ -136,14 +143,24 @@ connectors:
       host: ${HTTP_HOST}
       port: ${HTTP_PORT}
 
-  # There is deliberately no http-client connector for the admin API, and its
-  # absence is the whole of juancavallotti/octo#378 written down. One was here: a
-  # `baseURL` no rendered path could escape, with `pathPrefix` and `allowMethods`
-  # as runtime refusals. It had to go, because the block that would have used it
-  # refuses a rendered Authorization header and the connector's own `auth` is
-  # configured at startup — so a credential that differs per operator has nowhere
-  # to live. See call-admin-api, which does the same job with curl and rebuilds
-  # that boundary as a guard.
+  # The admin API, outbound. This connector was deleted once and its absence was
+  # the whole of juancavallotti/octo#378 written down; octo v0.8.8 closed that, so
+  # it is back and the curl workaround it forced is gone. See call-admin-api.
+  #
+  # `baseURL` is the security boundary and the only one that matters here: the
+  # connector resolves every request against it and takes only the path, query and
+  # fragment from the block, so no expression the model influences can reach
+  # another host.
+  #
+  # There is deliberately NO `auth`. There is no deployment credential for this
+  # API and there must not be one — every call carries the asking operator's own
+  # bearer token, set by the block. A connector credential would be a standing
+  # identity the agent could spend when no operator is present at all.
+  - name: adminApi
+    type: http-client
+    settings:
+      baseURL: ${ADMIN_API_URL}
+      timeout: ${AGENT_API_TIMEOUT}
 
   # The workspace: somewhere to draft a file, keep notes between turns, and read
   # back what a command produced.
@@ -260,7 +277,39 @@ flows:
               toJson({"routes": body.routes, "user": body.user})
             : body.message
 
+        # First-class memory, which is what octo v0.8.8 brought to the standalone
+        # runtime. Three layers, and they are deliberately not the same thing:
+        #
+        #   working memory        the transcript the model re-reads, checkpointed
+        #                         during the run and compacted against
+        #                         contextMaxTokens below
+        #   conversation history  the turn-level record a PERSON reads, appended
+        #                         and NEVER compacted, so it stays readable after
+        #                         the agent has summarised its own context away
+        #   user memory           curated facts about the operator, carried into
+        #                         later conversations
+        #
+        # All three live on the PVC, under $OCTO_STORAGE_DIR/agent-memory — where
+        # the directory layout IS the index, so listing a conversation is a
+        # directory read with no second file to keep in step.
+        #
+        # agentId is stated and never derived, because it is what stored
+        # conversations are keyed by: a name derived from this block's position
+        # would silently destroy every conversation under it the day the block is
+        # renamed or moved into another branch.
+        agentId: sous
         memoryThreadId: vars.threadKey
+        # Who is on the other side. It scopes user memory, so one operator's facts
+        # are never read into another's conversation. The panel authenticates this
+        # and the chat flow overwrites any forged value before it reaches here.
+        userId: vars.userKey
+        history: record
+        # Replaces the three hand-rolled fact tools this file used to carry. The
+        # model gets remember, forget and search_memory, and what it has already
+        # remembered is placed in every request rather than costing a tool call it
+        # has to think to make — an agent that has to remember to remember mostly
+        # does not.
+        userMemory: true
         contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
 
@@ -370,14 +419,15 @@ flows:
           applied to anything.
 
 
-          You remember people between conversations. Call recall_facts when the
-          answer might depend on how somebody works, and remember_fact — with both
-          a short stable name and the fact itself — when they tell you something
-          worth keeping: which namespace is theirs, how they like output formatted,
-          what to call them. Remember preferences and context, not the contents of
-          a conversation, and never a credential. If they tell you something has
-          changed, update the fact under the same name; if they ask you to forget
-          something, forget it without arguing.
+          You remember people between conversations. What you have already
+          remembered is in front of you on every turn, so read it rather than
+          asking somebody to repeat themselves — search_memory is for going
+          further back, not for finding out what you know. Call remember when
+          somebody tells you something worth keeping: which namespace is theirs,
+          how they like output formatted, what to call them. Remember preferences
+          and context, not the contents of a conversation, and never a credential.
+          If they tell you something has changed, remember the new version; if
+          they ask you to forget something, forget it without arguing.
 
 
           Report honestly. Say which tool you read something from, say when a call
@@ -397,32 +447,20 @@ flows:
           # and no service identity, client-credentials grant or standing token
           # exists for it to hold.
           #
-          # WHY THIS IS CURL AND NOT rest-dynamic. It was a rest-dynamic block,
-          # which is the right shape for this: a fixed baseURL, a model-chosen path
-          # under it, and allowMethods/pathPrefix as runtime refusals rather than
-          # instructions. It cannot be used, because that block refuses a rendered
-          # Authorization header outright — see juancavallotti/octo#378. The
-          # connector's own `auth` is the alternative it points at, and that is
-          # configured at startup, so it can carry the deployment's credential and
-          # never the caller's. There is no third option.
+          # The call goes through the adminApi http-client connector, whose baseURL
+          # is the boundary: nothing the model influences can send this request to
+          # another host. `pathPrefix` and `allowMethods` narrow it further, and
+          # both are refusals in the runtime rather than clauses in an expression.
+          # See call-admin-api for what this replaced and why it is stronger.
           #
-          # So the path prefix that block gave for free is rebuilt in the flow, in
-          # CEL, and that is the real cost of the workaround: it is now a guard on
-          # a model-supplied string rather than a refusal in the runtime. It is
-          # written to fail closed, and it runs before the URL is built.
-          #
-          # The token goes to curl on STDIN, as a config file, and never in argv.
-          # A process's arguments are readable by anything that can see the process
-          # list, and argv is what a trace records; stdin is neither.
-          #
-          # WHAT IS DELIBERATELY NOT RESTRICTED: the method. This tool can issue
-          # any of them, which is a decision rather than a leftover. A verb is not
-          # a proxy for "destructive" here — the panel's own SQL console reads
-          # through a POST — so pinning it to GET withheld half of what the agent
-          # is for while withholding nothing an operator could not already do from
-          # the panel's own screens. The agent calls with the asking operator's
-          # token, so what it may do is exactly what they may do, and narrowing
-          # that belongs in the token rather than in this file.
+          # WHAT IS DELIBERATELY NOT RESTRICTED: which method, among the five the
+          # schema offers. A verb is not a proxy for "destructive" here — the
+          # panel's own SQL console reads through a POST — so pinning it to GET
+          # withheld half of what the agent is for while withholding nothing an
+          # operator could not already do from the panel's own screens. The agent
+          # calls with the asking operator's token, so what it may do is exactly
+          # what they may do, and narrowing that belongs in the token rather than
+          # in this file.
           - name: admin_api
             description: >
               Call the admin panel's API. The cluster: /api/kubernetes/summary,
@@ -548,69 +586,6 @@ flows:
                 settings:
                   flow: navigate
 
-          # ------------------------------------------------------------- the facts
-          #
-          # What Sous remembers about a person between conversations. Memory holds
-          # a *conversation*; this holds what outlives one.
-          #
-          # All three keep every fact for an operator in a single object at
-          # facts/{userKey}, because the KV store has get, set and delete but no
-          # list. The key is built from vars.userKey, which the model can neither
-          # see nor set: it names a fact, the flow decides whose.
-          #
-          # Read and write are separate steps, so two conversations remembering at
-          # the same moment can lose one fact. The cost is a forgotten preference
-          # rather than a wrong one.
-          - name: recall_facts
-            description: >
-              Everything you have been told to remember about this operator. Read
-              it early when the answer might depend on how they work — do not ask
-              them to repeat something you were already told.
-            inputSchema: |
-              { "type": "object", "properties": {} }
-            process:
-              - type: flow-ref
-                settings:
-                  flow: recall-facts
-
-          - name: remember_fact
-            description: >
-              Remember something about this operator for later conversations. Use a
-              short stable name so the same fact can be updated rather than
-              duplicated — "preferred-namespace", "output-format". Remember what
-              they tell you about themselves and how they work, not the contents of
-              this conversation, and never anything secret.
-            inputSchema: |
-              {
-                "type": "object",
-                "required": ["name", "value"],
-                "properties": {
-                  "name":  { "type": "string", "description": "Short stable identifier for the fact." },
-                  "value": { "type": "string", "description": "The fact, in a sentence." }
-                }
-              }
-            process:
-              - type: flow-ref
-                settings:
-                  flow: remember-fact
-
-          - name: forget_fact
-            description: >
-              Forget a fact by name. Use this when the operator says something is
-              no longer true, and when they ask you to forget something.
-            inputSchema: |
-              {
-                "type": "object",
-                "required": ["name"],
-                "properties": {
-                  "name": { "type": "string", "description": "The fact's name, as given to remember_fact." }
-                }
-              }
-            process:
-              - type: flow-ref
-                settings:
-                  flow: forget-fact
-
         skills:
           - name: home-lab
             description: >
@@ -680,29 +655,50 @@ flows:
   # operatorToken. A test seeds those with `vars` on its input.
 
   # The panel's API, called as the operator who asked.
+  #
+  # This was curl, and why it was curl is worth keeping, because it is the reason
+  # it is not any more. `rest-dynamic` is the right shape for this — a fixed
+  # baseURL, a model-chosen path under it, `allowMethods` and `pathPrefix` as
+  # runtime refusals — but it used to reject a rendered Authorization header
+  # outright, and a connector's own `auth` is fixed at startup, so a credential
+  # that differs per operator had nowhere to live (juancavallotti/octo#378). The
+  # call went out through curl instead, with the path prefix rebuilt as a CEL
+  # guard and the token handed over on stdin as a curl config file.
+  #
+  # octo v0.8.8 lifted the refusal. What replaces the workaround is stronger than
+  # it was, rather than merely shorter:
+  #
+  #   - The host is the connector's baseURL, and nothing evaluated here can change
+  #     it. That was a hand-written guard; it is a property of the connector now.
+  #   - `pathPrefix` and `allowMethods` are refusals in the runtime again, rather
+  #     than clauses in an expression anyone can shorten by one.
+  #   - The path is checked PARSED rather than as a string, so "%2e%2e" is refused
+  #     alongside a literal "..", and a ".." inside a query VALUE is left alone
+  #     instead of failing a call that could never have traversed anything.
+  #   - Nothing has to escape a credential into a config-file format, because there
+  #     is no config file: the token is a header value like any other.
+  #
+  # WHAT IS DELIBERATELY NOT RESTRICTED: which of the five methods. A verb is not a
+  # proxy for "destructive" here — the panel's own SQL console reads through a POST
+  # — so pinning this to GET would withhold half of what the agent is for while
+  # withholding nothing an operator could not already do from the panel's own
+  # screens. The agent calls with the asking operator's token, so what it may do is
+  # exactly what they may do, and narrowing that belongs in the token rather than
+  # in a definition anyone can edit. `allowMethods` names the five the tool's
+  # schema offers, which keeps HEAD and OPTIONS — the two the runtime would
+  # otherwise allow — off the list.
   - name: call-admin-api
     process:
-      # The path guard. It is about which HOST is called and not which method —
-      # the connector's baseURL used to make leaving it impossible, and now this
-      # does. Every clause fails closed and each is here for a reason:
+      # A readable refusal for the two mistakes a model actually makes, and only
+      # those. Everything that bounds where the request can go is the runtime's
+      # job now; this is here so an omitted or misspelled path comes back as a
+      # sentence rather than as a flow error the model has to interpret.
       #
-      #   startsWith("/api")  the panel's API is under /api and nothing else is
-      #   !contains("..")     paths are joined without normalisation, so a
-      #                       ".." segment climbs out of the prefix
-      #   !startsWith("//")   "//host" is a protocol-relative URL: curl
-      #                       would resolve it against the scheme and call
-      #                       another host entirely
-      #   no "\\", no ":"      a backslash is normalised to a slash by some
-      #                       parsers, and a colon opens a scheme
-      #   no whitespace       a space or newline would end the URL argument
-      #                       and start another curl option
-      #
-      # The presence and type checks come first, and they are not decoration. A
-      # missing key is an evaluation ERROR in CEL rather than a false — `no such
-      # key: path` — so without them a tool call that simply omits the argument
-      # fails the block instead of taking the refusal branch below, and the model
-      # gets a transport error where it should get a sentence. `required` in the
-      # tool's schema is advice to the model, not a runtime refusal.
+      # has() and the type check come first, and they are not decoration: a missing
+      # key is an evaluation ERROR in CEL rather than a false — `no such key: path`
+      # — so without them a call that simply omits the argument fails the block
+      # instead of taking the refusal branch below. `required` in the tool's schema
+      # is advice to the model, not a runtime refusal.
       - type: set-variable
         name: path-ok
         settings:
@@ -711,141 +707,91 @@ flows:
             has(body.path)
               && type(body.path) == string
               && body.path.startsWith("/api")
-              && !body.path.startsWith("//")
-              && !body.path.contains("..")
-              && !body.path.contains("\\")
-              && !body.path.contains(":")
-              && !body.path.matches("\\s")
 
       - type: if
         name: can-call
         condition: 'vars.operatorToken != "" && vars.pathOk'
         then:
           process:
-            # toFormData escapes each value, so a query the model chose
-            # cannot add a parameter or terminate the URL.
-            - type: set-variable
-              name: build-url
-              settings:
-                name: adminUrl
-                value: >-
-                  env.ADMIN_API_URL + body.path +
-                  (has(body.query) && size(body.query) > 0
-                    ? "?" + toFormData(body.query) : "")
-
-            # The request body, escaped for curl's config format rather than
-            # written to a file or passed in argv.
+            # The operator's own bearer token, as a header value.
             #
-            # Backslashes first, then quotes — the other order would double-escape
-            # the backslashes it just introduced. What toJson emits is already
-            # JSON-escaped, so a newline inside a string is the two characters
-            # backslash-n; after this it is backslash-backslash-n, which curl reads
-            # back as those same two characters rather than as a line break that
-            # would end the value.
-            - type: set-variable
-              name: build-body
-              settings:
-                name: requestBody
-                value: >-
-                  has(body.body) && body.body != null
-                    ? toJson(body.body).replace("\\", "\\\\").replace("\"", "\\\"")
-                    : ""
-
-            # The credential gets the same treatment, and for the same reason
-            # rather than a weaker one.
-            #
-            # A JWT is base64url and dots, so today this changes nothing. That is
-            # exactly why it is worth doing: the value comes from an external
-            # identity provider through the panel, nothing here constrains its
-            # alphabet, and the day one arrives with a quote in it the config line
-            # would end early — turning the rest of the header, and everything
-            # after it, into curl directives built from a credential. Escaping it
-            # costs one expression; assuming its shape costs that.
-            - type: set-variable
-              name: build-token
-              settings:
-                name: curlToken
-                value: 'vars.operatorToken.replace("\\", "\\\\").replace("\"", "\\\"")'
-
-            # The method, in a variable rather than inline in the config below.
+            # The connector carries no `auth` of its own, and that is deliberate:
+            # there is no deployment credential for this API and there must not be
+            # one. A block credential and a connector credential do not contend —
+            # the connector applies its own only when the request carries none — so
+            # an empty `auth` there means a call that somehow arrives without a
+            # token is a call without a token, rather than one that quietly falls
+            # back to a standing identity nobody asked for.
+            # The method, in a variable rather than inline in the block below.
             # Two reasons, and neither is style: it is where the default lives, so
             # it is the one place to read to know what an omitted method does; and
             # a variable is visible in a trace and assertable in a test, while an
-            # expression buried in a multi-line string is neither.
+            # expression evaluated inside the block is neither — a spy sees the
+            # message that went in, not the request that came out.
             - type: set-variable
               name: build-method
               settings:
                 name: requestMethod
                 value: 'has(body.method) && body.method != "" ? body.method : "GET"'
 
-            # -K - reads curl's own config from stdin, which is where everything
-            # that must not be in argv goes: the credential, and the body. A
-            # process's arguments are readable by anything that can see the process
-            # list, and argv is what a trace records. The URL is in argv
-            # deliberately — it is worth seeing in a trace and holds nothing secret.
+            # Wrapped, because `failOnError` is narrower than it sounds: it
+            # governs the STATUS, and a request that never got one is a different
+            # failure. A DNS answer that does not come, a connection refused, a
+            # timeout — the block returns an error and the chain stops, whatever
+            # failOnError says.
             #
-            # The method comes from the model, within the enum its schema declares,
-            # and that is a deliberate decision rather than an oversight. Pinning it
-            # to GET withheld half of what this agent is for while withholding
-            # nothing an operator could not already do from the panel: the API
-            # answers reads through POST as well — the SQL console is one — so a
-            # verb is not a proxy for "destructive". What may be done is the token's
-            # question, and the token is the operator's own.
-            - type: cli-run
-              name: admin-call
-              program: env.AGENT_CURL_BIN
-              args: >-
-                ["-sS", "--max-time", env.AGENT_HTTP_MAX_TIME,
-                 "-w", "\n%{http_code}", "-K", "-", "--url", vars.adminUrl]
-              stdin: >-
-                "request = \"" + vars.requestMethod + "\"\n" +
-                "header = \"Authorization: Bearer " + vars.curlToken + "\"\n" +
-                "header = \"Accept: application/json\"\n" +
-                (vars.requestBody != ""
-                  ? "header = \"Content-Type: application/json\"\n" +
-                    "data = \"" + vars.requestBody + "\"\n"
-                  : "")
-              allow: ["${AGENT_CURL_BIN}"]
-              env: [PATH, HOME]
-              workDir: ${AGENT_WORKSPACE}
-              timeout: ${AGENT_CLI_TIMEOUT}
-              onExit: continue
-
-            # The status is the last line, because -w appended it.
-            #
-            # trim() before splitting, and it is load-bearing rather than
-            # tidy: cli-run hands back stdout with a trailing newline, so
-            # splitting the raw string yields a final empty element — the
-            # status reads as "" and the code stays stuck on the end of the
-            # body. That is a wrong answer rather than a failure, which is
-            # the kind worth a comment.
-            - type: set-variable
-              name: split-output
-              settings:
-                name: outLines
-                value: 'body.exitCode == 0 ? body.stdout.trim().split("\n") : []'
-
-            # Split off so a 4xx comes back as data the model can read and
-            # correct, rather than as a body it has to guess the meaning of.
-            # A response with no body at all is one line, which is a status
-            # and an empty body rather than a body and no status.
-            - type: set-payload
-              name: read-response
-              settings:
-                value: >-
-                  {
-                    "status": size(vars.outLines) > 0
-                      ? vars.outLines[size(vars.outLines) - 1] : "",
-                    "body": size(vars.outLines) > 1
-                      ? vars.outLines.slice(0, size(vars.outLines) - 1).join("\n") : "",
-                    "error": body.exitCode == 0 ? "" :
-                      "the request could not be made: " + body.stderr
-                  }
+            # Unwrapped, that ends the tool call as a dead message and the model
+            # gets a transport error to interpret, which is the exact thing the
+            # refusal branch below exists to avoid. The API being unreachable is
+            # ordinary — it is a rollout, or a pod not up yet — and the honest
+            # answer to it is a sentence saying so.
+            - type: handle-errors
+              name: attempt-call
+              process:
+                - type: rest-dynamic
+                  name: admin-call
+                  settings:
+                    connector: adminApi
+                    method: vars.requestMethod
+                    path: body.path
+                    query: 'has(body.query) ? body.query : {}'
+                    body: 'has(body.body) ? body.body : null'
+                    headers: >-
+                      {"Authorization": "Bearer " + vars.operatorToken,
+                      "Accept": "application/json"}
+                    allowMethods: [GET, POST, PUT, PATCH, DELETE]
+                    pathPrefix: /api
+                    # A 4xx comes back as data the model can read and correct
+                    # from, rather than ending the message it was answering.
+                    failOnError: false
+                    statusVar: adminStatus
+                # Status beside body, which is the shape this tool has always
+                # answered in and the one the prompt tells the model to expect.
+                - type: set-payload
+                  name: read-response
+                  settings:
+                    value: '{"status": string(vars.adminStatus), "body": body}'
+              error:
+                # The same three keys, so the model reads one shape whatever
+                # happened. An empty status is what "no reply at all" looks like,
+                # and it is distinguishable from a 4xx, which is the distinction
+                # worth keeping — one means correct the call, the other means the
+                # panel's API is not answering.
+                #
+                # This also catches the runtime's own path and method refusals,
+                # which are errors rather than statuses: a path that passed the
+                # guard above but not pathPrefix arrives here as a sentence
+                # instead of as a dead message.
+                - type: set-payload
+                  name: call-failed
+                  settings:
+                    value: >-
+                      {"status": "", "body": "",
+                      "error": "the request could not be made: " + vars.error.message}
         else:
           process:
-            # Answered from a check rather than from a failed request, so
-            # the model gets an explanation instead of a transport error it
-            # has to interpret.
+            # Answered from a check rather than from a failed request, so the model
+            # gets an explanation instead of a transport error it has to interpret.
             - type: set-payload
               settings:
                 value: >-
@@ -853,9 +799,8 @@ flows:
                   ? "This conversation carries no operator token, so the
                   panel's API cannot be read. That happens when the agent is
                   called directly rather than through the panel."
-                  : "That path is refused. It must begin /api, and may not
-                  contain a scheme, a '..' segment, a backslash or
-                  whitespace."}
+                  : "That path is refused. It must be a path beginning /api,
+                  and not a full URL."}
 
   # One file out of the workspace.
   - name: read-file
@@ -1010,60 +955,3 @@ flows:
       - type: set-payload
         settings:
           value: '{"navigated": true}'
-
-  # Everything remembered about this operator.
-  - name: recall-facts
-    process:
-      - type: object-read
-        settings:
-          key: '"facts/" + vars.userKey'
-          as: userFacts
-          default: '{"items": []}'
-      - type: set-payload
-        settings:
-          value: '{"facts": vars.userFacts.items}'
-
-  # Upsert one fact, oldest-first capped.
-  - name: remember-fact
-    process:
-      - type: object-read
-        settings:
-          key: '"facts/" + vars.userKey'
-          as: userFacts
-          default: '{"items": []}'
-      # Filter-then-append is what makes this an upsert.
-      - type: set-variable
-        name: merge-facts
-        settings:
-          name: mergedFacts
-          value: >-
-            vars.userFacts.items.filter(f, f.name != body.name)
-            + [{"name": body.name, "value": body.value}]
-      # Capped, oldest first: nothing else bounds this list, and it is read
-      # back in full on every recall_facts.
-      - type: object-write
-        settings:
-          key: '"facts/" + vars.userKey'
-          value: >-
-            {"items": size(vars.mergedFacts) > 200
-              ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
-              : vars.mergedFacts}
-      - type: set-payload
-        settings:
-          value: '{"remembered": body.name}'
-
-  # Drop one fact by name.
-  - name: forget-fact
-    process:
-      - type: object-read
-        settings:
-          key: '"facts/" + vars.userKey'
-          as: userFacts
-          default: '{"items": []}'
-      - type: object-write
-        settings:
-          key: '"facts/" + vars.userKey'
-          value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
-      - type: set-payload
-        settings:
-          value: '{"forgotten": body.name}'

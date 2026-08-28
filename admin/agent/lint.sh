@@ -12,9 +12,10 @@
 #   - A `cli-run` allow list is resolved when the flow is BUILT, so a literal path
 #     that is not in the image fails the whole config on load, and a path that no
 #     longer matches the Dockerfile fails the same way after an innocent bump.
-#   - The path guard on admin_api is the only thing keeping a model-supplied
-#     string under the panel's own base URL, now that the connector that used to
-#     enforce it is out of the picture. Losing a clause is a hole, not a lint nit.
+#   - admin_api is bounded by its connector's baseURL and by pathPrefix and
+#     allowMethods on the block. Those are runtime refusals, but nothing fails
+#     loudly when one is simply deleted — the tool keeps working, over a wider
+#     surface. Losing one is a hole, not a lint nit.
 #
 # PyYAML rather than a hand-rolled parser: `task lint` already requires
 # ansible-core, which depends on it.
@@ -99,8 +100,9 @@ for name, path in sorted(bin_defaults.items()):
 # --- every connector is used --------------------------------------------------
 #
 # Connectors start eagerly, so a dead one is a startup cost and a standing claim
-# that something uses it. The admin API's http-client connector became dead the
-# moment its tool moved to curl, and nothing in the runtime would ever have said so.
+# that something uses it. The admin API's http-client connector was dead for
+# exactly as long as its tool went out through curl, and nothing in the runtime
+# would ever have said so.
 declared_connectors = {c["name"] for c in config.get("connectors", [])}
 used_connectors = {
     block["settings"]["connector"]
@@ -122,17 +124,17 @@ for name in sorted(declared_connectors - used_connectors):
 
 # --- admin_api is bounded to the panel's own base URL ------------------------
 #
-# This block carries more weight than it looks like it should, and the reason is
-# worth stating: admin_api used to be a `rest-dynamic` block, where the path prefix
-# was a runtime refusal. It cannot be, because that block refuses a rendered
-# Authorization header and the connector's own auth is configured at startup — see
-# juancavallotti/octo#378. So that boundary is now a guard in this file, and this
-# is what holds it there.
+# The boundary is the runtime's again — the connector's baseURL, with pathPrefix
+# and allowMethods on the block — after octo v0.8.8 let a rest block send the
+# caller's credential and retired the curl workaround (juancavallotti/octo#378).
+# What follows pins that arrangement in place, because deleting any one of those
+# settings leaves a tool that still works over a wider surface than intended.
 #
-# The METHOD is deliberately not restricted, and there is no assertion about it on
-# purpose. That was a decision: a verb is not a proxy for "destructive" here, the
-# agent calls with the asking operator's own token, and narrowing what may be done
-# belongs in the token rather than in a definition anyone can edit.
+# WHICH of the five methods is deliberately not restricted, and there is no
+# assertion about it on purpose. That was a decision: a verb is not a proxy for
+# "destructive" here, the agent calls with the asking operator's own token, and
+# narrowing what may be done belongs in the token rather than in a definition
+# anyone can edit.
 agent = next(block for block in blocks if block.get("type") == "ai-agent")
 tools = {tool["name"]: tool for tool in agent["tools"]}
 by_name = {flow["name"]: flow for flow in config["flows"]}
@@ -181,49 +183,75 @@ for flow in config["flows"]:
 
 admin_blocks = implementation("admin_api")
 
-# Nothing may call an HTTP connector any more. If a rest or rest-dynamic block
-# comes back — because the upstream issue was fixed, say — every assertion below
-# stops describing the thing that runs, and silently.
-for block in blocks:
-    if block.get("type") in {"rest", "rest-dynamic"}:
+# The call goes through a rest-dynamic block again, and the boundary is the
+# connector's rather than this file's. That is the arrangement
+# juancavallotti/octo#378 made impossible and octo v0.8.8 restored; if it ever
+# regresses to a cli-run, every assertion below stops describing what runs.
+api_calls = [b for b in admin_blocks if b.get("type") == "rest-dynamic"]
+if len(api_calls) != 1:
+    problems.append(f"admin_api makes {len(api_calls)} rest-dynamic calls; expected exactly 1")
+
+# The credential must not go back to a program. cli-run puts its arguments in
+# argv, which anything that can read the process list can see and which is what a
+# trace records — the whole reason the workaround had to hand curl a config file
+# on stdin instead.
+for block in admin_blocks:
+    if block.get("type") == "cli-run":
+        problems.append("admin_api runs a program again; the credential belongs in a header")
+
+for call in api_calls:
+    settings = call.get("settings", {})
+
+    # What pathPrefix and allowMethods are for. Both are runtime refusals, and
+    # neither has a default that restricts anything — an absent pathPrefix allows
+    # the whole base URL — so a missing one is a hole rather than a lint nit.
+    if settings.get("pathPrefix") != "/api":
+        problems.append("admin_api's rest-dynamic block must set pathPrefix: /api")
+    # The five the tool's schema offers. Naming them is what keeps HEAD and
+    # OPTIONS, which the runtime would otherwise allow, off the list.
+    if settings.get("allowMethods") != ["GET", "POST", "PUT", "PATCH", "DELETE"]:
         problems.append(
-            "a rest/rest-dynamic block is back; the assertions here are about the "
-            "curl workaround and need rewriting for it"
-        )
-
-calls = [
-    block for block in admin_blocks
-    if block.get("type") == "cli-run" and block.get("program") == "env.AGENT_CURL_BIN"
-]
-if len(calls) != 1:
-    problems.append(f"admin_api makes {len(calls)} curl calls; expected exactly 1")
-
-for call in calls:
-    stdin = call.get("stdin", "")
-    argv = call.get("args", "")
-
-    # The credential and the request body go on stdin and never in argv: a
-    # process's arguments are readable from the process list, and argv is what a
-    # trace records. The body matters as much as the token here — creating a
-    # database role puts a password in it.
-    for name, value in [("the operator token", "operatorToken"), ("the request body", "requestBody")]:
-        if value in argv:
-            problems.append(f"{name} must not appear in curl's arguments")
-    if "Authorization: Bearer " not in stdin:
+            "admin_api's allowMethods must name exactly the five methods its schema offers")
+    # A 4xx has to come back as data. On the default the model gets a flow error
+    # where it was owed a status it could read and correct from.
+    if settings.get("failOnError") is not False:
+        problems.append(
+            "admin_api must set failOnError: false, so a 4xx is data rather than a dead message")
+    if settings.get("connector") != "adminApi":
+        problems.append("admin_api must call through the adminApi connector")
+    if "Authorization" not in settings.get("headers", ""):
         problems.append("admin_api does not send the operator's bearer token")
-    if '"-K", "-"' not in argv:
-        problems.append("admin_api must pass -K - so curl reads the credential from stdin")
 
-    # The method is the model's to choose, but only from the enum its schema
-    # declares — so the schema is what bounds it, and an unconstrained one would
-    # let a rendered string reach curl's config as a config directive.
-    schema = tools["admin_api"].get("inputSchema", "")
-    if '"enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]' not in schema:
-        problems.append("admin_api's method must be an enum in the schema; it is what bounds what reaches curl's config")
+# ...and the connector it calls through is bounded to the panel's own API and
+# carries no credential of its own.
+#
+# An `auth` here would be a standing identity, and worse than an unused one: the
+# connector applies its credential only when the request does not already carry
+# one, so a deployment token configured here would be spent by exactly the calls
+# that arrive with no operator — the case this agent must refuse rather than
+# quietly answer as somebody else.
+admin_conn = next((c for c in config["connectors"] if c["name"] == "adminApi"), None)
+if admin_conn is None:
+    problems.append("there is no adminApi connector for admin_api to call through")
+else:
+    conn_settings = admin_conn.get("settings", {})
+    if conn_settings.get("baseURL") != "${ADMIN_API_URL}":
+        problems.append(
+            "the adminApi connector's baseURL must be ${ADMIN_API_URL}; it is the boundary")
+    if "auth" in conn_settings:
+        problems.append(
+            "the adminApi connector must carry no auth; every call uses the operator's own token")
 
-# What pathPrefix used to do. Each clause closes a way out of the base URL, so a
-# missing one is a hole rather than a lint nit; they are listed rather than
-# summarised so removing one cannot pass.
+# The path guard, which is much smaller than it was because the runtime does the
+# bounding again — and does it better, on the PARSED path, so "%2e%2e" is refused
+# alongside a literal ".." and a ".." inside a query VALUE no longer fails a call
+# that could not have traversed anything.
+#
+# What is left is here for the ERROR MESSAGE rather than for containment: it turns
+# the two mistakes a model actually makes into a sentence instead of a flow error.
+# The presence and type checks are not decoration — a missing key is an evaluation
+# ERROR in CEL rather than a false, so without them a call that merely omits the
+# argument fails the block instead of taking the refusal branch.
 guard = next(
     (
         block.get("settings", {})
@@ -234,27 +262,13 @@ guard = next(
     None,
 )
 if guard is None:
-    problems.append("admin_api has no path guard; a model-supplied path would reach the URL unchecked")
+    problems.append("admin_api has no path guard, so an omitted path errors rather than refusing")
 else:
     expression = guard.get("value", "")
-    # Every clause, spelled out as it appears rather than by a keyword that would
-    # match a different expression. The list was short by one — the backslash
-    # clause — and "matches" alone would have been satisfied by any regex at all,
-    # which is the sort of assertion that reads as coverage and is not.
     for clause, why in [
-        # These two come first and are load-bearing in a way the rest are not: an
-        # absent key is `no such key` and a non-string is `no such overload`, both
-        # evaluation ERRORS rather than a false. Without them a call that merely
-        # omits the argument fails the block instead of taking the refusal branch,
-        # so the model gets a transport error where a sentence was owed.
         ("has(body.path)", "a call that omits the path (it would error, not refuse)"),
         ("type(body.path) == string", "a path that is not a string (it would error, not refuse)"),
-        ('body.path.startsWith("/api")', "the path prefix"),
-        ('!body.path.startsWith("//")', "a protocol-relative path reaching another host"),
-        ('!body.path.contains("..")', "a .. segment escaping the prefix"),
-        ('!body.path.contains("\\\\")', "a backslash some parsers read as a slash"),
-        ('!body.path.contains(":")', "a scheme"),
-        ('!body.path.matches("\\\\s")', "whitespace splitting the URL into another argument"),
+        ('body.path.startsWith("/api")', "a path outside the panel's API"),
     ]:
         if clause not in expression:
             problems.append(f"admin_api's path guard no longer refuses {why}")
@@ -311,22 +325,25 @@ else:
 # --- the operator's token never reaches the model -----------------------------
 #
 # It arrives as a header so that it lands in vars rather than in body. Anywhere it
-# is named other than the three places below — the agent's input, a payload, a log
-# line, curl's argv — puts a live credential into a transcript, a memory object and
-# a trace.
+# is named other than the places below — the agent's input, a payload, a log line
+# — puts a live credential into a transcript, a memory object and a trace. That
+# matters more than it did: conversation history is durable and never compacted
+# now, so a credential that reaches it is written to the volume and stays there.
 #
-# `vars.operatorToken` is the RAW token, and it is exhaustively listed. What the
-# request actually carries is `vars.curlToken`, the escaped form. Keeping the two
-# names apart is what makes this checkable at all: an earlier version of this block
-# exempted the whole stdin expression on the strength of it containing the word
-# Authorization, which let the raw token be substituted back into the header with
-# nothing noticing. It was a mutation test that found that, not review.
+# The list is exhaustive rather than a rule, and that is the point. An earlier
+# version of this check exempted a whole expression on the strength of it
+# containing the word Authorization, which let the raw token be substituted back
+# in with nothing noticing. It was a mutation test that found that, not review.
 allowed_token_uses = {
     ("name", "operatorToken"),
     ("condition", 'vars.operatorToken != "" && vars.pathOk'),
-    # Escaped for curl's config format, exactly as the request body is. The raw
-    # token goes no further than this line; what reaches the header is curlToken.
-    ("value", r'vars.operatorToken.replace("\\", "\\\\").replace("\"", "\\\"")'),
+    # The one place it is rendered: the Authorization header of the one block that
+    # calls the panel's API. It goes as a header VALUE, which is why nothing has to
+    # escape it into a config-file format the way curl's -K did.
+    (
+        "headers",
+        '{"Authorization": "Bearer " + vars.operatorToken, "Accept": "application/json"}',
+    ),
 }
 seen_token_uses = set()
 for block in blocks:
@@ -342,17 +359,6 @@ for block in blocks:
         if key == "value" and 'vars.operatorToken == ""' in value:
             continue
         problems.append(f"operatorToken reaches {key}: {value.strip()[:70]}")
-
-# ...and the request carries the escaped form, from the one block that builds it.
-for call in calls:
-    stdin = call.get("stdin", "")
-    if "vars.curlToken" not in stdin:
-        problems.append("curl's config does not send the escaped token")
-    if "operatorToken" in stdin:
-        problems.append(
-            "curl's config names the raw operatorToken; it must send vars.curlToken, "
-            "the form escaped for the config file"
-        )
 
 # Both directions: an allowed use that has vanished means the wiring was removed
 # and this list is now describing something that is not there.
@@ -389,7 +395,7 @@ elif 'vars["X-Operator-Token"]' not in holder.get("value", ""):
 CEL_KEYS = {
     "value", "condition", "path", "key", "args", "program", "stdin", "headers",
     "query", "method", "subject", "content", "default", "input", "stopWhen",
-    "memoryThreadId", "data", "resultVar", "as", "existsVar",
+    "memoryThreadId", "data", "resultVar", "as", "existsVar", "body", "userId",
 }
 
 
