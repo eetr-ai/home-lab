@@ -106,12 +106,11 @@ where you may say it from — only namespaces carrying
 `home-lab.example/redis-access: "true"`, the same shape the Gateway uses to decide
 which namespaces may attach a route.
 
-Its first intended caller is the admin panel's token refresh, which is what would
-let `admin-web` run more than one replica. **That is not wired up yet**: the panel
-still deduplicates refreshes in a process-local map, and its chart still pins one
-replica for that reason. So Redis runs with nothing talking to it until that
-lands — which is why the NetworkPolicy admits no namespace until one is
-labelled.
+Its first caller is the admin panel's token refresh, which is what lets
+`admin-web` run more than one replica — see `charts/admin`. The panel needs the
+`home-lab.example/redis-access` label on its namespace, which its own installer
+applies, and its own copy of the password: a Secret is namespaced, so this one
+cannot be read from another namespace.
 
 ## Storage
 

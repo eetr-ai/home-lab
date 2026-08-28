@@ -1,3 +1,16 @@
+{{- /*
+  Two replicas of this pod cannot deduplicate a token refresh between them
+  without somewhere shared to do it. eetr-auth rotates refresh tokens with reuse
+  detection, so the failure is not a duplicated request -- it is the whole token
+  family revoked and the operator signed out everywhere, at random, under load.
+
+  So this is a render failure rather than a setting that quietly reintroduces
+  that. It is the same reasoning as the `required` calls below: fail where
+  somebody can read why, rather than in a cluster at 2am.
+*/}}
+{{- if and (gt (int .Values.admin.web.replicas) 1) (not .Values.admin.web.redis.enabled) }}
+{{- fail "admin.web.replicas above 1 requires admin.web.redis.enabled: the token refresh must be coordinated across replicas, or eetr-auth's reuse detection will revoke the operator's token family" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +29,17 @@ spec:
       labels:
         app.kubernetes.io/name: admin-web
     spec:
+      # Preferred rather than required, for the reason the API's says: `required`
+      # on a single-node cluster leaves the second replica Pending forever.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: admin-web
       # The panel reads nothing from the Kubernetes API — it asks admin-api, which
       # holds the read-only ClusterRole. No token is mounted, so a compromise of
       # the browser-facing pod reaches the cluster only through that API.
@@ -62,6 +86,19 @@ spec:
             {{- with .Values.admin.web.writeEmails }}
             - name: ADMIN_WRITE_EMAILS
               value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.admin.web.redis.enabled }}
+            # Where the replicas agree about a token refresh. Its presence is what
+            # switches the coordination on: src/lib/auth/renew.ts builds a
+            # coordinator only when REDIS_URL is set, so a deployment without it
+            # keeps the in-process behaviour that is correct at one replica.
+            - name: REDIS_URL
+              value: {{ .Values.admin.web.redis.url | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.web.redis.secret.name }}
+                  key: {{ .Values.admin.web.redis.secret.key }}
             {{- end }}
             # In-cluster, so the panel's server talks to the API directly rather
             # than back out through the Gateway.

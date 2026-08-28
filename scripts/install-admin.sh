@@ -61,6 +61,19 @@ kubectl label namespace "$namespace" \
   home-lab.example/gateway-access=true \
   --overwrite
 
+# ...and the platform's Redis admits only namespaces carrying this one. The panel
+# needs it to coordinate its token refresh across replicas; without it the pods
+# start, the NetworkPolicy drops the connection, and every refresh fails closed —
+# which is safe, and looks exactly like an intermittent sign-out.
+#
+# Applied unconditionally rather than only when redis is enabled: a label on a
+# namespace grants nothing on its own, since reaching Redis still needs the
+# password, and making it conditional means the day somebody turns redis on is the
+# day they discover this was skipped.
+kubectl label namespace "$namespace" \
+  home-lab.example/redis-access=true \
+  --overwrite
+
 rendered_chart=$(helm template "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file")

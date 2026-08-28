@@ -57,6 +57,9 @@
                   "minLength": 1
                 }
               }
+            },
+            "enabled": {
+              "type": "boolean"
             }
           },
           "if": {
@@ -73,7 +76,10 @@
             "required": [
               "passwordSecret"
             ]
-          }
+          },
+          "required": [
+            "enabled"
+          ]
         }
       }
     },
