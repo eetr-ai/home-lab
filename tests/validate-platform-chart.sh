@@ -101,9 +101,21 @@ if grep -q 'onDelete:' <<<"$storage_class"; then
   exit 1
 fi
 
-# --- Redis is off until something needs it ------------------------------------
-if grep -q 'app.kubernetes.io/name: redis' "$output_file"; then
-  printf 'Redis must be disabled by default; it is a standing credential with no caller yet\n' >&2
+# --- Redis installs by default, and switches off cleanly ----------------------
+#
+# The exception among the optional services here, so both halves are asserted the
+# way metrics-server's are: it renders by default, and disabling it leaves nothing
+# behind rather than a Service pointing at no pods.
+grep -q 'app.kubernetes.io/name: redis' "$output_file"
+
+without_redis=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system \
+  --kube-version "$kube_version" \
+  --api-versions policy/v1/PodDisruptionBudget \
+  --values "${repo_root}/charts/platform/values.local.yaml.example" \
+  --set platform.redis.enabled=false)
+if grep -q 'app.kubernetes.io/name: redis' <<<"$without_redis"; then
+  printf 'Disabling Redis must leave nothing of it behind\n' >&2
   exit 1
 fi
 
@@ -112,7 +124,6 @@ redis=$(helm template home-lab-platform "${repo_root}/charts/platform" \
   --kube-version "$kube_version" \
   --api-versions policy/v1/PodDisruptionBudget \
   --values "${repo_root}/charts/platform/values.local.yaml.example" \
-  --set platform.redis.enabled=true \
   --show-only templates/redis.yaml)
 
 # One replica, and not for want of raising it: a lock has to have one authority,

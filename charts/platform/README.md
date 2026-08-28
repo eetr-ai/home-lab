@@ -7,7 +7,7 @@ for applications:
 - cert-manager `v1.21.1` with Cloudflare DNS-01 issuers.
 - NFS Subdirectory External Provisioner chart `4.0.18`.
 - cloudflared `2026.8.2` for a remotely managed tunnel.
-- An optional Redis `8.10.1` as a coordination point, off by default.
+- Redis `8.10.1` as a coordination point.
 - An optional whoami `v1.12.0` end-to-end test.
 
 Cilium is not a dependency. It is a cluster bootstrap prerequisite and remains
@@ -73,7 +73,8 @@ kubectl create secret generic cloudflared-token \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-If you are enabling Redis (`platform.redis.enabled`), it needs one too:
+Redis is installed by default, so its password is a prerequisite rather than a
+conditional one — the installer refuses to run without it:
 
 ```bash
 kubectl create secret generic redis-password \
@@ -87,8 +88,10 @@ keys.
 
 ## Redis
 
-Off by default, because a standing service with a credential and nothing calling
-it is a liability rather than a convenience. Turn it on when something needs it.
+Installed by default, which is an exception among the optional services here: the
+others each need something outside the cluster to be true before they are useful,
+and this one does not. Switch it off with `platform.redis.enabled: false` on a
+cluster that wants nothing coordinated.
 
 It is a **coordination point, not a store**: one replica, no persistence, and a
 restart is an empty cache. Both of those are deliberate. A lock has to have a
@@ -104,9 +107,11 @@ where you may say it from — only namespaces carrying
 which namespaces may attach a route.
 
 Its first intended caller is the admin panel's token refresh, which is what would
-let `admin-web` run more than one replica. That is not wired up yet: the panel
+let `admin-web` run more than one replica. **That is not wired up yet**: the panel
 still deduplicates refreshes in a process-local map, and its chart still pins one
-replica for that reason.
+replica for that reason. So Redis runs with nothing talking to it until that
+lands — which is why the NetworkPolicy admits no namespace until one is
+labelled.
 
 ## Storage
 

@@ -43,16 +43,24 @@ platform:
 
   # Redis, for the things a multi-replica Deployment cannot keep in a variable.
   #
-  # Off by default, and it stays off until something needs it: a standing service
-  # with a credential and nothing calling it is a liability rather than a
-  # convenience. Its first consumer is the admin panel's token refresh, which is
-  # what lets admin-web run more than one replica — see charts/admin.
+  # ON by default, unlike the other optional services here, and that is a
+  # deliberate exception rather than an oversight. The rest of them — cloudflared,
+  # whoami, the issuers — each need something outside the cluster to be true
+  # before they are useful. This one does not: it is a coordination point for
+  # whatever needs one, and the cluster is expected to grow callers for it. Its
+  # first is the admin panel's token refresh, which is what will let admin-web run
+  # more than one replica (see charts/admin).
+  #
+  # The cost of that choice is a real prerequisite: the password Secret must exist
+  # before the first install, and the installer refuses to run without it. That is
+  # written down in the README beside the other two Secrets rather than left to be
+  # discovered on a failed install.
   #
   # It holds coordination and nothing durable: one replica, no persistence, and a
   # restart is an empty cache. See the comment on the template for why more
   # replicas would make it worse rather than safer.
   redis:
-    enabled: false
+    enabled: true
 
     image:
       repository: redis
