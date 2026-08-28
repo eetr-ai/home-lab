@@ -63,6 +63,32 @@
               "properties": {
                 "enabled": {
                   "type": "boolean"
+                },
+                "namespaces": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "manage": {
+                      "type": "boolean",
+                      "description": "Let the panel create and delete namespaces. Grants create and delete on namespaces cluster-wide; what bounds it is the API's protection policy, not RBAC."
+                    },
+                    "protected": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                      },
+                      "description": "Namespaces the panel may never delete, on top of the built-in rules and its own namespace."
+                    },
+                    "podSecurity": {
+                      "enum": [
+                        "privileged",
+                        "baseline",
+                        "restricted"
+                      ],
+                      "description": "The Pod Security admission level stamped on a namespace the panel creates."
+                    }
+                  }
                 }
               }
             },

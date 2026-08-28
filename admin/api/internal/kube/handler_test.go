@@ -63,7 +63,7 @@ func TestScaleRequiresAnExplicitCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &scaleRecorder{}
 			mux := http.NewServeMux()
-			NewHandler(NewService(repo), auth.NewGuard(false)).Register(mux)
+			NewHandler(newTestService(repo), auth.NewGuard(false)).Register(mux)
 
 			// The route is scoped, so it needs a caller the way Middleware would
 			// have left one. Scopeless, which is what the panel presents today.

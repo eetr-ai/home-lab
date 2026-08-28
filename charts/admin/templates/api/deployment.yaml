@@ -60,6 +60,20 @@ spec:
             - name: ADMIN_KUBERNETES_NODE_STATS
               value: "true"
             {{- end }}
+            {{- if .Values.admin.api.kubernetes.enabled }}
+            # Which namespace the panel is running in, so it can refuse to delete
+            # itself. From the downward API rather than a literal, because the
+            # chart can be installed under any release name and a hardcoded name
+            # would silently stop matching.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ADMIN_PROTECTED_NAMESPACES
+              value: {{ join "," .Values.admin.api.kubernetes.namespaces.protected | quote }}
+            - name: ADMIN_NAMESPACE_POD_SECURITY
+              value: {{ .Values.admin.api.kubernetes.namespaces.podSecurity | quote }}
+            {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
               valueFrom:

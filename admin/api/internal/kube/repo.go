@@ -55,14 +55,60 @@ func (r *Repository) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	namespaces := make([]Namespace, 0, len(list.Items))
 	for i := range list.Items {
 		item := &list.Items[i]
-		namespaces = append(namespaces, Namespace{
-			Name:   item.Name,
-			Status: string(item.Status.Phase),
-			Age:    item.CreationTimestamp.Time,
-		})
+		namespaces = append(namespaces, namespaceFrom(item))
 	}
 	sort.Slice(namespaces, func(a, b int) bool { return namespaces[a].Name < namespaces[b].Name })
 	return namespaces, nil
+}
+
+// ReadNamespace returns one namespace.
+func (r *Repository) ReadNamespace(ctx context.Context, name string) (Namespace, error) {
+	item, err := r.client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return Namespace{}, translate(err, "read namespace "+name)
+	}
+	return namespaceFrom(item), nil
+}
+
+// CreateNamespace creates a namespace with the labels it was given.
+//
+// The labels arrive already decided: the service applied its own over the
+// caller's, which is where that rule belongs. This puts the object on the cluster
+// and nothing else.
+func (r *Repository) CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error) {
+	item, err := r.client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: spec.Name, Labels: spec.Labels},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return Namespace{}, translate(err, "create namespace "+spec.Name)
+	}
+	return namespaceFrom(item), nil
+}
+
+// DeleteNamespace deletes a namespace and everything in it.
+//
+// Deletion is asynchronous: the API server marks the namespace Terminating and
+// its own controller removes the contents, which can take a while and can stall
+// on a finalizer. So a successful return means the deletion was accepted, not
+// that it finished — the namespace stays in the listing, in Terminating, until it
+// does.
+func (r *Repository) DeleteNamespace(ctx context.Context, name string) error {
+	return translate(
+		r.client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{}),
+		"delete namespace "+name)
+}
+
+// namespaceFrom translates the cluster's namespace into this slice's.
+//
+// Whether it is protected is deliberately not filled in here: that is a rule, and
+// rules live in the service.
+func namespaceFrom(item *corev1.Namespace) Namespace {
+	return Namespace{
+		Name:   item.Name,
+		Status: string(item.Status.Phase),
+		Age:    item.CreationTimestamp.Time,
+		Labels: item.Labels,
+	}
 }
 
 // ListWorkloads returns the Deployments, StatefulSets, and DaemonSets in one
@@ -213,6 +259,8 @@ func translate(err error, what string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, what)
 	case apierrors.IsConflict(err):
 		return fmt.Errorf("%w: %s", ErrConflict, what)
+	case apierrors.IsAlreadyExists(err):
+		return fmt.Errorf("%w: %s", ErrAlreadyExists, what)
 	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
 		// The panel's ServiceAccount is bound to a read-only role. A forbidden
 		// reply usually means that binding is missing rather than that the caller

@@ -15,6 +15,7 @@ import (
 	stdhttp "net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 	"github.com/eetr-ai/home-lab/admin/api/internal/kube"
 	"github.com/eetr-ai/home-lab/admin/api/internal/mongo"
+	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
 )
@@ -198,9 +200,42 @@ func registerKubernetes(mux *stdhttp.ServeMux, guard *auth.Guard, logger *slog.L
 	}
 
 	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
-	kube.NewHandler(kube.NewService(repo), guard).Register(mux)
+	service := kube.NewService(repo, namespacePolicy(logger), os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"))
+	kube.NewHandler(service, guard).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
 	return nil
+}
+
+// namespacePolicy reads which namespaces this lab will not let the panel touch.
+//
+// POD_NAMESPACE comes from the downward API rather than from a constant, because
+// the chart can be installed under any release name and the one namespace that
+// must always be protected is the one this process is running in. Missing it is
+// survivable — the built-in rules and the configured list still apply — but it
+// means the panel could be asked to delete itself, so it is said loudly.
+func namespacePolicy(logger *slog.Logger) nspolicy.Policy {
+	own := os.Getenv("POD_NAMESPACE")
+	if own == "" {
+		logger.Warn("POD_NAMESPACE is unset; the panel's own namespace is not protected")
+	}
+
+	return nspolicy.New(nspolicy.Config{
+		Own:       own,
+		Protected: splitList(os.Getenv("ADMIN_PROTECTED_NAMESPACES")),
+		Managed:   splitList(os.Getenv("ADMIN_HELM_MANAGED_NAMESPACES")),
+	})
+}
+
+// splitList reads a comma-separated environment value, ignoring the empty
+// entries a trailing comma or a templated-in blank leaves behind.
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
 }
 
 // newVerifier builds the token verifier from the environment.

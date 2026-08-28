@@ -143,10 +143,38 @@
                     "createdAt": {
                         "type": "string"
                     },
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Labels are carried because policy is decided from them — whether the\nnamespace is protected, and whether Helm may write to it — and because the\npanel shows an operator why a namespace has no delete button.",
+                        "type": "object"
+                    },
                     "name": {
                         "type": "string"
                     },
+                    "protected": {
+                        "description": "Protected reports that this namespace may not be deleted, and why. Decided\nby internal/nspolicy from the name and the labels above, not by the cluster.",
+                        "type": "boolean"
+                    },
+                    "protectedReason": {
+                        "type": "string"
+                    },
                     "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.NamespaceSpec": {
+                "properties": {
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "name": {
                         "type": "string"
                     }
                 },
@@ -959,6 +987,252 @@
                     }
                 ],
                 "summary": "List namespaces",
+                "tags": [
+                    "kubernetes"
+                ]
+            },
+            "post": {
+                "description": "The panel applies its own labels over any the request supplies: the\nPod Security enforcement level, who manages it, and the marker that\nmakes it a candidate for Helm. A request may not set a label under\nkubernetes.io or k8s.io, since one of those decides whether a pod may\nrun privileged.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kube.NamespaceSpec",
+                                        "summary": "request",
+                                        "description": "The namespace to create"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The namespace to create",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Namespace"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create a namespace",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}": {
+            "delete": {
+                "description": "Refused for a protected namespace, and for one that still runs\nworkloads unless force=true. Deletion cascades to everything in the\nnamespace and is asynchronous: a 204 means the deletion was accepted,\nand the namespace stays in the listing as Terminating until it finishes.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Delete even though it still runs workloads",
+                        "in": "query",
+                        "name": "force",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete a namespace",
+                "tags": [
+                    "kubernetes"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Namespace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a namespace",
                 "tags": [
                     "kubernetes"
                 ]

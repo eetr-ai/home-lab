@@ -17,4 +17,13 @@ var (
 	// ErrConflict reports a write refused because the object changed underneath
 	// it — two operators scaling the same workload at once.
 	ErrConflict = errors.New("conflict")
+	// ErrProtected reports a namespace this panel may not delete. It is an
+	// authorization statement about the object rather than a temporary condition,
+	// so it is never worth retrying.
+	ErrProtected = errors.New("protected namespace")
+	// ErrAlreadyExists reports something the cluster already has.
+	ErrAlreadyExists = errors.New("already exists")
+	// ErrNotEmpty reports a namespace still running something, refused because
+	// deleting one cascades to everything in it.
+	ErrNotEmpty = errors.New("not empty")
 )

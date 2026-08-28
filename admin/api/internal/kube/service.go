@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
 
 // repository is the cluster access this service needs. Declared here, where it is
 // consumed, so the service can be tested without a cluster.
 type repository interface {
 	ListNamespaces(ctx context.Context) ([]Namespace, error)
+	ReadNamespace(ctx context.Context, name string) (Namespace, error)
+	CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error)
+	DeleteNamespace(ctx context.Context, name string) error
 	ListWorkloads(ctx context.Context, namespace string) ([]Workload, error)
 	ListPods(ctx context.Context, namespace string) ([]Pod, error)
 	ListEvents(ctx context.Context, namespace string) ([]Event, error)
@@ -39,17 +44,42 @@ type repository interface {
 // stops being true. The panel additionally gates writes on ADMIN_WRITE_EMAILS in
 // its own layer, which is the gate that covers the operator today.
 type Service struct {
-	repo repository
+	repo        repository
+	policy      nspolicy.Policy
+	podSecurity string
 }
 
 // NewService builds the service.
-func NewService(repo repository) *Service {
-	return &Service{repo: repo}
+//
+// The policy is what decides which namespaces may not be deleted. It is passed in
+// rather than read here because it is the same policy the Helm slice enforces, and
+// two slices deciding protection separately is two answers to one question.
+// podSecurity is the Pod Security admission level stamped on a namespace this
+// panel creates. Empty means baseline, which is the level that stops the things
+// nobody wants — host mounts, privileged containers, host networking — while
+// still running ordinary charts.
+func NewService(repo repository, policy nspolicy.Policy, podSecurity string) *Service {
+	if podSecurity == "" {
+		podSecurity = defaultPodSecurity
+	}
+	return &Service{repo: repo, policy: policy, podSecurity: podSecurity}
 }
 
-// ListNamespaces returns every namespace in the cluster.
+// ListNamespaces returns every namespace in the cluster, each carrying whether
+// the panel may delete it.
+//
+// Every namespace, including the protected ones: protection is about writing, and
+// hiding platform-system from the list would take away the reading this panel
+// exists for.
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
-	return s.repo.ListNamespaces(ctx)
+	namespaces, err := s.repo.ListNamespaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range namespaces {
+		s.applyPolicy(&namespaces[i])
+	}
+	return namespaces, nil
 }
 
 // ListWorkloads returns the Deployments, StatefulSets, and DaemonSets in one
