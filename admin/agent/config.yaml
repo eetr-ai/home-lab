@@ -734,29 +734,60 @@ flows:
                 name: requestMethod
                 value: 'has(body.method) && body.method != "" ? body.method : "GET"'
 
-            - type: rest-dynamic
-              name: admin-call
-              settings:
-                connector: adminApi
-                method: vars.requestMethod
-                path: body.path
-                query: 'has(body.query) ? body.query : {}'
-                body: 'has(body.body) ? body.body : null'
-                headers: >-
-                  {"Authorization": "Bearer " + vars.operatorToken,
-                  "Accept": "application/json"}
-                allowMethods: [GET, POST, PUT, PATCH, DELETE]
-                pathPrefix: /api
-                # A 4xx comes back as data the model can read and correct from,
-                # rather than ending the message it was answering.
-                failOnError: false
-                statusVar: adminStatus
-            # Status beside body, which is the shape this tool has always answered
-            # in and the one the prompt tells the model to expect.
-            - type: set-payload
-              name: read-response
-              settings:
-                value: '{"status": string(vars.adminStatus), "body": body}'
+            # Wrapped, because `failOnError` is narrower than it sounds: it
+            # governs the STATUS, and a request that never got one is a different
+            # failure. A DNS answer that does not come, a connection refused, a
+            # timeout — the block returns an error and the chain stops, whatever
+            # failOnError says.
+            #
+            # Unwrapped, that ends the tool call as a dead message and the model
+            # gets a transport error to interpret, which is the exact thing the
+            # refusal branch below exists to avoid. The API being unreachable is
+            # ordinary — it is a rollout, or a pod not up yet — and the honest
+            # answer to it is a sentence saying so.
+            - type: handle-errors
+              name: attempt-call
+              process:
+                - type: rest-dynamic
+                  name: admin-call
+                  settings:
+                    connector: adminApi
+                    method: vars.requestMethod
+                    path: body.path
+                    query: 'has(body.query) ? body.query : {}'
+                    body: 'has(body.body) ? body.body : null'
+                    headers: >-
+                      {"Authorization": "Bearer " + vars.operatorToken,
+                      "Accept": "application/json"}
+                    allowMethods: [GET, POST, PUT, PATCH, DELETE]
+                    pathPrefix: /api
+                    # A 4xx comes back as data the model can read and correct
+                    # from, rather than ending the message it was answering.
+                    failOnError: false
+                    statusVar: adminStatus
+                # Status beside body, which is the shape this tool has always
+                # answered in and the one the prompt tells the model to expect.
+                - type: set-payload
+                  name: read-response
+                  settings:
+                    value: '{"status": string(vars.adminStatus), "body": body}'
+              error:
+                # The same three keys, so the model reads one shape whatever
+                # happened. An empty status is what "no reply at all" looks like,
+                # and it is distinguishable from a 4xx, which is the distinction
+                # worth keeping — one means correct the call, the other means the
+                # panel's API is not answering.
+                #
+                # This also catches the runtime's own path and method refusals,
+                # which are errors rather than statuses: a path that passed the
+                # guard above but not pathPrefix arrives here as a sentence
+                # instead of as a dead message.
+                - type: set-payload
+                  name: call-failed
+                  settings:
+                    value: >-
+                      {"status": "", "body": "",
+                      "error": "the request could not be made: " + vars.error.message}
         else:
           process:
             # Answered from a check rather than from a failed request, so the model

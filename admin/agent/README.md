@@ -105,10 +105,10 @@ which is the right weight for changing what an agent is told it may do.
 Two [dolphin](https://juancavallotti.github.io/octo/testing) suites, one per
 flow — which is dolphin's unit, and why a flow worth testing gets its own file.
 
-`config_test.yaml` covers `call-admin-api`, the flow behind `admin_api`. Ten
-cases: the request it hands the block, the reply it reads back, and the refusal
-branch, each of those asserting through a spy `count: 0` that no request was made
-at all.
+`config_test.yaml` covers `call-admin-api`, the flow behind `admin_api`. Eleven
+cases: the request it hands the block, the reply it reads back, the API being
+unreachable, and the refusal branch — each of the refusals asserting through a spy
+`count: 0` that no request was made at all.
 
 It is smaller than it was, and deliberately. When the prefix was a CEL guard,
 every way out of the base URL needed a case here, because a clause dropped from an
