@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.2.0...admin-v1.3.0) (2026-08-28)
+
+
+### Features
+
+* **admin-agent:** upgrade to octo v0.8.8, and take the memory it now offers ([#35](https://github.com/eetr-ai/home-lab/issues/35)) ([34f575a](https://github.com/eetr-ai/home-lab/commit/34f575afb31e67aa5e275f4f8950b811e7984d76))
+* **admin-web:** coordinate the token refresh, and run two replicas ([#38](https://github.com/eetr-ai/home-lab/issues/38)) ([ccf0fe9](https://github.com/eetr-ai/home-lab/commit/ccf0fe96c3699d1ea003b9557c18fa212dbea4d5))
+* **charts:** run the API at two, add Redis, and keep what storage is given ([#36](https://github.com/eetr-ai/home-lab/issues/36)) ([0afb4a1](https://github.com/eetr-ai/home-lab/commit/0afb4a11d9dacc19e6df7e0389e970deb36f0371))
+
 ## [1.2.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.1.0...admin-v1.2.0) (2026-08-26)
 
 
