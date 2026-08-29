@@ -19,6 +19,7 @@ export function ReleaseView({
 	history,
 	historyError,
 	deploymentId,
+	deploymentsError,
 	now,
 }: {
 	release: HelmReleaseDetail;
@@ -26,10 +27,13 @@ export function ReleaseView({
 	historyError: string | null;
 	/**
 	 * The deployment this lab declared for this release, when there is one. Null
-	 * means the release was installed by something else — by hand, by the
-	 * installer script, by another tool — which the panel shows rather than hides.
+	 * means either that the release was installed by something else — by hand, by
+	 * the installer script, by another tool — or that the lookup failed, which is
+	 * what deploymentsError distinguishes.
 	 */
 	deploymentId: string | null;
+	/** Why the deployment lookup failed, when it did. */
+	deploymentsError: string | null;
 	now: Date;
 }) {
 	// Two error sources, kept apart on purpose. historyError is a property of the
@@ -39,7 +43,7 @@ export function ReleaseView({
 	// rollback or an uninstall reported, which no re-render can recompute.
 	const [actionError, setActionError] = useState<string | null>(null);
 	const rowDelete = useRowDelete(setActionError);
-	const error = actionError ?? historyError;
+	const error = actionError ?? historyError ?? deploymentsError;
 
 	// The 202 design makes this page the progress indicator: nothing else reports
 	// what an install or upgrade did, because there is no job to poll.
@@ -108,6 +112,12 @@ export function ReleaseView({
 										<SlidersHorizontal className="h-4 w-4" />
 										Values and rollout
 									</Link>
+								) : deploymentsError ? (
+									// Not "installed outside the panel": that is a claim, and what
+									// happened is that the question could not be asked.
+									<span className="text-xs text-muted-foreground">
+										Could not tell whether this release was declared here
+									</span>
 								) : (
 									<span className="text-xs text-muted-foreground">
 										Installed outside the panel &mdash; readable here, editable once declared

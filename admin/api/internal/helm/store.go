@@ -59,8 +59,10 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
-// ListDeployments returns the declared deployments, newest first. An empty
-// namespace means every namespace.
+// ListDeployments returns the declared deployments, ordered by namespace and
+// then release name — which is the order the panel lists them in, and stable
+// across refreshes in a way "newest first" would not be. An empty namespace
+// means every namespace.
 func (s *Store) ListDeployments(ctx context.Context, namespace string) ([]Deployment, error) {
 	const query = `
 		SELECT id, namespace, release_name, chart_ref, created_by, created_at
@@ -274,8 +276,17 @@ func (s *Store) MarkRolledOut(ctx context.Context, id string, number, helmRevisi
 		SET rolled_out_at = $3, helm_revision = $4
 		WHERE deployment_id = $1 AND version = $2`
 
-	if _, err := s.pool.Exec(ctx, statement, id, number, time.Now().UTC(), helmRevision); err != nil {
+	tag, err := s.pool.Exec(ctx, statement, id, number, time.Now().UTC(), helmRevision)
+	if err != nil {
 		return storeError("record the rollout", err)
+	}
+	// Zero rows means the version went away between the rollout starting and
+	// finishing — the deployment was forgotten while Helm was working. Reported
+	// rather than passed over: the caller logs it, and a silent no-op here would
+	// leave the panel showing a rollout that never got recorded with nothing
+	// anywhere saying why.
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: no version %d of deployment %s", ErrNotFound, number, id)
 	}
 	return nil
 }

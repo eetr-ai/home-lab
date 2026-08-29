@@ -37,9 +37,10 @@ export default async function HelmReleasePage({
 		return <Banner variant="error" message={release.error} />;
 	}
 
-	// Whether this lab declared this release. When it did, the values live on the
-	// deployment page and this page points at it rather than growing a second,
-	// worse editor. When it did not, the release is adoptable.
+	// Whether this lab declared this release. Three answers, not two: a listing
+	// that failed is not evidence that a release was installed outside the panel,
+	// and saying so would be the same error as rendering any other failed read as
+	// a fact. Only a successful listing that found nothing means unmanaged.
 	const declared = deployments.ok
 		? deployments.data.find((deployment) => deployment.releaseName === release.data.name)
 		: undefined;
@@ -50,6 +51,7 @@ export default async function HelmReleasePage({
 			history={history.ok ? history.data : []}
 			historyError={history.ok ? null : history.error}
 			deploymentId={declared?.id ?? null}
+			deploymentsError={deployments.ok ? null : deployments.error}
 			now={new Date()}
 		/>
 	);

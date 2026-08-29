@@ -378,11 +378,43 @@ func translate(err error, what string) error {
 // Helm's downloader writes the index to its cache directory, which is why the
 // pod carries a writable volume for it. Nothing else in this slice writes to
 // disk.
-func (r *Repository) ListChartVersions(_ context.Context, source ChartSource) ([]ChartVersion, error) {
-	if source.OCI {
-		return r.ociTags(source)
+// ListChartVersions returns the versions a chart reference offers.
+//
+// Neither Helm call underneath takes a context: DownloadIndexFile and
+// registry.Client.Tags each use their own HTTP client and answer when they
+// answer. So the lookup runs on its own goroutine and this returns as soon as
+// the caller's context is done, which is what stops an unreachable registry
+// holding a request open until the HTTP server stops writing at thirty seconds.
+//
+// The goroutine is not cancelled — there is nothing to cancel it with — so it
+// runs to completion and then finds nobody listening. The channel is buffered
+// for exactly that reason: an unbuffered one would leak the goroutine forever
+// rather than for as long as the call takes. This is a bound on the caller's
+// wait, not on the work, and it is the most that can be done without Helm
+// growing context-aware getters.
+func (r *Repository) ListChartVersions(ctx context.Context, source ChartSource) ([]ChartVersion, error) {
+	type result struct {
+		versions []ChartVersion
+		err      error
 	}
-	return r.indexVersions(source)
+
+	done := make(chan result, 1)
+	go func() {
+		if source.OCI {
+			versions, err := r.ociTags(source)
+			done <- result{versions, err}
+			return
+		}
+		versions, err := r.indexVersions(source)
+		done <- result{versions, err}
+	}()
+
+	select {
+	case answered := <-done:
+		return answered.versions, answered.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %s did not answer in time", ErrRepositoryUnreachable, source.URL)
+	}
 }
 
 func (r *Repository) indexVersions(source ChartSource) ([]ChartVersion, error) {

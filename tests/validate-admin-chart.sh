@@ -551,7 +551,7 @@ if ! grep -A3 'name: ADMIN_HELM_DSN' <<<"$helm_dsn" | grep -q 'secretKeyRef'; th
   printf 'ADMIN_HELM_DSN must be read from a Secret\n' >&2
   exit 1
 fi
-if grep -qE 'ADMIN_HELM_DSN.*(postgres://|postgresql://)' <<<"$helm_dsn"; then
+if grep -A3 'name: ADMIN_HELM_DSN' <<<"$helm_dsn" | grep -qE '(postgres://|postgresql://)'; then
   printf 'A connection string must never be rendered as a literal\n' >&2
   exit 1
 fi

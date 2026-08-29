@@ -69,16 +69,23 @@ anything else.
 
 ### How the scope is actually enforced, today
 
-Honestly: **partially.** The API refuses a caller whose token names scopes but not
-the one a route needs, and a pipeline's token names two — so for the pipeline this
-is real authorization. A token naming *no* scopes is still unrestricted, which is
-what the panel's own token looks like today, and is why
-`admin.api.oidc.requireScopes` matters. Turning it on cannot happen until
-eetr-auth issues the panel's client `admin:read admin:write`; those scopes are
-configurable there, so this is a task rather than a limitation.
+It depends on one setting, and it is worth knowing which way yours is set.
 
-Until then the honest summary is that scopes bound the callers that declare
-themselves, and the pipeline is one.
+`admin.api.oidc.requireScopes` decides what happens to a token that names **no**
+`admin:`-prefixed scopes at all. With it **off**, such a token is unrestricted —
+so scopes bound only the callers that declare themselves, which is a real bound
+on a pipeline and no bound at all on anything else. With it **on**, a scopeless
+token gets nothing.
+
+The chart ships it **on**. That is the right default and it has a prerequisite:
+eetr-auth has to issue the panel's own client `admin:read admin:write` first,
+because the panel presents its operator's token to this API. Turn it off in your
+values file until that is done, or the panel is locked out of its own API — and
+turn it back on afterwards, because a scopeless token being unrestricted is the
+gap this closes.
+
+Either way, a token that names scopes is held to exactly the ones it names, so
+the paragraph above about `admin:read` applies in both settings.
 
 ## The deploy
 

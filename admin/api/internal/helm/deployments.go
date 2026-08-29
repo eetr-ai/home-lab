@@ -146,14 +146,17 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest, actor string)
 }
 
 // Forget removes the record and leaves the release alone.
+//
+// Through load like every other deployment path, so the namespace rule is
+// applied here too. Reading the record directly would have made this the one
+// route that could act on a deployment in a namespace this lab no longer
+// manages — the narrowest possible gap, and exactly the kind that survives.
 func (s *Service) Forget(ctx context.Context, id string) error {
-	if s.store == nil {
-		return ErrNotConfigured
-	}
-	if _, err := s.store.ReadDeployment(ctx, id); err != nil {
+	deployment, _, err := s.load(ctx, id)
+	if err != nil {
 		return err
 	}
-	return s.store.DeleteDeployment(ctx, id)
+	return s.store.DeleteDeployment(ctx, deployment.ID)
 }
 
 // ListVersions returns every declared version, newest first.

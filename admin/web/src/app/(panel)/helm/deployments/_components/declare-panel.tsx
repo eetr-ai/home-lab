@@ -40,6 +40,14 @@ export function DeclarePanel({
 
 	const versions = useChartVersions(open ? chartRef : "");
 
+	// Changing the chart clears the version. Without this, picking 6.9.2 for one
+	// chart and then editing the reference submits 6.9.2 for a chart that may not
+	// publish it — and the picker would be showing a value that is not in it.
+	function changeChartRef(value: string) {
+		setChartRef(value);
+		setVersion("");
+	}
+
 	function reset() {
 		setChartRef("");
 		setName("");
@@ -74,7 +82,7 @@ export function DeclarePanel({
 				<Input
 					id="chart-ref"
 					value={chartRef}
-					onChange={(event) => setChartRef(event.target.value)}
+					onChange={(event) => changeChartRef(event.target.value)}
 					placeholder="oci://ghcr.io/stefanprodan/charts/podinfo"
 					autoComplete="off"
 					spellCheck={false}
