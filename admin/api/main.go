@@ -11,7 +11,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
@@ -43,15 +42,31 @@ const (
 	// an unreachable provider fails the process quickly and visibly, rather than
 	// leaving it hanging with no logs and no listener.
 	discoveryTimeout = 15 * time.Second
-
-	// How long one Helm operation may take when ADMIN_HELM_TIMEOUT says nothing.
-	// Long, because it covers pulling a chart, applying it, and waiting for the
-	// pods to become ready.
-	defaultHelmTimeout = 10 * time.Minute
 )
 
+// main serves the API, unless it was asked to perform one Helm operation.
+//
+// The subcommand is not a mode of the server. It is a different program that
+// happens to share this binary, and it shares it deliberately: chart resolution,
+// values merging, and the rollout stamp then have exactly one implementation, and
+// the Job the API creates runs this same image.
+//
+// One switch on one argument rather than a command framework. There are two
+// commands, and cobra — already here indirectly, through Helm — would be a
+// dependency and a worldview in exchange for parsing that.
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	if len(os.Args) > 1 && os.Args[1] == helm.RunCommand {
+		// The exit code is the answer. It becomes the pod's, which becomes the
+		// Job's status, which is what the panel and a pipeline read — so a Helm
+		// failure that exited zero would be reported as a successful deploy.
+		if err := helm.RunJob(context.Background(), os.Args[2:], logger); err != nil {
+			logger.Error("the helm operation failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(logger); err != nil {
 		logger.Error("admin-api stopped", slog.Any("error", err))
@@ -233,7 +248,7 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		return nil
 	}
 
-	timeout, err := helmTimeout()
+	timeout, err := helm.Timeout()
 	if err != nil {
 		return err
 	}
@@ -299,27 +314,6 @@ func helmStore(ctx context.Context, logger *slog.Logger) *helm.Store {
 	}
 	logger.Info("recording Helm deployments in PostgreSQL")
 	return store
-}
-
-// helmTimeout bounds one install, upgrade, rollback, or uninstall.
-//
-// Generous by default, because it is off the request path entirely: the caller
-// was answered with a 202 long before. What it protects against is an operation
-// that never finishes holding a release in a pending state forever.
-func helmTimeout() (time.Duration, error) {
-	value := os.Getenv("ADMIN_HELM_TIMEOUT")
-	if value == "" {
-		return defaultHelmTimeout, nil
-	}
-
-	timeout, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT is not a duration: %w", err)
-	}
-	if timeout <= 0 {
-		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT must be positive, and is %s", timeout)
-	}
-	return timeout, nil
 }
 
 // namespacePolicy reads which namespaces this lab will not let the panel touch.
