@@ -146,6 +146,46 @@ func TestInstallRefusesANameAlreadyTaken(t *testing.T) {
 	}
 }
 
+// A read that failed is not a name that is free.
+//
+// Installing checks whether the name is taken. If any failure counted as "not
+// taken", a refused Secret read or a lost connection would each present as a
+// clean slate and the install would go ahead against a namespace nobody could
+// see into — writing over whatever was already there.
+func TestInstallRefusesWhenTheExistingReleaseCannotBeRead(t *testing.T) {
+	tests := []struct {
+		name    string
+		readErr error
+		wantErr error
+	}{
+		{name: "the panel may not read the namespace", readErr: ErrForbidden, wantErr: ErrForbidden},
+		{name: "the read failed for some other reason", readErr: errors.New("connection refused"),
+			wantErr: nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newWriteRepo()
+			repo.readErr = test.readErr
+
+			_, err := writeService(repo).Install(t.Context(),
+				InstallRequest{Namespace: "apps", Name: "whoami", Chart: "whoami", Version: "1.0.0"})
+
+			if err == nil {
+				t.Fatal("the install was accepted despite an unreadable namespace")
+			}
+			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
+				t.Fatalf("error = %v, want %v", err, test.wantErr)
+			}
+			repo.mu.Lock()
+			defer repo.mu.Unlock()
+			if len(repo.installed) != 0 {
+				t.Fatal("a refused install still ran")
+			}
+		})
+	}
+}
+
 // The pipeline path, and the one that must not regress: a body carrying only a
 // version keeps the release's own values.
 func TestUpgradeWithoutValuesReusesTheReleasesOwn(t *testing.T) {
@@ -296,18 +336,42 @@ func TestADifferentReleaseIsNotBlocked(t *testing.T) {
 
 // The lock is released whatever happened, or one failed deploy would refuse
 // every later attempt at that release until the pod restarted.
+//
+// The second attempt retries rather than being issued once. The fake signals from
+// inside the operation, and the lock is released by a defer that runs after it —
+// so "the storage was reached" and "the lock is free again" are two moments, in
+// that order, and asserting the second by observing the first is a race that
+// passes almost always. Retrying until a deadline asserts the thing the test is
+// named for: that the lock becomes available, not that it already has.
 func TestTheLockIsReleasedAfterAnOperationFinishes(t *testing.T) {
 	repo := newWriteRepo()
 	repo.existing["whoami"] = ReleaseDetail{Release: Release{Name: "whoami", Chart: "whoami"}}
 	service := writeService(repo)
 
-	for range 2 {
-		if _, err := service.Upgrade(t.Context(),
-			UpgradeRequest{Namespace: "apps", Name: "whoami", Version: "1.0.0"}); err != nil {
-			t.Fatalf("upgrade: %v", err)
-		}
-		repo.await(t)
+	upgrade := func() error {
+		_, err := service.Upgrade(t.Context(),
+			UpgradeRequest{Namespace: "apps", Name: "whoami", Version: "1.0.0"})
+		return err
 	}
+
+	if err := upgrade(); err != nil {
+		t.Fatalf("the first upgrade was refused: %v", err)
+	}
+	repo.await(t)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var err error
+	for time.Now().Before(deadline) {
+		if err = upgrade(); err == nil {
+			repo.await(t)
+			return
+		}
+		if !errors.Is(err, ErrInProgress) {
+			t.Fatalf("the second upgrade failed for the wrong reason: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("the lock was never released: %v", err)
 }
 
 func TestUninstall(t *testing.T) {

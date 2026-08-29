@@ -27,7 +27,11 @@ type fakeRepo struct {
 	// existing is the releases ReadRelease answers with; a name absent from it
 	// reads as not found. history is what ReadHistory answers with.
 	existing map[string]ReleaseDetail
-	history  []Revision
+	// readErr, when set, is what ReadRelease answers with instead of looking in
+	// `existing` — for the cases where reading a release fails for a reason that
+	// is not "it is not there".
+	readErr error
+	history []Revision
 
 	// done receives the name of each operation once it has actually reached the
 	// storage. The operations run off the request goroutine, so a test waits on
@@ -119,6 +123,10 @@ func (f *fakeRepo) ReadRelease(_ context.Context, namespace, name string) (Relea
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, "read:"+namespace+"/"+name)
+
+	if f.readErr != nil {
+		return ReleaseDetail{}, f.readErr
+	}
 
 	// A fake with no releases configured answers as though every name exists,
 	// which is what the read tests want. One with a map answers from it, which is

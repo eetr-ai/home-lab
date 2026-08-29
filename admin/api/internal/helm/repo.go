@@ -18,7 +18,6 @@ import (
 	"helm.sh/helm/v4/pkg/cli"
 	"helm.sh/helm/v4/pkg/getter"
 	"helm.sh/helm/v4/pkg/kube"
-	"helm.sh/helm/v4/pkg/registry"
 	"helm.sh/helm/v4/pkg/release"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
@@ -334,17 +333,18 @@ func (r *Repository) indexVersions(source ChartSource) ([]ChartVersion, error) {
 	chartRepo, err := repo.NewChartRepository(
 		&repo.Entry{Name: source.Chart, URL: source.URL}, getter.All(cli.New()))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+		return nil, fmt.Errorf("%w: %s: %w", ErrRepositoryUnreachable, source.URL, err)
 	}
 
 	path, err := chartRepo.DownloadIndexFile()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+		return nil, fmt.Errorf("%w: %s: %w", ErrRepositoryUnreachable, source.URL, err)
 	}
 
 	index, err := repo.LoadIndexFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s has an index this cannot read", ErrRepositoryUnreachable, source.URL)
+		return nil, fmt.Errorf("%w: %s has an index this cannot read: %w",
+			ErrRepositoryUnreachable, source.URL, err)
 	}
 
 	entries, ok := index.Entries[source.Chart]
@@ -367,15 +367,11 @@ func (r *Repository) indexVersions(source ChartSource) ([]ChartVersion, error) {
 }
 
 func (r *Repository) ociTags(source ChartSource) ([]ChartVersion, error) {
-	client, err := registry.NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
-	}
-
 	reference := strings.TrimSuffix(strings.TrimPrefix(source.URL, "oci://"), "/") + "/" + source.Chart
-	tags, err := client.Tags(reference)
+
+	tags, err := r.clients.registry.Tags(reference)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+		return nil, fmt.Errorf("%w: %s: %w", ErrRepositoryUnreachable, source.URL, err)
 	}
 
 	versions := make([]ChartVersion, 0, len(tags))
@@ -405,7 +401,7 @@ const maxHistory = 10
 // This blocks for as long as the chart takes. The service runs it off the request
 // goroutine for that reason.
 func (r *Repository) Install(ctx context.Context, req InstallRequest, source ChartSource) (Release, error) {
-	configuration, err := r.clients.configurationFor(req.Namespace)
+	configuration, err := r.clients.configurationFor(req.Namespace, forWriting)
 	if err != nil {
 		return Release{}, err
 	}
@@ -448,7 +444,7 @@ func (r *Repository) Install(ctx context.Context, req InstallRequest, source Cha
 // ReuseValues does and what makes this callable from a pipeline that owns a
 // version and nothing else.
 func (r *Repository) Upgrade(ctx context.Context, req UpgradeRequest, source ChartSource) (Release, error) {
-	configuration, err := r.clients.configurationFor(req.Namespace)
+	configuration, err := r.clients.configurationFor(req.Namespace, forWriting)
 	if err != nil {
 		return Release{}, err
 	}
@@ -480,7 +476,7 @@ func (r *Repository) Upgrade(ctx context.Context, req UpgradeRequest, source Cha
 // It creates a new revision rather than restoring the old one, so a rollback is
 // itself something that can be rolled back.
 func (r *Repository) Rollback(_ context.Context, namespace, name string, revision int) error {
-	configuration, err := r.clients.configurationFor(namespace)
+	configuration, err := r.clients.configurationFor(namespace, forWriting)
 	if err != nil {
 		return err
 	}
@@ -496,7 +492,7 @@ func (r *Repository) Rollback(_ context.Context, namespace, name string, revisio
 
 // Uninstall removes a release and everything it created.
 func (r *Repository) Uninstall(_ context.Context, namespace, name string) error {
-	configuration, err := r.clients.configurationFor(namespace)
+	configuration, err := r.clients.configurationFor(namespace, forWriting)
 	if err != nil {
 		return err
 	}
@@ -530,7 +526,19 @@ func (r *Repository) locate(options *action.ChartPathOptions, source ChartSource
 
 	path, err := options.LocateChart(name, cli.New())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s at version %s", ErrUnknownVersion, source.Chart, version)
+		// Not ErrUnknownVersion, even though "could not find the chart" is what
+		// this reads like. The service checked the version against the
+		// repository's own listing before calling this, so by here the version is
+		// known to be offered — which makes a failure a fetch problem: the
+		// registry refused the credentials, the index moved, the network went
+		// away. Reporting it as a bad request blames the caller for somebody
+		// else's outage and sends them looking at their version number.
+		//
+		// The cause is wrapped rather than dropped. It is the only description of
+		// what actually went wrong, and without it every one of those failures
+		// reads identically in the log.
+		return nil, fmt.Errorf("%w: fetching %s at version %s: %w",
+			ErrRepositoryUnreachable, source.Chart, version, err)
 	}
 
 	chart, err := loader.Load(path)

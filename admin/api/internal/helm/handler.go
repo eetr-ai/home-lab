@@ -259,6 +259,7 @@ func (h *Handler) installRelease(w http.ResponseWriter, r *http.Request) {
 //	@Failure		403			{object}	http.ErrorBody
 //	@Failure		404			{object}	http.ErrorBody
 //	@Failure		409			{object}	http.ErrorBody
+//	@Failure		501			{object}	http.ErrorBody
 //	@Router			/api/helm/namespaces/{namespace}/releases/{release} [put]
 func (h *Handler) upgradeRelease(w http.ResponseWriter, r *http.Request) {
 	var request UpgradeRequest

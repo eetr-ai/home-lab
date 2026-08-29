@@ -1759,6 +1759,16 @@
                             }
                         },
                         "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
                     }
                 },
                 "security": [

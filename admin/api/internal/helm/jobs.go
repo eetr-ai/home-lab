@@ -2,6 +2,7 @@ package helm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -29,9 +30,17 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Accepted, er
 
 	// Checked so an operator who meant to upgrade is told so, rather than
 	// discovering it from whatever Helm says about a name already in use.
-	if _, err := s.repo.ReadRelease(ctx, req.Namespace, req.Name); err == nil {
+	//
+	// Only "not found" means the name is free. Treating every failure as absence
+	// would install over a release this could not read — a refused Secret read or
+	// a lost connection would each present as a clean slate, and the install
+	// would go ahead against a namespace nobody could see into.
+	switch _, err := s.repo.ReadRelease(ctx, req.Namespace, req.Name); {
+	case err == nil:
 		return Accepted{}, fmt.Errorf("%w: %s already exists in %s",
 			ErrAlreadyExists, req.Name, req.Namespace)
+	case !errors.Is(err, ErrNotFound):
+		return Accepted{}, err
 	}
 
 	return s.accept(ctx, req.Namespace, req.Name, "install", func(jobCtx context.Context) error {

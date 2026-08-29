@@ -13,6 +13,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/registry"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/restconfig"
 )
@@ -62,7 +63,13 @@ type clients struct {
 	unbounded *rest.Config
 	discovery discovery.CachedDiscoveryInterface
 	mapper    meta.RESTMapper
-	logger    *slog.Logger
+	// registry pulls charts from an OCI registry. Built once and shared: it holds
+	// a credentials store and an HTTP client, and Helm refuses an OCI reference
+	// outright when the configuration carries none — "missing registry client",
+	// which is what an install of an OCI-hosted chart fails with if this is not
+	// wired through.
+	registry *registry.Client
+	logger   *slog.Logger
 }
 
 // newClients builds the shared half of the Helm plumbing.
@@ -89,12 +96,20 @@ func newClients(logger *slog.Logger) (*clients, error) {
 		return nil, fmt.Errorf("build the discovery client: %w", err)
 	}
 
+	// One registry client for the process. Building it reads the OCI credentials
+	// file if there is one and contacts nothing.
+	registryClient, err := registry.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("build the OCI registry client: %w", err)
+	}
+
 	cached := memory.NewMemCacheClient(discoveryClient)
 	return &clients{
 		config:    config,
 		unbounded: unbounded,
 		discovery: cached,
 		mapper:    restmapper.NewDeferredDiscoveryRESTMapper(cached),
+		registry:  registryClient,
 		logger:    logger,
 	}, nil
 }
@@ -121,6 +136,13 @@ func (c *clients) configurationFor(namespace string, kind operationKind) (*actio
 	if err := configuration.Init(getter, namespace, storageDriver); err != nil {
 		return nil, fmt.Errorf("initialise helm for namespace %s: %w", namespace, err)
 	}
+
+	// Set before any action is built from this configuration: NewInstall and
+	// NewUpgrade copy it at construction, so assigning it afterwards is assigning
+	// it to nothing. Without it, LocateChart refuses every oci:// reference with
+	// "missing registry client" — and this lab publishes its own admin chart to
+	// an OCI registry, so that is not a hypothetical path.
+	configuration.RegistryClient = c.registry
 	return configuration, nil
 }
 
