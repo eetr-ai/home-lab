@@ -116,6 +116,19 @@
 	--danger-icon: var(--red-600);
 
 	--scrim: rgb(0 0 0 / 0.40);
+
+	/* Editor syntax, for the YAML values editor. Role tokens like the rest: the
+	   editor is a CodeMirror theme built from these, so it follows light/dark
+	   without a second palette living in TypeScript. */
+	--editor-key: var(--blue-700);
+	--editor-string: var(--green-700);
+	--editor-number: var(--amber-700);
+	--editor-comment: var(--gray-500);
+	--editor-punctuation: var(--gray-500);
+	--editor-gutter: var(--gray-500);
+	--editor-selection: rgb(44 82 130 / 0.18);
+	--editor-active-line: rgb(15 23 42 / 0.04);
+
 }
 
 /* ── Tier 2: roles — dark ────────────────────────────────────────────────── */
@@ -157,6 +170,16 @@
 	--danger-icon: var(--red-400-dk);
 
 	--scrim: rgb(0 0 0 / 0.60);
+
+	--editor-key: #7dd3fc;
+	--editor-string: #86efac;
+	--editor-number: #fcd34d;
+	--editor-comment: #94a3b8;
+	--editor-punctuation: #94a3b8;
+	--editor-gutter: #94a3b8;
+	--editor-selection: rgb(125 211 252 / 0.22);
+	--editor-active-line: rgb(255 255 255 / 0.05);
+
 }
 
 /* "system" preference fallback for the brief window before the inline script in
@@ -197,6 +220,16 @@
 		--danger-icon: var(--red-400-dk);
 
 		--scrim: rgb(0 0 0 / 0.60);
+
+		--editor-key: #7dd3fc;
+		--editor-string: #86efac;
+		--editor-number: #fcd34d;
+		--editor-comment: #94a3b8;
+		--editor-punctuation: #94a3b8;
+		--editor-gutter: #94a3b8;
+		--editor-selection: rgb(125 211 252 / 0.22);
+		--editor-active-line: rgb(255 255 255 / 0.05);
+
 	}
 }
 
