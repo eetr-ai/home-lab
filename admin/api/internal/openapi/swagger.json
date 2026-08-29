@@ -3,6 +3,10 @@
         "schemas": {
             "auth.WhoamiResponse": {
                 "properties": {
+                    "clientId": {
+                        "description": "ClientID is the application the token was issued to, and the only identity\na client_credentials token carries — this provider leaves `sub` empty for\none. Absent for a token that names neither client_id nor azp.",
+                        "type": "string"
+                    },
                     "email": {
                         "description": "Email is the caller's email when the token carried the claim.",
                         "type": "string"
@@ -3363,7 +3367,7 @@
         },
         "/api/whoami": {
             "get": {
-                "description": "Reports the subject and email the presented bearer token belongs to.",
+                "description": "Reports who the presented bearer token belongs to. It says nothing about\nwhat that caller may do: this API reads no permissions out of a token.",
                 "responses": {
                     "200": {
                         "content": {
