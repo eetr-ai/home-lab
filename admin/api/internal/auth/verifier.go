@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -58,13 +59,46 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (Subject, er
 		return Subject{}, fmt.Errorf("verify the bearer token: %w", err)
 	}
 
-	// The subject is the identifier; the email is a convenience for logs. A token
-	// without an email claim is still perfectly valid, so a failure to read the
-	// claims is not a failure to authenticate.
+	// The subject is the identifier; everything else here is optional. A token
+	// with no email is still perfectly valid, so a failure to
+	// read the claims is not a failure to authenticate.
+	// Every field is raw. A provider that spells `scope` as an array rather than
+	// as a space-delimited string is within its rights, and decoding it into a
+	// string fails the whole struct — which would leave this token looking like
+	// one that named no scopes at all, and a scopeless token is unrestricted.
+	// Reading it as an authorization decision is exactly how that becomes a
+	// bypass, so no claim's shape is allowed to decide another claim's fate.
 	var claims struct {
-		Email string `json:"email"`
+		Email json.RawMessage `json:"email"`
+		// Both spellings: client_id is RFC 9068's, azp is OpenID Connect's, and
+		// providers disagree about which they emit.
+		ClientID json.RawMessage `json:"client_id"`
+		Azp      json.RawMessage `json:"azp"`
+		Scp      json.RawMessage `json:"scp"`
 	}
 	_ = token.Claims(&claims)
 
-	return Subject{ID: token.Subject, Email: claims.Email}, nil
+	var email string
+	_ = json.Unmarshal(claims.Email, &email)
+
+	return Subject{
+		ID:       token.Subject,
+		Email:    email,
+		ClientID: stringClaim(claims.ClientID, claims.Azp),
+	}, nil
+}
+
+// stringClaim reads the first of these claims that carries a string.
+//
+// Each is decoded on its own, for the same reason every claim above is a
+// json.RawMessage: one claim arriving in an unexpected shape must not decide
+// another claim's fate.
+func stringClaim(candidates ...json.RawMessage) string {
+	for _, candidate := range candidates {
+		var value string
+		if err := json.Unmarshal(candidate, &value); err == nil && value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -22,6 +22,12 @@ type Subject struct {
 	// Email is present when the token carries the email claim, and empty
 	// otherwise. Useful for logs; never an identifier.
 	Email string
+	// ClientID is the application the token was issued to, from client_id or azp.
+	//
+	// It is the only identity a client_credentials token carries: this provider
+	// leaves `sub` empty for one, so without this a pipeline's changes are
+	// attributed to nobody.
+	ClientID string
 }
 
 // TokenVerifier verifies a raw bearer token and reports whose it is.
@@ -44,8 +50,28 @@ func SubjectFrom(ctx context.Context) (Subject, bool) {
 	return subject, ok
 }
 
+// WithSubject puts a verified caller on a context.
+//
+// Middleware is the only production caller; it is exported because the context
+// key is not, and a handler test otherwise has no way to stand in for
+// authentication short of an identity provider.
+func WithSubject(ctx context.Context, subject Subject) context.Context {
+	return context.WithValue(ctx, subjectKey, subject)
+}
+
 // Middleware rejects any request that does not carry a token the verifier
 // accepts, and puts the caller on the context of the ones that do.
+//
+// This is the whole of the API's access control, and it is worth being plain
+// about what that means today: it establishes *who* is calling, and nothing
+// establishes *what they may do*. Any token this issuer signed for this audience
+// can reach every route. Authorization is deliberately not here — it is coming
+// as a module in the platform that decides per subject and per action — and
+// until it lands, a credential that reaches this API is a fully privileged one.
+//
+// The seam is Subject on the request context. An authorization layer plugs in
+// after this middleware and before the routes, reads the subject, and refuses;
+// nothing else has to move.
 func Middleware(verifier TokenVerifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +91,7 @@ func Middleware(verifier TokenVerifier) func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), subjectKey, subject)))
+			next.ServeHTTP(w, r.WithContext(WithSubject(r.Context(), subject)))
 		})
 	}
 }

@@ -26,6 +26,10 @@ type WhoamiResponse struct {
 	Subject string `json:"subject"`
 	// Email is the caller's email when the token carried the claim.
 	Email string `json:"email,omitempty"`
+	// ClientID is the application the token was issued to, and the only identity
+	// a client_credentials token carries — this provider leaves `sub` empty for
+	// one. Absent for a token that names neither client_id nor azp.
+	ClientID string `json:"clientId,omitempty"`
 }
 
 // whoami reports who the presented token belongs to.
@@ -36,7 +40,8 @@ type WhoamiResponse struct {
 // fresh client, or an agent — needs to know.
 //
 //	@Summary		Describe the authenticated caller
-//	@Description	Reports the subject and email the presented bearer token belongs to.
+//	@Description	Reports who the presented bearer token belongs to. It says nothing about
+//	@Description	what that caller may do: this API reads no permissions out of a token.
 //	@Tags			identity
 //	@Produce		json
 //	@Security		BearerAuth
@@ -52,5 +57,9 @@ func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusUnauthorized, "unauthorized", "the request carries no verified caller")
 		return
 	}
-	httpx.JSON(w, http.StatusOK, WhoamiResponse{Subject: subject.ID, Email: subject.Email})
+	httpx.JSON(w, http.StatusOK, WhoamiResponse{
+		Subject:  subject.ID,
+		Email:    subject.Email,
+		ClientID: subject.ClientID,
+	})
 }

@@ -68,6 +68,11 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 type claims struct {
 	jwt.Claims
 	Email string `json:"email,omitempty"`
+	// These are any, not string, so a test can mint a token spelling a claim the way
+	// a provider that uses an array does. That shape is the whole point of the
+	// test below.
+	ClientID any `json:"client_id,omitempty"`
+	Azp      any `json:"azp,omitempty"`
 }
 
 // signWith mints a token with an arbitrary key, so a test can present one this
@@ -230,5 +235,59 @@ func TestOIDCVerifierRejectsSymmetricallySignedTokens(t *testing.T) {
 func TestNewOIDCVerifierRequiresAnIssuer(t *testing.T) {
 	if _, err := NewOIDCVerifier(context.Background(), "", testAudience); err == nil {
 		t.Fatal("NewOIDCVerifier() accepted an empty issuer")
+	}
+}
+
+// A claim arriving in an unexpected shape must not take its siblings with it.
+//
+// This is a regression test with teeth: the claims struct is decoded in one call,
+// so a field whose JSON type is wrong fails the whole decode and leaves every
+// other claim empty too. A provider that spells `azp` as an array would then
+// produce a subject with no email and no client id — and since those are what
+// the deployment history is attributed to, the record of who changed something
+// would quietly go blank rather than fail.
+func TestVerifyReadsEveryClaimShapeWithoutLosingTheOthers(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	verifier, err := NewOIDCVerifier(t.Context(), issuer.url, testAudience)
+	if err != nil {
+		t.Fatalf("build verifier: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		clientID any
+		azp      any
+		want     string
+	}{
+		{name: "client_id as a string", clientID: "home-lab-ci", want: "home-lab-ci"},
+		{name: "azp as a string", azp: "home-lab-ci", want: "home-lab-ci"},
+		{name: "client_id wins when both are set", clientID: "first", azp: "second", want: "first"},
+		{name: "client_id as an array falls through to azp", clientID: []string{"odd"},
+			azp: "home-lab-ci", want: "home-lab-ci"},
+		{name: "client_id as a number falls through to azp", clientID: 12345,
+			azp: "home-lab-ci", want: "home-lab-ci"},
+		{name: "no client claim at all", want: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c := issuer.validClaims()
+			c.ClientID, c.Azp = test.clientID, test.azp
+
+			subject, err := verifier.Verify(t.Context(), issuer.signWith(t, issuer.key, c))
+			if err != nil {
+				t.Fatalf("verify: %v", err)
+			}
+			if subject.ClientID != test.want {
+				t.Errorf("clientID = %q, want %q", subject.ClientID, test.want)
+			}
+			// The claims that are not being varied have to survive the one that is.
+			if subject.Email != "operator@example.invalid" {
+				t.Errorf("email = %q; a sibling claim's shape lost it", subject.Email)
+			}
+			if subject.ID != "user-abc" {
+				t.Errorf("subject = %q, want the token's subject claim", subject.ID)
+			}
+		})
 	}
 }
