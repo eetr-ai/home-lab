@@ -144,11 +144,12 @@ admin:
 
     # Helm releases.
     #
-    # The panel reads the releases installed in the namespaces named below --
-    # what chart, which version, which values, and the whole revision history.
-    # There is no database behind it: Helm's own storage is the source of truth,
-    # which is why a release installed by hand from a laptop shows up here with
-    # nothing having recorded it.
+    # The panel declares a chart for a namespace -- an OCI or HTTPS chart
+    # reference, a version, and a values file the operator writes -- and rolls it
+    # out. What is *running* is always read live from Helm's own storage, so a
+    # release installed by hand from a laptop shows up here with nothing having
+    # recorded it, and a release changed outside the panel shows up as drift
+    # rather than being quietly overwritten.
     #
     # READ templates/api/rbac-deploy.yaml BEFORE ADDING A NAMESPACE.
     #
@@ -158,12 +159,56 @@ admin:
     # namespace whose credentials this panel can read. That is the entire cost of
     # the feature and it is not reducible.
     #
-    # Empty by default, which leaves the routes served and answering 501: the
-    # capability is built, and this lab has not switched it on. A protected
-    # namespace here is a render failure rather than a warning.
+    # There is also no allowlist of installable charts, and nothing narrowing what
+    # a caller may do: this API checks that a token is authentic and asks nothing
+    # about permission, so anyone holding one can install any chart this cluster
+    # can reach -- and a chart's templates are arbitrary manifests. The deploy
+    # Role below is what bounds the damage, and it is the only thing that does.
+    # A repository allowlist belongs here when this lab grows one, and per-subject
+    # authorization is coming as a platform module.
     helm:
+      # Namespaces the panel may deploy into. Empty leaves the deployment routes
+      # answering 501: the capability is built, and this lab has not switched it
+      # on. A protected namespace here is a render failure rather than a warning.
       namespaces: []
         # - apps
+
+      # Deploy into every namespace that is not protected, instead of the list
+      # above.
+      #
+      # This exists because the panel can create namespaces, and the per-namespace
+      # Roles above are rendered when the chart is installed: without it, a
+      # namespace created from the panel cannot be deployed into until somebody
+      # reinstalls this chart, which breaks "create a namespace, then deploy into
+      # it".
+      #
+      # The cost is the one named above, widened to the whole cluster: with this
+      # on, the panel can read every Secret in every namespace that is not
+      # protected. Protection is unaffected -- the release namespace,
+      # platform-system, default and kube-* stay refused either way. Off unless a
+      # lab decides otherwise.
+      allNamespaces: false
+
+      # Where the declared charts and their values are kept.
+      #
+      # This is the one piece of state the API owns, and it holds desired state
+      # only: the chart reference, and an append-only series of (version, values)
+      # pairs. Nothing about what is *running* is stored here -- that is read from
+      # Helm every time it is asked for, because two records of one truth would
+      # disagree the first time a pod was killed mid-upgrade.
+      #
+      # Its own database and its own role, not the superuser connection string the
+      # panel administers PostgreSQL with: that one exists to manage somebody
+      # else's server and backs the read-only query console. Create the database,
+      # the role and the Secret before installing.
+      #
+      # Disabled leaves the deployment routes answering 501; the release routes
+      # still read the cluster, because reading it never needed a record.
+      postgres:
+        enabled: false
+        secret:
+          name: admin-helm-postgres
+          key: dsn
 
     # Reaching the API from outside the cluster, for a caller that is not the
     # panel's own browser session. Disabled until something needs it: the agent

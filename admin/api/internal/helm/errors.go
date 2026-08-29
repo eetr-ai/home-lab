@@ -32,6 +32,10 @@ var (
 	ErrProtected = errors.New("protected namespace")
 	// ErrUnmanaged reports a namespace this lab has not made a Helm target.
 	ErrUnmanaged = errors.New("namespace is not helm-managed")
+	// ErrStoreUnavailable reports that the record of what this lab has declared
+	// could not be reached. Deliberately distinct from every "the record says no"
+	// error: only this one is a 503, and only this one means retrying might work.
+	ErrStoreUnavailable = errors.New("deployment store unavailable")
 	// ErrRepositoryUnreachable reports a chart repository that could not be read.
 	// Not the caller's fault, and deliberately not a 400.
 	ErrRepositoryUnreachable = errors.New("chart repository unreachable")

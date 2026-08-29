@@ -1,9 +1,33 @@
 {{- if .Values.admin.api.kubernetes.enabled }}
-{{- if .Values.admin.api.helm.namespaces }}
+{{- if or .Values.admin.api.helm.namespaces .Values.admin.api.helm.allNamespaces }}
 {{- /*
-Reading Helm releases, one namespace at a time.
+Installing and reading Helm releases, one namespace at a time.
 
 READ THIS BEFORE ADDING A NAMESPACE TO THE LIST.
+
+Start with the part that no configuration changes: INSTALLING AN ARBITRARY CHART
+IS CLUSTER-ADMIN. A chart's templates are arbitrary manifests -- a
+ClusterRoleBinding to cluster-admin, a DaemonSet mounting the host root, a
+mutating webhook that rewrites every pod. Kubernetes' escalation prevention only
+stops a ServiceAccount granting more than it holds, so the moment a grant is big
+enough to install a real chart it is the thing it was meant to bound. There is no
+RBAC rule that says "create a Deployment, but not a privileged one", and there is
+no chart-shaped permission.
+
+So the real boundary is not here. It is the chart catalog: the API installs an
+entry somebody wrote into values.yaml at a version its declared repository
+serves, and never a URL or a path a caller chose. Everything below is secondary
+to that, and none of it would be sufficient without it.
+
+What is bounded here is reach. The grant is a Role in one namespace, it names the
+resources the catalogued charts actually need and no others, and it deliberately
+holds nothing in rbac.authorization.k8s.io or apiextensions.k8s.io -- a chart
+needing RBAC or CRDs is one to install by hand and then read from the panel, and
+withholding those leaves escalation prevention nothing to escalate through.
+
+ADD A RESOURCE THE SAME DAY YOU ADD THE CHART THAT NEEDS IT, not in advance. A
+standing grant for something unused is a permission nobody is reviewing, which is
+the rule the read ClusterRole next door already follows.
 
 Helm keeps a release in a Secret in the namespace it was installed into: the
 chart it came from, the values it was given, the manifests it rendered, and every
@@ -25,21 +49,122 @@ here rather than there:
   - A Role, not a ClusterRole. It reaches into one namespace and stops.
   - One per namespace named in admin.api.helm.namespaces, so the blast radius is
     a list somebody has to edit rather than the cluster.
-  - Nothing wildcard, and no write verb at all yet — installing and upgrading is
-    a later change, and this one only reads.
+  - Nothing wildcard, and nothing in rbac.authorization.k8s.io or
+    apiextensions.k8s.io. A chart needing RBAC or CRDs is one to install by hand
+    and then read from the panel, and withholding them leaves Kubernetes'
+    escalation prevention nothing to escalate through.
+
+There is a second mode, and it gives all of that up on purpose.
+
+admin.api.helm.allNamespaces renders ONE ClusterRole instead of the per-namespace
+Roles, because the panel can create namespaces and these Roles are rendered when
+the chart is installed — so without it, a namespace created from the panel cannot
+be deployed into until somebody reinstalls this chart. That breaks the workflow
+the feature exists for.
+
+  With allNamespaces on, the sentence above widens to: this panel can read every
+  Secret in every namespace on the cluster.
+
+Protection is unaffected in either mode — it is enforced in the API, and the
+release namespace, platform-system, default and kube-* are refused whichever
+grant is rendered. But protection is an application rule and this is a Kubernetes
+grant, so with allNamespaces on the grant no longer backs the rule up. Turn it on
+for a lab where one person holds every credential anyway; leave it off otherwise.
 
 A protected namespace here is a render failure rather than a warning, because
 "someone put platform-system in the managed list" is exactly the mistake that
 turns a bounded grant into an unbounded one, and a warning in a Helm output
 nobody reads is not a control.
 
-tests/validate-admin-chart.sh asserts all of it: that these are Roles and not
-ClusterRoles, that the verbs are read-only, that nothing in
-rbac.authorization.k8s.io or apiextensions.k8s.io is granted, and that a
-protected namespace in the list fails the render.
+tests/validate-admin-chart.sh asserts all of it: that a namespace list renders
+Roles and never a ClusterRole, that allNamespaces renders exactly one ClusterRole
+and no Role, that both grant the same verbs, that neither reaches
+rbac.authorization.k8s.io or apiextensions.k8s.io, and that a protected namespace
+in the list fails the render.
 */ -}}
 {{- $protected := concat (list .Release.Namespace "default" "kube-system" "kube-public" "kube-node-lease")
       .Values.admin.api.kubernetes.namespaces.protected }}
+{{- if .Values.admin.api.helm.allNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-helm
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+rules:
+  # Helm's release storage, and the resources a chart creates that live in the
+  # core group. See the warning above: `secrets` here is every Secret in the
+  # namespace, and RBAC cannot make it fewer.
+  - apiGroups: [""]
+    resources:
+      - secrets
+      - configmaps
+      - services
+      - serviceaccounts
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # What a chart runs.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read-only, and not because a chart creates one -- the Deployment controller
+  # does. Helm waits for a release to become ready, and it computes a Deployment's
+  # readiness by walking down to the ReplicaSets it owns. Without this the wait
+  # never resolves: the chart applies, the pods come up healthy, and the release
+  # sits in pending-install until the timeout gives up and marks it failed.
+  #
+  # That failure is worth describing because it looks like nothing is wrong. The
+  # workload is running; only the release record disagrees. And it defeats the
+  # completion check a pipeline makes, which waits for exactly that record.
+  #
+  # No write verbs: nothing here creates or deletes a ReplicaSet, and the rule
+  # this file follows is that a grant arrives in the change that needs it.
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+    verbs: ["get", "list", "watch"]
+  # Chart hooks are Jobs, so a chart with a migration or an install hook needs
+  # these even when it runs nothing on a schedule.
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Routing. This lab is Gateway API only -- the Ingress provider is switched off
+  # in the platform chart -- so an Ingress grant would be a permission for
+  # something that cannot work.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - httproutes
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-helm
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-helm
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ .Release.Namespace }}
+{{- else }}
 {{- range $namespace := .Values.admin.api.helm.namespaces }}
 {{- if has $namespace $protected }}
 {{- fail (printf "admin.api.helm.namespaces contains %s, which is a protected namespace" $namespace) }}
@@ -56,12 +181,62 @@ metadata:
   labels:
     {{- include "home-lab-admin.labels" $ | nindent 4 }}
 rules:
-  # Helm's release storage. See the warning above: this is every Secret in the
+  # Helm's release storage, and the resources a chart creates that live in the
+  # core group. See the warning above: `secrets` here is every Secret in the
   # namespace, and RBAC cannot make it fewer.
   - apiGroups: [""]
     resources:
       - secrets
+      - configmaps
+      - services
+      - serviceaccounts
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # What a chart runs.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read-only, and not because a chart creates one -- the Deployment controller
+  # does. Helm waits for a release to become ready, and it computes a Deployment's
+  # readiness by walking down to the ReplicaSets it owns. Without this the wait
+  # never resolves: the chart applies, the pods come up healthy, and the release
+  # sits in pending-install until the timeout gives up and marks it failed.
+  #
+  # That failure is worth describing because it looks like nothing is wrong. The
+  # workload is running; only the release record disagrees. And it defeats the
+  # completion check a pipeline makes, which waits for exactly that record.
+  #
+  # No write verbs: nothing here creates or deletes a ReplicaSet, and the rule
+  # this file follows is that a grant arrives in the change that needs it.
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
     verbs: ["get", "list", "watch"]
+  # Chart hooks are Jobs, so a chart with a migration or an install hook needs
+  # these even when it runs nothing on a schedule.
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Routing. This lab is Gateway API only -- the Ingress provider is switched off
+  # in the platform chart -- so an Ingress grant would be a permission for
+  # something that cannot work.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - httproutes
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -78,6 +253,7 @@ subjects:
   - kind: ServiceAccount
     name: admin-api
     namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
