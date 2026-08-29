@@ -272,14 +272,6 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		deployments = store
 	}
 
-	// Which release this process is running from, so an upgrade of it can be
-	// recognised and not waited on. Both halves come from the chart; missing
-	// either simply means no operation is ever treated as a self-upgrade.
-	self := helm.Self{
-		Namespace: os.Getenv("POD_NAMESPACE"),
-		Release:   os.Getenv("ADMIN_RELEASE_NAME"),
-	}
-
 	jobConfig, err := helmJobConfig(timeout)
 	if err != nil {
 		return err
@@ -289,12 +281,11 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		return err
 	}
 
-	helm.NewHandler(helm.NewService(repo, deployments, runner, policy, self, timeout, logger)).
+	helm.NewHandler(helm.NewService(repo, deployments, runner, policy, timeout, logger)).
 		Register(mux)
 	logger.Info("serving the Helm endpoints",
 		slog.Any("namespaces", policy.ManagedNamespaces()),
 		slog.Bool("everyNamespace", policy.ManagesEverything()),
-		slog.String("ownRelease", self.Release),
 		slog.Duration("timeout", timeout))
 	return nil
 }

@@ -177,7 +177,7 @@ func newDeploymentService(repo repository, deployments DeploymentStore) *Service
 func newDeploymentServiceWithJobs(repo repository, deployments DeploymentStore,
 	runner jobs,
 ) *Service {
-	return NewService(repo, deployments, runner, testPolicy(), Self{}, time.Minute,
+	return NewService(repo, deployments, runner, testPolicy(), time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -528,22 +528,3 @@ func TestReadDeploymentReportsAFailedReleaseRead(t *testing.T) {
 // see. What replaces it is a live check, recorded on the pull request: upgrade
 // the admin release from the panel and watch the Job outlive both Deployments
 // rolling.
-
-// Half-configured identity must not match anything: recognising a self-upgrade
-// is what turns the wait off, so a blank matching a blank would silently stop
-// every release waiting.
-func TestSelfMatches(t *testing.T) {
-	full := Self{Namespace: "admin", Release: "home-lab-admin"}
-	if !full.Matches("admin", "home-lab-admin") {
-		t.Error("the configured release should match itself")
-	}
-	if full.Matches("admin", "something-else") || full.Matches("apps", "home-lab-admin") {
-		t.Error("a different release must not match")
-	}
-
-	for _, partial := range []Self{{}, {Namespace: "admin"}, {Release: "home-lab-admin"}} {
-		if partial.Matches("", "") || partial.Matches("admin", "home-lab-admin") {
-			t.Errorf("%+v should match nothing", partial)
-		}
-	}
-}

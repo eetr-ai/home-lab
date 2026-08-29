@@ -26,9 +26,6 @@ type installSpec struct {
 	Version           string
 	Values            map[string]any
 	RollbackOnFailure bool
-	// SkipWait stops Helm waiting for the workloads it applied. Set only for an
-	// operation on the release this process is running from — see waitStrategy.
-	SkipWait bool
 }
 
 // upgradeSpec is the same for moving a release to another version.
@@ -39,9 +36,6 @@ type upgradeSpec struct {
 	Version           string
 	Values            map[string]any
 	RollbackOnFailure bool
-	// SkipWait stops Helm waiting for the workloads it applied. Set only for an
-	// operation on the release this process is running from — see waitStrategy.
-	SkipWait bool
 }
 
 // RollbackRequest is a request to return a release to an earlier revision.
