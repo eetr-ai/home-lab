@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Package } from "lucide-react";
+import { ShipWheel } from "lucide-react";
 import { installRelease } from "@/app/actions/helm";
 import { Checkbox, FormField, Input, Select } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
@@ -41,7 +41,7 @@ export function InstallPanel({
 		<CreatePanel
 			open={chart !== null}
 			title={chart ? `Install ${chart.name}` : "Install"}
-			icon={Package}
+			icon={ShipWheel}
 			submitLabel="Install"
 			description="Helm waits for the pods, so this is accepted rather than finished. The release page follows it."
 			dirty={name !== "" || version !== ""}

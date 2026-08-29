@@ -1,4 +1,4 @@
-import { Package } from "lucide-react";
+import { ShipWheel } from "lucide-react";
 import { listReleases } from "@/app/actions/helm";
 import { Th } from "@/components/ui/table";
 import { Directory } from "../../_components/directory";
@@ -25,7 +25,7 @@ export default async function HelmReleasesPage() {
 			isEmpty={releases.ok && releases.data.length === 0}
 			minWidth="min-w-[720px]"
 			empty={{
-				icon: Package,
+				icon: ShipWheel,
 				title: "No releases",
 				description: "Nothing is installed in the namespaces this lab manages.",
 			}}

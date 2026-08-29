@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Package, Plus } from "lucide-react";
+import { AlertTriangle, Plus, ShipWheel } from "lucide-react";
 import { Banner, Button, Td, Th } from "@/components/ui";
 import { InteractiveRow, stopRowActivation } from "../../../_components/interactive-row";
 import { Directory } from "../../../_components/directory";
@@ -40,7 +40,7 @@ export function CatalogList({
 				isEmpty={charts.length === 0}
 				minWidth="min-w-[720px]"
 				empty={{
-					icon: Package,
+					icon: ShipWheel,
 					title: "No charts in the catalog",
 					description:
 						"The catalog is the allowlist of what this lab will install. Add entries to admin.api.helm.charts in the chart's values.",

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, Database, LayoutDashboard, Leaf, LogOut, Package, ServerCog } from "lucide-react";
+import { Boxes, Database, LayoutDashboard, Leaf, LogOut, ServerCog, ShipWheel } from "lucide-react";
 import { endSession } from "@/app/actions/session";
 import { ThemeSwitcher } from "@/app/theme-switcher";
 import { activeHref, type NavItem } from "@/lib/nav/active";
@@ -15,7 +15,7 @@ const navItems: NavItem[] = [
 	// A peer of Kubernetes rather than a tab inside it: it is a different system
 	// of record. What is running comes from the cluster; what put it there comes
 	// from Helm.
-	{ href: "/helm", label: "Helm", icon: Package },
+	{ href: "/helm", label: "Helm", icon: ShipWheel },
 ];
 
 export function PanelNav({ email }: { email: string }) {
