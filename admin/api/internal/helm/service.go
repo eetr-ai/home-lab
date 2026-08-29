@@ -3,46 +3,70 @@ package helm
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
 
-// repository is the release storage this service needs. Declared here, where it
-// is consumed, so the service can be tested without a cluster or a chart.
+// repository is the Helm storage and the chart repositories this service needs.
+// Declared here, where it is consumed, so the service can be tested without a
+// cluster or a registry.
 type repository interface {
 	ListReleases(ctx context.Context, namespaces []string) ([]Release, error)
 	ReadRelease(ctx context.Context, namespace, name string) (ReleaseDetail, error)
 	ReadHistory(ctx context.Context, namespace, name string) ([]Revision, error)
+	ListChartVersions(ctx context.Context, source ChartSource) ([]ChartVersion, error)
+	Install(ctx context.Context, spec installSpec) (Release, error)
+	Upgrade(ctx context.Context, spec upgradeSpec) (Release, error)
+	Rollback(ctx context.Context, namespace, name string, revision int) error
+	Uninstall(ctx context.Context, namespace, name string) error
 }
 
-// Service reads the Helm releases in the namespaces this lab manages.
+// Service manages the Helm releases in the namespaces this lab manages.
 //
-// Reads only, for now. What it will not do is already decided here rather than
-// left for the write endpoints to remember: a namespace this lab has not made a
-// Helm target is refused before anything is read, so the set of namespaces this
-// slice ever touches is the configured one and nothing else. That is what bounds
-// the Secret access the whole feature rests on.
+// What it will not do is decided here rather than left for each endpoint to
+// remember: a namespace this lab has not made a Helm target is refused before
+// anything is read or written, so the set of namespaces this slice ever touches
+// is the permitted one and nothing else. That is what bounds the Secret access
+// the whole feature rests on.
 //
-// There is no database behind any of this. A release's identity, values, and
-// history are Secrets in the namespace it was installed into, which is what lets
-// both API replicas agree without coordinating, and what makes a release
-// installed by hand visible here without anything having recorded it.
+// What a release *is* comes from Helm's own storage — its status, its revisions,
+// its rendered notes are Secrets in the namespace it was installed into. Nothing
+// about cluster reality is cached or inferred anywhere else, which is what lets
+// both API replicas agree without coordinating and what makes a release installed
+// by hand visible here without anything having recorded it.
 type Service struct {
-	repo   repository
-	policy nspolicy.Policy
+	repo    repository
+	policy  nspolicy.Policy
+	locks   *locks
+	timeout time.Duration
+	logger  *slog.Logger
 }
 
 // NewService builds the service.
-func NewService(repo repository, policy nspolicy.Policy) *Service {
-	return &Service{repo: repo, policy: policy}
+func NewService(repo repository, policy nspolicy.Policy, timeout time.Duration,
+	logger *slog.Logger,
+) *Service {
+	return &Service{
+		repo:    repo,
+		policy:  policy,
+		locks:   newLocks(),
+		timeout: timeout,
+		logger:  logger,
+	}
 }
 
-// ListReleases returns every release in every managed namespace.
+// ListReleases returns every release this lab can see.
 //
-// The configured list is what is enumerated. Finding managed namespaces by
-// reading the cluster and checking labels would need a cluster-wide grant on
-// Helm's release Secrets, which is the one thing this design refuses to hold.
+// When the policy names the namespaces, those are enumerated. When it manages
+// every unprotected namespace, the empty list asks Helm to look cluster-wide,
+// which the cluster-scoped grant that mode renders makes possible.
 func (s *Service) ListReleases(ctx context.Context) ([]Release, error) {
+	if s.policy.ManagesEverything() {
+		return s.repo.ListReleases(ctx, nil)
+	}
+
 	namespaces := s.policy.ManagedNamespaces()
 	if len(namespaces) == 0 {
 		return nil, ErrNotConfigured
@@ -60,10 +84,7 @@ func (s *Service) ListNamespaceReleases(ctx context.Context, namespace string) (
 
 // ReadRelease returns one release with the values it was configured with.
 func (s *Service) ReadRelease(ctx context.Context, namespace, name string) (ReleaseDetail, error) {
-	if err := s.checkNamespace(namespace); err != nil {
-		return ReleaseDetail{}, err
-	}
-	if err := validateReleaseName(name); err != nil {
+	if err := s.checkRelease(namespace, name); err != nil {
 		return ReleaseDetail{}, err
 	}
 	return s.repo.ReadRelease(ctx, namespace, name)
@@ -71,13 +92,32 @@ func (s *Service) ReadRelease(ctx context.Context, namespace, name string) (Rele
 
 // ReadHistory returns a release's revisions, newest first.
 func (s *Service) ReadHistory(ctx context.Context, namespace, name string) ([]Revision, error) {
-	if err := s.checkNamespace(namespace); err != nil {
-		return nil, err
-	}
-	if err := validateReleaseName(name); err != nil {
+	if err := s.checkRelease(namespace, name); err != nil {
 		return nil, err
 	}
 	return s.repo.ReadHistory(ctx, namespace, name)
+}
+
+// ListChartVersions returns the versions a chart reference offers.
+//
+// This is what fills the version picker, and it is the only place the API reaches
+// out to a registry on a read. A reference that cannot be parsed is a 400 before
+// anything is fetched.
+func (s *Service) ListChartVersions(ctx context.Context, reference string) ([]ChartVersion, error) {
+	source, err := ParseChartRef(reference)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListChartVersions(ctx, source)
+}
+
+// checkRelease refuses a namespace this slice may not touch and a release name
+// Helm would not accept.
+func (s *Service) checkRelease(namespace, name string) error {
+	if err := s.checkNamespace(namespace); err != nil {
+		return err
+	}
+	return validateReleaseName(name)
 }
 
 // checkNamespace refuses a namespace this slice may not touch, and says which
@@ -91,8 +131,7 @@ func (s *Service) ReadHistory(ctx context.Context, namespace, name string) ([]Re
 //
 // The label half of the policy is not checked here: reading it needs the live
 // namespace, and this slice deliberately has no cluster read of its own. The
-// configured list is the half that decides which Secrets are reachable at all,
-// because it is what renders the Role.
+// grant is what actually decides which Secrets are reachable, and this mirrors it.
 func (s *Service) checkNamespace(namespace string) error {
 	if err := validateNamespace(namespace); err != nil {
 		return err
@@ -100,6 +139,10 @@ func (s *Service) checkNamespace(namespace string) error {
 
 	if protected, reason := s.policy.Protected(namespace, nil); protected {
 		return fmt.Errorf("%w: %s is %s", ErrProtected, namespace, reason)
+	}
+
+	if s.policy.ManagesEverything() {
+		return nil
 	}
 
 	for _, managed := range s.policy.ManagedNamespaces() {
