@@ -169,3 +169,13 @@ func (g *restClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	overrides := &clientcmd.ConfigOverrides{Context: clientcmdapi.Context{Namespace: g.namespace}}
 	return clientcmd.NewDefaultClientConfig(*clientcmdapi.NewConfig(), overrides)
 }
+
+// invalidateDiscovery drops the cached view of what kinds the cluster serves.
+//
+// Called before an install or an upgrade, because a chart that creates a
+// CustomResourceDefinition and then an instance of it needs the mapper to resolve
+// a kind that did not exist when the cache was filled. Not called before a read:
+// a stale cache costs nothing there, and refilling it is dozens of requests.
+func (c *clients) invalidateDiscovery() {
+	c.discovery.Invalidate()
+}

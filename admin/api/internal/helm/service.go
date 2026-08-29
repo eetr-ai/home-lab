@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
@@ -15,15 +16,21 @@ type repository interface {
 	ReadRelease(ctx context.Context, namespace, name string) (ReleaseDetail, error)
 	ReadHistory(ctx context.Context, namespace, name string) ([]Revision, error)
 	ListChartVersions(ctx context.Context, source ChartSource) ([]ChartVersion, error)
+	Install(ctx context.Context, req InstallRequest, source ChartSource) (Release, error)
+	Upgrade(ctx context.Context, req UpgradeRequest, source ChartSource) (Release, error)
+	Rollback(ctx context.Context, namespace, name string, revision int) error
+	Uninstall(ctx context.Context, namespace, name string) error
 }
 
-// Service reads the Helm releases in the namespaces this lab manages.
+// Service manages the Helm releases in the namespaces this lab has named.
 //
-// Reads only, for now. What it will not do is already decided here rather than
-// left for the write endpoints to remember: a namespace this lab has not made a
-// Helm target is refused before anything is read, so the set of namespaces this
-// slice ever touches is the configured one and nothing else. That is what bounds
-// the Secret access the whole feature rests on.
+// Two rules bound everything it does, and both are checked here rather than left
+// for each endpoint to remember. A namespace this lab has not made a Helm target
+// is refused before anything is read or written, so the set of namespaces this
+// slice ever touches is the configured one and nothing else. And a chart that is
+// not in the catalog cannot be installed at all — the catalog is the allowlist
+// that turns "install an arbitrary chart", which is cluster-admin, into "install
+// something somebody vetted".
 //
 // There is no database behind any of this. A release's identity, values, and
 // history are Secrets in the namespace it was installed into, which is what lets
@@ -34,18 +41,25 @@ type Service struct {
 	policy   nspolicy.Policy
 	catalog  Catalog
 	versions *versionCache
+	locks    *locks
+	timeout  time.Duration
 	logger   *slog.Logger
 }
 
 // NewService builds the service.
+// timeout bounds one install, upgrade, rollback, or uninstall. It is off the
+// request path entirely, so it is generous: what it protects against is an
+// operation that never finishes leaving a release pending forever.
 func NewService(repo repository, policy nspolicy.Policy, catalog Catalog,
-	logger *slog.Logger,
+	timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		repo:     repo,
 		policy:   policy,
 		catalog:  catalog,
 		versions: newVersionCache(),
+		locks:    newLocks(),
+		timeout:  timeout,
 		logger:   logger,
 	}
 }

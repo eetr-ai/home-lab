@@ -1,9 +1,33 @@
 {{- if .Values.admin.api.kubernetes.enabled }}
 {{- if .Values.admin.api.helm.namespaces }}
 {{- /*
-Reading Helm releases, one namespace at a time.
+Installing and reading Helm releases, one namespace at a time.
 
 READ THIS BEFORE ADDING A NAMESPACE TO THE LIST.
+
+Start with the part that no configuration changes: INSTALLING AN ARBITRARY CHART
+IS CLUSTER-ADMIN. A chart's templates are arbitrary manifests -- a
+ClusterRoleBinding to cluster-admin, a DaemonSet mounting the host root, a
+mutating webhook that rewrites every pod. Kubernetes' escalation prevention only
+stops a ServiceAccount granting more than it holds, so the moment a grant is big
+enough to install a real chart it is the thing it was meant to bound. There is no
+RBAC rule that says "create a Deployment, but not a privileged one", and there is
+no chart-shaped permission.
+
+So the real boundary is not here. It is the chart catalog: the API installs an
+entry somebody wrote into values.yaml at a version its declared repository
+serves, and never a URL or a path a caller chose. Everything below is secondary
+to that, and none of it would be sufficient without it.
+
+What is bounded here is reach. The grant is a Role in one namespace, it names the
+resources the catalogued charts actually need and no others, and it deliberately
+holds nothing in rbac.authorization.k8s.io or apiextensions.k8s.io -- a chart
+needing RBAC or CRDs is one to install by hand and then read from the panel, and
+withholding those leaves escalation prevention nothing to escalate through.
+
+ADD A RESOURCE THE SAME DAY YOU ADD THE CHART THAT NEEDS IT, not in advance. A
+standing grant for something unused is a permission nobody is reviewing, which is
+the rule the read ClusterRole next door already follows.
 
 Helm keeps a release in a Secret in the namespace it was installed into: the
 chart it came from, the values it was given, the manifests it rendered, and every
@@ -56,12 +80,46 @@ metadata:
   labels:
     {{- include "home-lab-admin.labels" $ | nindent 4 }}
 rules:
-  # Helm's release storage. See the warning above: this is every Secret in the
+  # Helm's release storage, and the resources a chart creates that live in the
+  # core group. See the warning above: `secrets` here is every Secret in the
   # namespace, and RBAC cannot make it fewer.
   - apiGroups: [""]
     resources:
       - secrets
-    verbs: ["get", "list", "watch"]
+      - configmaps
+      - services
+      - serviceaccounts
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # What a chart runs.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Chart hooks are Jobs, so a chart with a migration or an install hook needs
+  # these even when it runs nothing on a schedule.
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Routing. This lab is Gateway API only -- the Ingress provider is switched off
+  # in the platform chart -- so an Ingress grant would be a permission for
+  # something that cannot work.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - httproutes
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

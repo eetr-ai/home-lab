@@ -7,13 +7,17 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"helm.sh/helm/v4/pkg/action"
 	chartapi "helm.sh/helm/v4/pkg/chart"
+	chartv2 "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/chart/v2/loader"
 	"helm.sh/helm/v4/pkg/cli"
 	"helm.sh/helm/v4/pkg/getter"
+	"helm.sh/helm/v4/pkg/kube"
 	"helm.sh/helm/v4/pkg/registry"
 	"helm.sh/helm/v4/pkg/release"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
@@ -38,15 +42,20 @@ import (
 type Repository struct {
 	clients *clients
 	logger  *slog.Logger
+	// timeout bounds one install, upgrade, rollback, or uninstall. It is off the
+	// request path entirely — the caller was answered long before — so it is
+	// generous, and what it protects against is an operation that never finishes
+	// holding a release in a pending state forever.
+	timeout time.Duration
 }
 
 // NewRepository builds the repository. It contacts nothing.
-func NewRepository(logger *slog.Logger) (*Repository, error) {
+func NewRepository(logger *slog.Logger, timeout time.Duration) (*Repository, error) {
 	clients, err := newClients(logger)
 	if err != nil {
 		return nil, err
 	}
-	return &Repository{clients: clients, logger: logger}, nil
+	return &Repository{clients: clients, logger: logger, timeout: timeout}, nil
 }
 
 // ListReleases returns the releases in each of the given namespaces.
@@ -377,4 +386,156 @@ func (r *Repository) ociTags(source ChartSource) ([]ChartVersion, error) {
 		versions = append(versions, ChartVersion{Version: tag})
 	}
 	return versions, nil
+}
+
+// maxHistory is how many revisions of a release Helm keeps.
+//
+// Each revision is a Secret holding the whole rendered manifest, so an unbounded
+// history is unbounded Secrets in the namespace. Ten is more than anybody rolls
+// back through and small enough that it does not accumulate.
+const maxHistory = 10
+
+// Install puts a new release on the cluster and waits for it to come up.
+//
+// The chart is located by catalog entry and exact version against the declared
+// repository. Nothing here takes a path or a URL from the caller: LocateChart is
+// given a chart name and a RepoURL that came from configuration, which is what
+// keeps this from being an arbitrary fetch.
+//
+// This blocks for as long as the chart takes. The service runs it off the request
+// goroutine for that reason.
+func (r *Repository) Install(ctx context.Context, req InstallRequest, source ChartSource) (Release, error) {
+	configuration, err := r.clients.configurationFor(req.Namespace)
+	if err != nil {
+		return Release{}, err
+	}
+
+	// A chart may install a CustomResourceDefinition and then an instance of it,
+	// which needs the mapper to resolve a kind that did not exist when the cache
+	// was filled. Only here: a read costs nothing for a stale cache, and refilling
+	// it is dozens of requests.
+	r.clients.invalidateDiscovery()
+
+	install := action.NewInstall(configuration)
+	install.Namespace = req.Namespace
+	install.ReleaseName = req.Name
+	install.Version = req.Version
+	install.Timeout = r.timeout
+	// Wait, so "deployed" means the pods came up rather than that the manifests
+	// were accepted. Without it a release reports success while its pods are in
+	// ImagePullBackOff, which is the answer a pipeline would act on.
+	install.WaitStrategy = kube.StatusWatcherStrategy
+	install.RollbackOnFailure = req.RollbackOnFailure
+	// Never. The namespace has to exist and be one this lab manages, and letting
+	// Helm conjure one would route around the whole protection policy.
+	install.CreateNamespace = false
+
+	chart, err := r.locate(&install.ChartPathOptions, source, req.Version)
+	if err != nil {
+		return Release{}, err
+	}
+
+	result, err := install.RunWithContext(ctx, chart, req.Values)
+	if err != nil {
+		return Release{}, translate(err, "install release "+req.Name)
+	}
+	return releaseFrom(result)
+}
+
+// Upgrade moves an existing release to another version.
+//
+// Values that are nil mean "keep what the release already has", which is what
+// ReuseValues does and what makes this callable from a pipeline that owns a
+// version and nothing else.
+func (r *Repository) Upgrade(ctx context.Context, req UpgradeRequest, source ChartSource) (Release, error) {
+	configuration, err := r.clients.configurationFor(req.Namespace)
+	if err != nil {
+		return Release{}, err
+	}
+	r.clients.invalidateDiscovery()
+
+	upgrade := action.NewUpgrade(configuration)
+	upgrade.Namespace = req.Namespace
+	upgrade.Version = req.Version
+	upgrade.Timeout = r.timeout
+	upgrade.WaitStrategy = kube.StatusWatcherStrategy
+	upgrade.RollbackOnFailure = req.RollbackOnFailure
+	upgrade.MaxHistory = maxHistory
+	upgrade.ReuseValues = req.Values == nil
+
+	chart, err := r.locate(&upgrade.ChartPathOptions, source, req.Version)
+	if err != nil {
+		return Release{}, err
+	}
+
+	result, err := upgrade.RunWithContext(ctx, req.Name, chart, req.Values)
+	if err != nil {
+		return Release{}, translate(err, "upgrade release "+req.Name)
+	}
+	return releaseFrom(result)
+}
+
+// Rollback returns a release to an earlier revision.
+//
+// It creates a new revision rather than restoring the old one, so a rollback is
+// itself something that can be rolled back.
+func (r *Repository) Rollback(_ context.Context, namespace, name string, revision int) error {
+	configuration, err := r.clients.configurationFor(namespace)
+	if err != nil {
+		return err
+	}
+
+	rollback := action.NewRollback(configuration)
+	rollback.Version = revision
+	rollback.Timeout = r.timeout
+	rollback.WaitStrategy = kube.StatusWatcherStrategy
+	rollback.MaxHistory = maxHistory
+
+	return translate(rollback.Run(name), "roll back release "+name)
+}
+
+// Uninstall removes a release and everything it created.
+func (r *Repository) Uninstall(_ context.Context, namespace, name string) error {
+	configuration, err := r.clients.configurationFor(namespace)
+	if err != nil {
+		return err
+	}
+
+	uninstall := action.NewUninstall(configuration)
+	uninstall.Timeout = r.timeout
+	uninstall.WaitStrategy = kube.StatusWatcherStrategy
+
+	_, err = uninstall.Run(name)
+	return translate(err, "uninstall release "+name)
+}
+
+// locate resolves a catalog entry and exact version to a loaded chart.
+//
+// RepoURL is set rather than a repository being added to any on-disk
+// configuration, so Helm fetches the index directly and this pod keeps no
+// repository state. The name handed to LocateChart is a chart name from the
+// catalog for an HTTP repository, and a full oci:// reference for a registry —
+// both built here from configuration, never from a request.
+func (r *Repository) locate(options *action.ChartPathOptions, source ChartSource,
+	version string,
+) (*chartv2.Chart, error) {
+	options.Version = version
+
+	name := source.Chart
+	if source.OCI {
+		name = strings.TrimSuffix(source.URL, "/") + "/" + source.Chart
+	} else {
+		options.RepoURL = source.URL
+	}
+
+	path, err := options.LocateChart(name, cli.New())
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s at version %s", ErrUnknownVersion, source.Chart, version)
+	}
+
+	chart, err := loader.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("load the chart %s: %w", source.Chart, err)
+	}
+	return chart, nil
 }

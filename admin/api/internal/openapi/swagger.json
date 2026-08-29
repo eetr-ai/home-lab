@@ -30,6 +30,25 @@
                 },
                 "type": "object"
             },
+            "helm.Accepted": {
+                "properties": {
+                    "message": {
+                        "description": "Message says how to find out what happened, because there is nothing else\nto poll and no job id to hand back.",
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "operation": {
+                        "description": "Operation is install, upgrade, rollback, or uninstall.",
+                        "type": "string"
+                    },
+                    "release": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "helm.ChartListing": {
                 "properties": {
                     "chart": {
@@ -70,6 +89,28 @@
                 "properties": {
                     "appVersion": {
                         "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.InstallRequest": {
+                "properties": {
+                    "chart": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "rollbackOnFailure": {
+                        "description": "RollbackOnFailure asks Helm to undo a failed install rather than leaving it\nfailed. Off by default, deliberately — see UpgradeRequest.",
+                        "type": "boolean"
+                    },
+                    "values": {
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "version": {
                         "type": "string"
@@ -174,6 +215,31 @@
                         "type": "string"
                     },
                     "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.RollbackRequest": {
+                "properties": {
+                    "revision": {
+                        "description": "Revision is required. Helm defaults a missing one to \"the previous\nrevision\", which is a different operation from the one an operator clicked\nin a table of revisions, and defaulting to it would sometimes do the right\nthing quietly and sometimes the wrong thing quietly.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.UpgradeRequest": {
+                "properties": {
+                    "rollbackOnFailure": {
+                        "description": "RollbackOnFailure is off by default, and this is the one default worth\narguing about. With it on, a failed upgrade is undone and the release ends\nup `deployed` on a *new* revision — so a pipeline polling for a terminal\nstatus reads success for a deploy that did not deploy. Failing loudly and\nleaving the release `failed` is legible to a human on the release page and\nto a curl loop in a pipeline, and rolling back is one call away.",
+                        "type": "boolean"
+                    },
+                    "values": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "version": {
                         "type": "string"
                     }
                 },
@@ -1295,9 +1361,218 @@
                 "tags": [
                     "helm"
                 ]
+            },
+            "post": {
+                "description": "Answers 202: Helm waits for pods, which outlasts this request. Every rule\nis checked before the 202, so a bad request is a 400 rather than a 202\nthat quietly fails. Read the release to see what happened — it is\npending-install until it is deployed or failed.\nThe chart must be a catalog entry and the version exact; a range or\n\"latest\" is refused rather than resolved.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.InstallRequest",
+                                        "summary": "request",
+                                        "description": "The release to install"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The release to install",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Accepted"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Install a Helm release",
+                "tags": [
+                    "helm"
+                ]
             }
         },
         "/api/helm/namespaces/{namespace}/releases/{release}": {
+            "delete": {
+                "description": "Answers 202. Removes every resource the chart created, which for a chart\nwith a volume claim includes the claim.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Release name",
+                        "in": "path",
+                        "name": "release",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Accepted"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Uninstall a Helm release",
+                "tags": [
+                    "helm"
+                ]
+            },
             "get": {
                 "description": "The values are the ones supplied at install or upgrade, not the chart's\ndefaults merged with them. Re-submitting the merged set would pin every\ndefault the chart ships with.",
                 "parameters": [
@@ -1378,6 +1653,120 @@
                     }
                 ],
                 "summary": "Read a Helm release",
+                "tags": [
+                    "helm"
+                ]
+            },
+            "put": {
+                "description": "The endpoint a pipeline calls. The body normally carries only a version:\nabsent values mean the release keeps its own, so a pipeline that owns an\nimage tag need not know the rest of the configuration and cannot erase it.\nWhich chart the release came from is read from Helm's storage, not taken\nfrom the request, so an upgrade cannot replace a release with something\nelse.\nAnswers 202. A pipeline's completion check is not \"the status became\nterminal\" but \"the status is deployed AND chartVersion is the version I\nasked for\" — with rollbackOnFailure set, a failed upgrade ends up deployed\non an earlier chart.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Release name",
+                        "in": "path",
+                        "name": "release",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.UpgradeRequest",
+                                        "summary": "request",
+                                        "description": "The version to move to"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The version to move to",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Accepted"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Upgrade a Helm release",
                 "tags": [
                     "helm"
                 ]
@@ -1467,6 +1856,122 @@
                     }
                 ],
                 "summary": "Read a Helm release's history",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/namespaces/{namespace}/releases/{release}/rollback": {
+            "post": {
+                "description": "Answers 202. The revision is required rather than defaulted: Helm's own\ndefault is \"the previous revision\", which is a different operation from\nthe one an operator clicked in a table of revisions.\nRolling back creates a new revision rather than restoring the old one, so\na rollback can itself be rolled back. It is also permitted from a pending\nstate, which is how a release wedged by a killed pod is recovered.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Release name",
+                        "in": "path",
+                        "name": "release",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.RollbackRequest",
+                                        "summary": "request",
+                                        "description": "The revision to return to"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The revision to return to",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Accepted"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Roll a Helm release back",
                 "tags": [
                     "helm"
                 ]

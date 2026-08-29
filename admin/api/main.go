@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
@@ -42,6 +43,11 @@ const (
 	// an unreachable provider fails the process quickly and visibly, rather than
 	// leaving it hanging with no logs and no listener.
 	discoveryTimeout = 15 * time.Second
+
+	// How long one Helm operation may run when the chart does not say otherwise.
+	// Generous because it waits for pods to come up, and because nothing is
+	// holding a request open while it does.
+	defaultHelmTimeout = 10 * time.Minute
 )
 
 func main() {
@@ -242,16 +248,45 @@ func registerHelm(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Poli
 		return err
 	}
 
-	repo, err := helm.NewRepository(logger)
+	timeout, err := helmTimeout()
 	if err != nil {
 		return err
 	}
 
-	helm.NewHandler(helm.NewService(repo, policy, catalog, logger), guard).Register(mux)
+	repo, err := helm.NewRepository(logger, timeout)
+	if err != nil {
+		return err
+	}
+
+	service := helm.NewService(repo, policy, catalog, timeout, logger)
+	helm.NewHandler(service, guard).Register(mux)
 	logger.Info("serving the Helm endpoints",
 		slog.Any("namespaces", policy.ManagedNamespaces()),
-		slog.Int("charts", len(catalog.Charts)))
+		slog.Int("charts", len(catalog.Charts)),
+		slog.Duration("timeout", timeout))
 	return nil
+}
+
+// helmTimeout bounds one install, upgrade, rollback, or uninstall.
+//
+// It is off the request path entirely — the caller was answered with a 202 long
+// before — so it is generous rather than tight. What it protects against is an
+// operation that never finishes leaving a release stuck in a pending state, which
+// is the condition every later attempt is then refused for.
+func helmTimeout() (time.Duration, error) {
+	value := os.Getenv("ADMIN_HELM_TIMEOUT")
+	if value == "" {
+		return defaultHelmTimeout, nil
+	}
+
+	timeout, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT is not a duration: %w", err)
+	}
+	if timeout <= 0 {
+		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT must be positive, and is %s", timeout)
+	}
+	return timeout, nil
 }
 
 // namespacePolicy reads which namespaces this lab will not let the panel touch.

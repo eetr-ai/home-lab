@@ -26,6 +26,14 @@ var (
 	// ErrUnknownVersion reports a version the chart's repository does not offer,
 	// or that this lab's catalog does not permit.
 	ErrUnknownVersion = errors.New("version is not offered")
+	// ErrAlreadyExists reports a release name already taken in that namespace.
+	ErrAlreadyExists = errors.New("release already exists")
+	// ErrInProgress reports an operation refused because another one on the same
+	// release has not finished.
+	ErrInProgress = errors.New("another operation is in progress")
+	// ErrValuesTooLarge reports values that would not fit in the Secret Helm
+	// stores a release in.
+	ErrValuesTooLarge = errors.New("values are too large")
 	// ErrRepositoryUnreachable reports a chart repository that could not be read.
 	// Distinct from a failure, because the catalog still knows what it declared —
 	// the panel degrades to that rather than to an error.

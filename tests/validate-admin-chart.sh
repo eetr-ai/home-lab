@@ -359,17 +359,113 @@ if ! grep -A4 '^kind: Role$' <<<"$helm_rbac" | grep -q '  namespace: apps'; then
   exit 1
 fi
 
-# Read-only, and reaching nothing but Secrets. extract_pairs stops at the first
-# ClusterRoleBinding, of which this document has none, so it reads the whole thing.
+# Every (resource, verb) the Helm Role holds, pinned exactly -- the same discipline
+# the read ClusterRole gets, and it matters more here because these are writes.
+#
+# This list is the review surface. A chart added to the catalog that needs a
+# resource not on it should fail here and be added in the same change, which is
+# what stops the Role accumulating permissions nobody is looking at.
+#
+# extract_pairs stops at the first ClusterRoleBinding, of which this document has
+# none, so it reads the whole thing.
 helm_pairs=$(printf '%s\n' "$helm_rbac" | extract_pairs)
 expected_helm_pairs=$(LC_ALL=C sort <<'HELMPAIRS'
+apps/daemonsets create
+apps/daemonsets delete
+apps/daemonsets get
+apps/daemonsets list
+apps/daemonsets patch
+apps/daemonsets update
+apps/daemonsets watch
+apps/deployments create
+apps/deployments delete
+apps/deployments get
+apps/deployments list
+apps/deployments patch
+apps/deployments update
+apps/deployments watch
+apps/statefulsets create
+apps/statefulsets delete
+apps/statefulsets get
+apps/statefulsets list
+apps/statefulsets patch
+apps/statefulsets update
+apps/statefulsets watch
+batch/cronjobs create
+batch/cronjobs delete
+batch/cronjobs get
+batch/cronjobs list
+batch/cronjobs patch
+batch/cronjobs update
+batch/cronjobs watch
+batch/jobs create
+batch/jobs delete
+batch/jobs get
+batch/jobs list
+batch/jobs patch
+batch/jobs update
+batch/jobs watch
+core/configmaps create
+core/configmaps delete
+core/configmaps get
+core/configmaps list
+core/configmaps patch
+core/configmaps update
+core/configmaps watch
+core/persistentvolumeclaims create
+core/persistentvolumeclaims delete
+core/persistentvolumeclaims get
+core/persistentvolumeclaims list
+core/persistentvolumeclaims patch
+core/persistentvolumeclaims update
+core/persistentvolumeclaims watch
+core/secrets create
+core/secrets delete
 core/secrets get
 core/secrets list
+core/secrets patch
+core/secrets update
 core/secrets watch
+core/serviceaccounts create
+core/serviceaccounts delete
+core/serviceaccounts get
+core/serviceaccounts list
+core/serviceaccounts patch
+core/serviceaccounts update
+core/serviceaccounts watch
+core/services create
+core/services delete
+core/services get
+core/services list
+core/services patch
+core/services update
+core/services watch
+gateway.networking.k8s.io/httproutes create
+gateway.networking.k8s.io/httproutes delete
+gateway.networking.k8s.io/httproutes get
+gateway.networking.k8s.io/httproutes list
+gateway.networking.k8s.io/httproutes patch
+gateway.networking.k8s.io/httproutes update
+gateway.networking.k8s.io/httproutes watch
+networking.k8s.io/networkpolicies create
+networking.k8s.io/networkpolicies delete
+networking.k8s.io/networkpolicies get
+networking.k8s.io/networkpolicies list
+networking.k8s.io/networkpolicies patch
+networking.k8s.io/networkpolicies update
+networking.k8s.io/networkpolicies watch
+policy/poddisruptionbudgets create
+policy/poddisruptionbudgets delete
+policy/poddisruptionbudgets get
+policy/poddisruptionbudgets list
+policy/poddisruptionbudgets patch
+policy/poddisruptionbudgets update
+policy/poddisruptionbudgets watch
 HELMPAIRS
 )
 if [[ $helm_pairs != "$expected_helm_pairs" ]]; then
-  printf 'The Helm Role must grant read on secrets and nothing else.\n' >&2
+  printf 'The Helm Role grants something unexpected.\n' >&2
+  printf 'Add the pair here in the same change that adds the chart needing it.\n' >&2
   diff <(printf '%s\n' "$expected_helm_pairs") <(printf '%s\n' "$helm_pairs") >&2 || true
   exit 1
 fi

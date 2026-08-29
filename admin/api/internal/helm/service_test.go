@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
@@ -21,9 +23,83 @@ type fakeRepo struct {
 	// fetches counts trips to the repository, which is how the cache is tested
 	// without waiting for anything.
 	fetches int
+
+	// existing is the releases ReadRelease answers with; a name absent from it
+	// reads as not found. history is what ReadHistory answers with.
+	existing map[string]ReleaseDetail
+	history  []Revision
+
+	// done receives the name of each operation once it has actually reached the
+	// storage. The operations run off the request goroutine, so a test waits on
+	// this rather than sleeping.
+	done chan string
+	// blocked, when set, holds an operation until it is closed — which is how a
+	// test can have one in flight while it starts a second.
+	blocked chan struct{}
+
+	mu        sync.Mutex
+	installed []InstallRequest
+	upgraded  []UpgradeRequest
+	rolled    []int
+	removed   []string
+}
+
+func (f *fakeRepo) Install(_ context.Context, req InstallRequest, _ ChartSource) (Release, error) {
+	f.record(func() { f.installed = append(f.installed, req) })
+	f.finish("install")
+	return Release{Name: req.Name, Namespace: req.Namespace}, nil
+}
+
+func (f *fakeRepo) Upgrade(_ context.Context, req UpgradeRequest, _ ChartSource) (Release, error) {
+	f.record(func() { f.upgraded = append(f.upgraded, req) })
+	f.finish("upgrade")
+	return Release{Name: req.Name, Namespace: req.Namespace}, nil
+}
+
+func (f *fakeRepo) Rollback(_ context.Context, _, _ string, revision int) error {
+	f.record(func() { f.rolled = append(f.rolled, revision) })
+	f.finish("rollback")
+	return nil
+}
+
+func (f *fakeRepo) Uninstall(_ context.Context, _, name string) error {
+	f.record(func() { f.removed = append(f.removed, name) })
+	f.finish("uninstall")
+	return nil
+}
+
+func (f *fakeRepo) record(mutate func()) {
+	if f.blocked != nil {
+		<-f.blocked
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	mutate()
+}
+
+func (f *fakeRepo) finish(operation string) {
+	if f.done != nil {
+		f.done <- operation
+	}
+}
+
+// await waits for one operation to reach the storage. A channel rather than a
+// sleep: a sleep long enough to be reliable is long enough to be slow, and one
+// short enough to be fast is a flake.
+func (f *fakeRepo) await(t *testing.T) string {
+	t.Helper()
+	select {
+	case operation := <-f.done:
+		return operation
+	case <-time.After(2 * time.Second):
+		t.Fatal("the operation never reached the storage")
+		return ""
+	}
 }
 
 func (f *fakeRepo) ListChartVersions(_ context.Context, source ChartSource) ([]ChartVersion, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.fetches++
 	f.asked = append(f.asked, "versions:"+source.Chart)
 	if f.versionErr != nil {
@@ -33,17 +109,37 @@ func (f *fakeRepo) ListChartVersions(_ context.Context, source ChartSource) ([]C
 }
 
 func (f *fakeRepo) ListReleases(_ context.Context, namespaces []string) ([]Release, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.asked = append(f.asked, "list:"+strings.Join(namespaces, ","))
 	return []Release{{Name: "whoami", Namespace: namespaces[0]}}, nil
 }
 
 func (f *fakeRepo) ReadRelease(_ context.Context, namespace, name string) (ReleaseDetail, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.asked = append(f.asked, "read:"+namespace+"/"+name)
-	return ReleaseDetail{Release: Release{Name: name, Namespace: namespace}}, nil
+
+	// A fake with no releases configured answers as though every name exists,
+	// which is what the read tests want. One with a map answers from it, which is
+	// what the write tests need.
+	if f.existing == nil {
+		return ReleaseDetail{Release: Release{Name: name, Namespace: namespace}}, nil
+	}
+	found, ok := f.existing[name]
+	if !ok {
+		return ReleaseDetail{}, ErrNotFound
+	}
+	return found, nil
 }
 
 func (f *fakeRepo) ReadHistory(_ context.Context, namespace, name string) ([]Revision, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.asked = append(f.asked, "history:"+namespace+"/"+name)
+	if f.history != nil {
+		return f.history, nil
+	}
 	return []Revision{{Revision: 1}}, nil
 }
 
@@ -58,7 +154,7 @@ func newTestServiceWithCatalog(repo repository, catalog Catalog) *Service {
 		Own:       "admin",
 		Protected: []string{"platform-system"},
 		Managed:   []string{"apps"},
-	}), catalog, slog.New(slog.DiscardHandler))
+	}), catalog, time.Minute, slog.New(slog.DiscardHandler))
 }
 
 // Every read is refused for a namespace this slice may not reach, and refused
@@ -186,7 +282,7 @@ func TestReleaseNameValidation(t *testing.T) {
 func TestListReleasesReportsAnUnconfiguredLab(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo, nspolicy.New(nspolicy.Config{Own: "admin"}), Catalog{},
-		slog.New(slog.DiscardHandler))
+		time.Minute, slog.New(slog.DiscardHandler))
 
 	_, err := service.ListReleases(t.Context())
 	if !errors.Is(err, ErrNotConfigured) {
