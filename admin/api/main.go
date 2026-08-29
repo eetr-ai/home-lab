@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
@@ -42,6 +43,11 @@ const (
 	// an unreachable provider fails the process quickly and visibly, rather than
 	// leaving it hanging with no logs and no listener.
 	discoveryTimeout = 15 * time.Second
+
+	// How long one Helm operation may take when ADMIN_HELM_TIMEOUT says nothing.
+	// Long, because it covers pulling a chart, applying it, and waiting for the
+	// pods to become ready.
+	defaultHelmTimeout = 10 * time.Minute
 )
 
 func main() {
@@ -234,15 +240,43 @@ func registerHelm(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Poli
 		return nil
 	}
 
-	repo, err := helm.NewRepository(logger)
+	timeout, err := helmTimeout()
 	if err != nil {
 		return err
 	}
 
-	helm.NewHandler(helm.NewService(repo, policy), guard).Register(mux)
+	repo, err := helm.NewRepository(logger, timeout)
+	if err != nil {
+		return err
+	}
+
+	helm.NewHandler(helm.NewService(repo, policy, timeout, logger), guard).Register(mux)
 	logger.Info("serving the Helm endpoints",
-		slog.Any("namespaces", policy.ManagedNamespaces()))
+		slog.Any("namespaces", policy.ManagedNamespaces()),
+		slog.Bool("everyNamespace", policy.ManagesEverything()),
+		slog.Duration("timeout", timeout))
 	return nil
+}
+
+// helmTimeout bounds one install, upgrade, rollback, or uninstall.
+//
+// Generous by default, because it is off the request path entirely: the caller
+// was answered with a 202 long before. What it protects against is an operation
+// that never finishes holding a release in a pending state forever.
+func helmTimeout() (time.Duration, error) {
+	value := os.Getenv("ADMIN_HELM_TIMEOUT")
+	if value == "" {
+		return defaultHelmTimeout, nil
+	}
+
+	timeout, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT is not a duration: %w", err)
+	}
+	if timeout <= 0 {
+		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT must be positive, and is %s", timeout)
+	}
+	return timeout, nil
 }
 
 // namespacePolicy reads which namespaces this lab will not let the panel touch.
@@ -262,6 +296,11 @@ func namespacePolicy(logger *slog.Logger) nspolicy.Policy {
 		Own:       own,
 		Protected: splitList(os.Getenv("ADMIN_PROTECTED_NAMESPACES")),
 		Managed:   splitList(os.Getenv("ADMIN_HELM_MANAGED_NAMESPACES")),
+		// Every unprotected namespace, rather than a named list. Set by the chart
+		// when the lab has chosen the cluster-scoped grant, and meaningless
+		// without it: the policy would permit a namespace the ServiceAccount
+		// still cannot read.
+		ManageEverything: os.Getenv("ADMIN_HELM_ALL_NAMESPACES") == envTrue,
 	})
 }
 

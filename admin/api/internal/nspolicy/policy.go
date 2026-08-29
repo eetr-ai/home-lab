@@ -28,6 +28,10 @@ const (
 	// LabelManaged marks a namespace Helm may write to. Necessary but not
 	// sufficient — see Managed.
 	LabelManaged = "home-lab.example/helm-managed"
+
+	// labelTrue is how a label says yes. One spelling, so a rule cannot hold in
+	// one place and not another because someone wrote "True".
+	labelTrue = "true"
 )
 
 // systemNamespaces are Kubernetes' own. Not lab policy, and not configurable:
@@ -53,22 +57,33 @@ type Config struct {
 	// be decided together or a typo in one values file is a release in
 	// platform-system.
 	Managed []string
+	// ManageEverything makes every unprotected namespace a Helm target, instead
+	// of only those named in Managed.
+	//
+	// It exists because the panel can create namespaces and the per-namespace
+	// Roles are rendered by the chart: without it, a namespace created from the
+	// panel cannot be deployed to until somebody reinstalls the chart, which
+	// breaks "create a namespace, then deploy into it" — the workflow the whole
+	// feature is for. Protection is unaffected either way.
+	ManageEverything bool
 }
 
 // Policy answers questions about a namespace.
 type Policy struct {
-	own       string
-	protected []string
-	managed   []string
+	own        string
+	protected  []string
+	managed    []string
+	everything bool
 }
 
 // New builds the policy. Empty configuration is valid and still protects the
 // built-ins; those are not the lab's to switch off.
 func New(config Config) Policy {
 	return Policy{
-		own:       config.Own,
-		protected: slices.Clone(config.Protected),
-		managed:   slices.Clone(config.Managed),
+		own:        config.Own,
+		protected:  slices.Clone(config.Protected),
+		managed:    slices.Clone(config.Managed),
+		everything: config.ManageEverything,
 	}
 }
 
@@ -91,7 +106,7 @@ func (p Policy) Protected(namespace string, labels map[string]string) (bool, str
 		return true, "the namespace the panel runs in"
 	case slices.Contains(p.protected, namespace):
 		return true, "protected by this lab's configuration"
-	case labels[LabelProtected] == "true":
+	case labels[LabelProtected] == labelTrue:
 		return true, "protected by the " + LabelProtected + " label"
 	default:
 		return false, ""
@@ -142,5 +157,17 @@ func (p Policy) Managed(namespace string, labels map[string]string) bool {
 	if protected, _ := p.Protected(namespace, labels); protected {
 		return false
 	}
-	return slices.Contains(p.managed, namespace) && labels[LabelManaged] == "true"
+	if p.everything {
+		return labels[LabelManaged] == labelTrue
+	}
+	return slices.Contains(p.managed, namespace) && labels[LabelManaged] == labelTrue
+}
+
+// ManagesEverything reports whether every unprotected namespace is a Helm target.
+//
+// Callers that enumerate managed namespaces have to ask, because in this mode
+// there is no list to enumerate — the answer is "whatever the cluster has", and
+// only the cluster knows.
+func (p Policy) ManagesEverything() bool {
+	return p.everything
 }
