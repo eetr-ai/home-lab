@@ -47,7 +47,13 @@ export function NamespaceList({
 					<>
 						<Th>Name</Th>
 						<Th>Status</Th>
-						<Th className="text-right">Age</Th>
+						{/* Protection is a property of the namespace, not something you
+						    can do to it, so it gets a column of its own. It used to sit
+						    in the actions cell, which is deliberately as narrow as an
+						    icon — a sentence in there wrapped to three ragged lines and
+						    dragged the row height with it. */}
+						<Th>Protection</Th>
+						<Th className="w-px whitespace-nowrap text-right">Age</Th>
 						<ActionsHeader />
 					</>
 				}
@@ -55,7 +61,12 @@ export function NamespaceList({
 					<tr key={namespace.name}>
 						<Td className="font-medium">{namespace.name}</Td>
 						<Td className="text-muted-foreground">{namespace.status}</Td>
-						<Td className="text-right text-muted-foreground">{formatAge(namespace.createdAt, now)}</Td>
+						<Td className="text-muted-foreground">
+							<Protection namespace={namespace} />
+						</Td>
+						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
+							{formatAge(namespace.createdAt, now)}
+						</Td>
 						<Td className="text-right">
 							<NamespaceActions namespace={namespace} rowDelete={rowDelete} />
 						</Td>
@@ -69,11 +80,34 @@ export function NamespaceList({
 }
 
 /**
- * A protected namespace gets a reason rather than a disabled button.
+ * Why a namespace cannot be deleted, in the words the API used.
  *
  * A greyed-out trash icon invites a hover to find out why and says nothing until
- * then; the reason is the useful part, so it is what occupies the cell. There is
- * no delete to disable, because the API would refuse it anyway.
+ * then, so the reason is shown rather than implied. It reads as a sentence
+ * completing the namespace name — "kube-system is a Kubernetes system namespace"
+ * — which is why it is lower case and not a badge.
+ *
+ * Unprotected rows render an em dash rather than nothing: an empty cell in the
+ * middle of a table reads as missing data instead of as a deliberate no.
+ */
+function Protection({ namespace }: { namespace: Namespace }) {
+	if (!namespace.protected) {
+		return <span className="text-muted-foreground/60">&mdash;</span>;
+	}
+
+	return (
+		<span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
+			<Lock className="h-3.5 w-3.5 shrink-0" />
+			{namespace.protectedReason ?? "protected"}
+		</span>
+	);
+}
+
+/**
+ * The delete action, and nothing else.
+ *
+ * A protected namespace has none: there is nothing to disable, because the API
+ * would refuse it anyway, and the reason lives in its own column.
  */
 function NamespaceActions({
 	namespace,
@@ -83,15 +117,7 @@ function NamespaceActions({
 	rowDelete: ReturnType<typeof useRowDelete>;
 }) {
 	if (namespace.protected) {
-		return (
-			<span
-				className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-				title={namespace.protectedReason}
-			>
-				<Lock className="h-3.5 w-3.5" />
-				{namespace.protectedReason ?? "Protected"}
-			</span>
-		);
+		return null;
 	}
 
 	if (rowDelete.confirmingId === namespace.name) {
