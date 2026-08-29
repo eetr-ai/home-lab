@@ -287,16 +287,16 @@ if grep -q 'namespaces create' <<<"$granted_pairs"; then
   exit 1
 fi
 
+# The whole rendered set, not just the write verbs. Filtering to create/delete
+# would let a `get` or a `patch` added to the same block through unseen, which is
+# the mistake this file has made before: an assertion that only looks where it
+# expects trouble is an assertion that stops finding it.
 manage_pairs=$(render --set admin.api.kubernetes.namespaces.manage=true \
-  --show-only templates/api/rbac.yaml | extract_pairs \
-  | grep -E ' (create|delete|deletecollection|bind|escalate|impersonate)$' || true)
-expected_manage_pairs=$(LC_ALL=C sort <<'MANAGE'
-core/namespaces create
-core/namespaces delete
-MANAGE
-)
+  --show-only templates/api/rbac.yaml | extract_pairs)
+expected_manage_pairs=$(printf '%s\ncore/namespaces create\ncore/namespaces delete\n' \
+  "$expected_pairs" | grep -v '^$' | LC_ALL=C sort)
 if [[ $manage_pairs != "$expected_manage_pairs" ]]; then
-  printf 'Enabling namespace management must grant create and delete on namespaces, and nothing else.\n' >&2
+  printf 'Enabling namespace management must add create and delete on namespaces, and nothing else.\n' >&2
   diff <(printf '%s\n' "$expected_manage_pairs") <(printf '%s\n' "$manage_pairs") >&2 || true
   exit 1
 fi
