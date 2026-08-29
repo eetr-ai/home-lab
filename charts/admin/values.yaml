@@ -44,6 +44,39 @@ admin:
     # read-only ClusterRole below is created with it.
     kubernetes:
       enabled: true
+
+      # Creating and deleting namespaces from the panel.
+      #
+      # Off by default, and it is the second grant here worth a deliberate
+      # decision. Everything else this ClusterRole holds either reads, or changes
+      # how many of something already exists; this is the first that brings
+      # something into being and takes something away — and deleting a namespace
+      # cascades to every workload, Secret, and volume claim in it.
+      #
+      # What bounds it is not RBAC, which has no way to say "any namespace except
+      # these". It is the policy in the API: Kubernetes' own namespaces and
+      # anything under the kube- prefix, the namespace the panel itself runs in,
+      # the list below, and any namespace carrying the
+      # home-lab.example/protected label are all refused. The label is read off
+      # the live object, so protecting one more is a kubectl label rather than a
+      # release.
+      namespaces:
+        manage: false
+
+        # Namespaces this lab will not let the panel delete, on top of the
+        # built-in rules above. Names only — the API adds its own namespace from
+        # the downward API, so it is not listed here and cannot be removed from
+        # here.
+        protected:
+          - platform-system
+
+        # The Pod Security admission level stamped on a namespace the panel
+        # creates. Baseline rather than restricted: restricted refuses containers
+        # that do not declare a non-root user, which is most upstream charts, and
+        # a level that has to be turned off to install anything is a level that
+        # gets turned off.
+        podSecurity: baseline
+
       # Node disk usage, read from each kubelet's stats endpoint.
       #
       # Off by default, and it is the one grant here worth a deliberate decision.

@@ -61,7 +61,7 @@ func TestScaleRequiresAnExplicitCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &scaleRecorder{}
 			mux := http.NewServeMux()
-			NewHandler(NewService(repo)).Register(mux)
+			NewHandler(newTestService(repo)).Register(mux)
 
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPut,
 				"/api/kubernetes/namespaces/default/workloads/Deployment/api/scale",

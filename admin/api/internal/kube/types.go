@@ -4,9 +4,30 @@ import "time"
 
 // Namespace is a namespace in the cluster.
 type Namespace struct {
-	Name   string    `json:"name"`
+	Name string `json:"name"`
+	// UID identifies this exact object, not just the name. A namespace that is
+	// deleted and recreated keeps its name and gets a new UID, which is what
+	// makes it usable as a delete precondition — see DeleteNamespace.
+	UID    string    `json:"-"`
 	Status string    `json:"status"`
 	Age    time.Time `json:"createdAt"`
+	// Labels are carried because policy is decided from them — whether the
+	// namespace is protected, and whether Helm may write to it — and because the
+	// panel shows an operator why a namespace has no delete button.
+	Labels map[string]string `json:"labels,omitempty"`
+	// Protected reports that this namespace may not be deleted, and why. Decided
+	// by internal/nspolicy from the name and the labels above, not by the cluster.
+	Protected       bool   `json:"protected"`
+	ProtectedReason string `json:"protectedReason,omitempty"`
+}
+
+// NamespaceSpec is a request to create a namespace.
+//
+// Labels are the caller's, and the service adds its own over them; see
+// namespaces.go for which, and for the keys a caller may not set.
+type NamespaceSpec struct {
+	Name   string            `json:"name"`
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // Workload is a controller that runs pods — a Deployment, StatefulSet, or
