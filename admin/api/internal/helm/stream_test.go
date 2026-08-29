@@ -48,7 +48,9 @@ func collect(t *testing.T, runner Jobs) []string {
 	t.Helper()
 	service := newDeploymentServiceWithJobs(newFakeRepo(), newFakeStore(), runner)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	// Comfortably above logDrainGrace, so a slow drain fails the assertion it is
+	// about rather than expiring the context and failing as a timeout.
+	ctx, cancel := context.WithTimeout(t.Context(), 3*logDrainGrace)
 	defer cancel()
 
 	var events []string
@@ -159,4 +161,43 @@ func TestStreamJobReportsALostWatchAsAnErrorAndNotAFailure(t *testing.T) {
 			t.Errorf("a lost watch must never be reported as done: %v", events)
 		}
 	}
+}
+
+// Draining must not wait on a channel nothing will ever send to.
+//
+// `watch` nils the events channel once the follower is done, so a closed one
+// stops spinning the select. Receiving from a nil channel blocks forever — so a
+// drain that waited on one would spend the whole grace period doing nothing
+// before every terminal event, on the common path rather than a rare one.
+//
+// Tested against drain directly: reaching the nil case through StreamJob depends
+// on which of two channels the select happens to pick, so a test that went
+// through it would pass whether or not the bug was there.
+func TestDrainReturnsImmediatelyWhenThereIsNothingToDrain(t *testing.T) {
+	service := newDeploymentServiceWithJobs(newFakeRepo(), newFakeStore(), &fakeJobs{})
+
+	for _, test := range []struct {
+		name   string
+		events chan logEvent
+	}{
+		{name: "the follower is already done", events: nil},
+		{name: "the channel is closed", events: closedEvents()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			started := time.Now()
+			service.drain(test.events, func(string, JobEvent) error { return nil }, logDrainGrace)
+
+			// Generous: the assertion is "did not wait out the grace", not a
+			// benchmark. Anything near the grace means it blocked.
+			if elapsed := time.Since(started); elapsed > logDrainGrace/2 {
+				t.Errorf("drain took %s, want it to return at once", elapsed)
+			}
+		})
+	}
+}
+
+func closedEvents() chan logEvent {
+	events := make(chan logEvent)
+	close(events)
+	return events
 }

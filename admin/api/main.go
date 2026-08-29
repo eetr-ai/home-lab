@@ -343,16 +343,20 @@ func helmJobConfig(timeout time.Duration) (helm.JobConfig, error) {
 			"ADMIN_HELM_JOB_SERVICE_ACCOUNT is unset, and a Helm job needs the deploy grant")
 	}
 
-	ttl, err := strconv.Atoi(os.Getenv("ADMIN_HELM_JOB_TTL_SECONDS"))
+	// Parsed at 32 bits because that is what the field is. Atoi would accept a
+	// value this then silently truncated — a TTL of 2^31+60 becoming 60 seconds
+	// is a job whose log is gone a minute after it finishes, which would look
+	// like the cluster reaping early rather than like a typo in a values file.
+	ttl, err := strconv.ParseInt(os.Getenv("ADMIN_HELM_JOB_TTL_SECONDS"), 10, 32)
 	if err != nil {
 		return helm.JobConfig{}, fmt.Errorf(
-			"ADMIN_HELM_JOB_TTL_SECONDS is not a number of seconds: %w", err)
+			"ADMIN_HELM_JOB_TTL_SECONDS is not a number of seconds that fits in 32 bits: %w", err)
 	}
 	if ttl < 0 {
 		return helm.JobConfig{}, fmt.Errorf(
 			"ADMIN_HELM_JOB_TTL_SECONDS must not be negative, and is %d", ttl)
 	}
-	config.TTLSeconds = int32(ttl) //nolint:gosec // bounded above, and a TTL in seconds does not reach 2^31
+	config.TTLSeconds = int32(ttl)
 
 	// One JSON object rather than four scalars, so the values file keeps the
 	// normal Kubernetes shape and there is no second vocabulary to learn.

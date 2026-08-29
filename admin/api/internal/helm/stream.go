@@ -250,6 +250,14 @@ const eventBuffer = 64
 func (s *Service) drain(events chan logEvent, send func(string, JobEvent) error,
 	grace time.Duration,
 ) {
+	// The follower may already be finished, in which case watch nils this to stop
+	// a closed channel spinning the select. Receiving from a nil channel blocks
+	// forever, so waiting on one here would spend the whole grace period before
+	// every "done" — on the common path, where there is nothing left to drain.
+	if events == nil {
+		return
+	}
+
 	deadline := time.NewTimer(grace)
 	defer deadline.Stop()
 

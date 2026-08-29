@@ -100,12 +100,12 @@ token=$(curl -sS -X POST "$ISSUER/token" \
   -d grant_type=client_credentials \
   -u "$CLIENT_ID:$CLIENT_SECRET" | jq -r .access_token)
 
-curl -sS -X PUT "$API/api/helm/deployments/$DEPLOYMENT_ID" \
+accepted=$(curl -sS -X PUT "$API/api/helm/deployments/$DEPLOYMENT_ID" \
   -H "Authorization: Bearer $token" \
   -H "CF-Access-Client-Id: $CF_ID" \
   -H "CF-Access-Client-Secret: $CF_SECRET" \
   -H 'Content-Type: application/json' \
-  -d '{"version":"6.9.4","values":{"image":{"tag":"sha-abc123"}}}'
+  -d '{"version":"6.9.4","values":{"image":{"tag":"sha-abc123"}}}')
 ```
 
 ### What the overrides do
@@ -197,10 +197,15 @@ install a second copy of something that is already running.
 
 ### The job, and why it is not the check
 
-Every mutation now runs as a Kubernetes Job, and the `202` names it:
+Every mutation now runs as a Kubernetes Job, and the `202` names it — so capture
+it from the deploy above rather than going looking:
 
 ```bash
-curl -sS "$API/api/helm/jobs/$JOB" -H "Authorization: Bearer $token"
+job=$(jq -r .job <<<"$accepted")
+
+curl -sS "$API/api/helm/jobs/$job" \
+  -H "Authorization: Bearer $token" \
+  -H "CF-Access-Client-Id: $CF_ID" -H "CF-Access-Client-Secret: $CF_SECRET"
 # {"name":"...","phase":"running","operation":"rollout", ...}
 ```
 
@@ -215,7 +220,9 @@ What the job is genuinely better at is saying *why*. Its log is Helm's own outpu
 which used to go to the API pod's log where only `kubectl` could reach it:
 
 ```bash
-curl -N "$API/api/helm/jobs/$JOB/logs?follow=true" -H "Authorization: Bearer $token"
+curl -N "$API/api/helm/jobs/$job/logs?follow=true" \
+  -H "Authorization: Bearer $token" \
+  -H "CF-Access-Client-Id: $CF_ID" -H "CF-Access-Client-Secret: $CF_SECRET"
 ```
 
 Worth doing in a pipeline: it puts the deploy's own account of itself into the
@@ -338,8 +345,10 @@ everybody, including you.
 - **Name a version range.** `^1.4` and `latest` are refused rather than resolved:
   this repository pins everything, and a constraint means installing whatever
   satisfies it on the day it happens to run.
-- **Touch a protected namespace.** `platform-system`, the panel's own namespace,
-  and anything under `kube-` are refused with `403`, and putting one in the
-  managed list is a chart render failure rather than a warning.
+- **Touch a protected namespace.** `platform-system`, `default`, and anything
+  under `kube-` are refused with `403`, and putting one in the managed list is a
+  chart render failure rather than a warning. The panel's *own* namespace is not
+  in that set: it is refused for deletion and permitted for deploys, which is the
+  asymmetry the section above depends on.
 - **Send values that are not YAML-encodable, or larger than 256 KiB.** Values end
   up in a Secret, and etcd caps those at about a megabyte.

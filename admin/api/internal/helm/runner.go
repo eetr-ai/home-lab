@@ -41,7 +41,13 @@ func RunJob(ctx context.Context, args []string, logger *slog.Logger) error {
 	// somewhere Helm's own timeout does not cover would otherwise hold the release
 	// pending until the Job's activeDeadlineSeconds fired, which is a less legible
 	// failure than this one.
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	//
+	// Deliberately longer than the timeout Helm itself gets. The two bound
+	// different things and the inner one has to win: at exactly equal deadlines
+	// this context can cancel an install *while it is applying manifests*, which
+	// is the state that is hardest to recover from — and it would do so instead of
+	// letting Helm time out cleanly and record the failure on the release.
+	ctx, cancel := context.WithTimeout(ctx, timeout+runnerGrace)
 	defer cancel()
 
 	repo, err := NewRepository(logger, timeout)
@@ -146,6 +152,11 @@ func openStore(ctx context.Context, logger *slog.Logger) (*Store, error) {
 	}
 	return NewStore(ctx, dsn, logger)
 }
+
+// runnerGrace is how long the runner may outlive the timeout Helm is given.
+//
+// The gap exists so Helm's own timeout is always the one that fires. See RunJob.
+const runnerGrace = time.Minute
 
 // DefaultTimeout is how long one Helm operation may take when ADMIN_HELM_TIMEOUT
 // says nothing.

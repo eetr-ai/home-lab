@@ -1,6 +1,7 @@
 package helm
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -14,10 +15,11 @@ import (
 
 // testJobConfig is the configuration the chart supplies at runtime.
 //
-// key. That the value never reaches this process is the property
+// DSNSecretKey holds the NAME of a key inside a Secret, never a key. That no
+// value ever reaches this process is the property
 // TestBuildJobCarriesTheDSNAsAReferenceNotAValue exists to assert.
 //
-//nolint:gosec // DSNSecretKey holds the NAME of a key inside a Secret, never a
+//nolint:gosec // a key name, not a key — see above
 func testJobConfig() JobConfig {
 	return JobConfig{
 		Namespace:      "admin",
@@ -420,5 +422,37 @@ func TestTailLines(t *testing.T) {
 		if got := tailLines(raw); got != want {
 			t.Errorf("tailLines(%q) = %d, want %d", raw, got, want)
 		}
+	}
+}
+
+// The chart passes resources as one JSON object so the values file keeps the
+// normal Kubernetes shape. This asserts the two halves line up: what the chart
+// renders, parsed the way main parses it, reaches the pod.
+//
+// Worth a test because the failure is silent in the wrong direction — a shape
+// that did not unmarshal would leave the requests empty, and an empty
+// ResourceRequirements is a BestEffort pod, which is the first thing evicted
+// under node pressure. The symptom would be a release wedged half-applied, a
+// long way from a values file.
+func TestBuildJobCarriesTheResourcesTheChartRenders(t *testing.T) {
+	// Verbatim from `helm template ... | grep ADMIN_HELM_JOB_RESOURCES`.
+	const rendered = `{"limits":{"memory":"256Mi"},"requests":{"cpu":"25m","memory":"96Mi"}}`
+
+	var resources corev1.ResourceRequirements
+	if err := json.Unmarshal([]byte(rendered), &resources); err != nil {
+		t.Fatalf("the chart's resources must parse as ResourceRequirements: %v", err)
+	}
+
+	config := testJobConfig()
+	config.Resources = resources
+	job := buildJob(JobSpec{Operation: OpRollout, DeploymentID: "d1", Version: 1},
+		ReleaseRef{Namespace: "apps", Release: "podinfo"}, "", config)
+
+	got := job.Spec.Template.Spec.Containers[0].Resources
+	if got.Requests.Cpu().String() != "25m" || got.Requests.Memory().String() != "96Mi" {
+		t.Errorf("requests = %v, want the ones the chart renders", got.Requests)
+	}
+	if got.Limits.Memory().String() != "256Mi" {
+		t.Errorf("limits = %v, want the ones the chart renders", got.Limits)
 	}
 }

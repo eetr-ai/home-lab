@@ -37,9 +37,15 @@ export function JobLog({ lines, truncated }: { lines: string[]; truncated: boole
 					Showing the most recent output. The whole log is on the job itself.
 				</p>
 			)}
+			{/* Focusable and labelled: a pane that scrolls has to be reachable
+			    without a mouse, and `log` tells a screen reader that content
+			    arrives here over time rather than all at once. */}
 			<pre
 				ref={pane}
 				onScroll={onScroll}
+				tabIndex={0}
+				role="log"
+				aria-label="Helm output"
 				className="max-h-80 overflow-auto rounded-card bg-surface-sunken p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap"
 			>
 				{lines.join("\n")}

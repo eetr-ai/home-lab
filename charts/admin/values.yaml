@@ -223,9 +223,20 @@ admin:
         # panel's namespace forever with nothing in this lab to prune them.
         ttlSecondsAfterFinished: 86400
 
-        # Requests and limits for the Job's pod. It pulls a chart, renders it, and
-        # waits; the waiting is nearly free and the rendering is brief.
-        resources: {}
+        # Requests and limits for the Job's pod. It pulls a chart, renders it,
+        # and waits; the waiting is nearly free and the rendering is brief.
+        #
+        # Set rather than empty, like every other workload in this chart. A pod
+        # with no requests is BestEffort, and BestEffort is the first thing the
+        # kubelet evicts under node pressure — which here would mean killing the
+        # pod holding a release half-applied, and leaving it wedged in a
+        # pending-* state that nothing clears on its own.
+        resources:
+          requests:
+            cpu: 25m
+            memory: 96Mi
+          limits:
+            memory: 256Mi
 
       # Where the declared charts and their values are kept.
       #

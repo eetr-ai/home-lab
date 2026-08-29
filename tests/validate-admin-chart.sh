@@ -659,6 +659,15 @@ if ! grep -A1 'name: ADMIN_HELM_JOB_IMAGE$' <<<"$helm_deploy_env" | grep -q 'adm
   exit 1
 fi
 
+# The Job's pod carries requests, like every other workload here. Without them it
+# is BestEffort, and BestEffort is the first thing evicted under node pressure --
+# which here means killing the pod holding a release half-applied.
+if ! grep -A1 'name: ADMIN_HELM_JOB_RESOURCES' <<<"$helm_deploy_env" | grep -q 'requests'; then
+  printf 'The Helm job must carry resource requests: an unrequested pod is BestEffort,\n' >&2
+  printf 'and evicting one mid-apply leaves a release wedged.\n' >&2
+  exit 1
+fi
+
 # The self-upgrade special case is gone, and so is the identity it needed.
 if grep -q 'ADMIN_RELEASE_NAME' "$output_file"; then
   printf 'ADMIN_RELEASE_NAME is gone: nothing recognises its own release any more,\n' >&2

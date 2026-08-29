@@ -81,7 +81,7 @@ spec:
             - name: ADMIN_HELM_JOB_IMAGE
               value: {{ include "home-lab-admin.apiImage" . | quote }}
             - name: ADMIN_HELM_JOB_IMAGE_PULL_POLICY
-              value: {{ .Values.admin.api.image.pullPolicy }}
+              value: {{ .Values.admin.api.image.pullPolicy | quote }}
             # Named here rather than chosen per request. Nothing a caller sends
             # decides which identity a Helm Job runs as — see the warning in
             # rbac-jobs.yaml for why that is the only thing bounding this today.
