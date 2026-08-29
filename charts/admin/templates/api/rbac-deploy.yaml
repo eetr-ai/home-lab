@@ -82,7 +82,18 @@ and no Role, that both grant the same verbs, that neither reaches
 rbac.authorization.k8s.io or apiextensions.k8s.io, and that a protected namespace
 in the list fails the render.
 */ -}}
-{{- $protected := concat (list .Release.Namespace "default" "kube-system" "kube-public" "kube-node-lease")
+{{- /*
+The release namespace is NOT in this list, and that is deliberate. Deploying the
+panel's own chart from a pipeline is what this feature was asked for, so its
+namespace has to be a permitted Helm target. It is still not deletable — the API
+refuses that separately, and for a different reason: deleting it destroys the
+panel and everything in it, which no deploy needs.
+
+Read the WARNING above before naming it, though. It is the namespace holding the
+panel's OIDC client secret and its database connection strings, and a Role there
+means the panel can read and rewrite all of them.
+*/ -}}
+{{- $protected := concat (list "default" "kube-system" "kube-public" "kube-node-lease")
       .Values.admin.api.kubernetes.namespaces.protected }}
 {{- if .Values.admin.api.helm.allNamespaces }}
 ---
@@ -149,6 +160,24 @@ rules:
     resources:
       - httproutes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  {{- if $.Values.admin.api.helm.selfDeploy }}
+  # Only with admin.api.helm.selfDeploy. Off by default, and the values comment
+  # says at length what turning it on costs: the panel can then hand every
+  # permission it holds to any ServiceAccount. It is here because this chart
+  # renders four of these objects, so upgrading the panel from a pipeline fails
+  # without it.
+  #
+  # No escalate and no bind verb, deliberately. Without them Kubernetes refuses
+  # to let this create a role holding more than the panel already holds, which is
+  # the difference between a wide grant and an unbounded one.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -237,6 +266,24 @@ rules:
     resources:
       - httproutes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  {{- if $.Values.admin.api.helm.selfDeploy }}
+  # Only with admin.api.helm.selfDeploy. Off by default, and the values comment
+  # says at length what turning it on costs: the panel can then hand every
+  # permission it holds to any ServiceAccount. It is here because this chart
+  # renders four of these objects, so upgrading the panel from a pipeline fails
+  # without it.
+  #
+  # No escalate and no bind verb, deliberately. Without them Kubernetes refuses
+  # to let this create a role holding more than the panel already holds, which is
+  # the difference between a wide grant and an unbounded one.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

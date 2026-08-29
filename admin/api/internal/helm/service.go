@@ -49,6 +49,24 @@ type DeploymentStore interface {
 	MarkRolledOut(ctx context.Context, id string, number, helmRevision int) error
 }
 
+// Self identifies the release this process is running from.
+//
+// Read from the downward API and the chart, so it is right whatever the release
+// was named. Empty when either is unset, which simply means no operation is ever
+// recognised as a self-upgrade — the safe direction, because the only thing that
+// recognition does is stop Helm waiting.
+type Self struct {
+	Namespace string
+	Release   string
+}
+
+// Matches reports whether an operation targets the release this process is
+// running from.
+func (s Self) Matches(namespace, release string) bool {
+	return s.Namespace != "" && s.Release != "" &&
+		s.Namespace == namespace && s.Release == release
+}
+
 // Service manages the Helm releases in the namespaces this lab manages.
 //
 // What it will not do is decided here rather than left for each endpoint to
@@ -69,6 +87,7 @@ type Service struct {
 	// never needed a record.
 	store   DeploymentStore
 	policy  nspolicy.Policy
+	self    Self
 	locks   *locks
 	timeout time.Duration
 	logger  *slog.Logger
@@ -76,12 +95,13 @@ type Service struct {
 
 // NewService builds the service.
 func NewService(repo repository, deployments DeploymentStore, policy nspolicy.Policy,
-	timeout time.Duration, logger *slog.Logger,
+	self Self, timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		repo:    repo,
 		store:   deployments,
 		policy:  policy,
+		self:    self,
 		locks:   newLocks(),
 		timeout: timeout,
 		logger:  logger,
@@ -168,7 +188,10 @@ func (s *Service) checkNamespace(namespace string) error {
 		return err
 	}
 
-	if protected, reason := s.policy.Protected(namespace, nil); protected {
+	// DeployBlocked, not Protected: the panel's own namespace is undeletable and
+	// deployable, because upgrading the panel from a pipeline is the reason this
+	// feature exists.
+	if blocked, reason := s.policy.DeployBlocked(namespace, nil); blocked {
 		return fmt.Errorf("%w: %s is %s", ErrProtected, namespace, reason)
 	}
 

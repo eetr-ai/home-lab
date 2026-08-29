@@ -126,7 +126,7 @@ func (f *fakeStore) MarkRolledOut(_ context.Context, id string, number, helmRevi
 
 // newDeploymentService wires a service over both fakes.
 func newDeploymentService(repo repository, deployments DeploymentStore) *Service {
-	return NewService(repo, deployments, testPolicy(), time.Minute,
+	return NewService(repo, deployments, testPolicy(), Self{}, time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -428,5 +428,72 @@ func TestReadDeploymentReportsAFailedReleaseRead(t *testing.T) {
 	}
 	if detail.Release != nil {
 		t.Error("no release should be reported when it could not be read")
+	}
+}
+
+// An upgrade of the panel's own release must not wait for the workloads it
+// applies, because one of them is the pod running the upgrade. Waiting there
+// leaves the release wedged in pending-upgrade, and Helm then refuses every
+// later operation on it — so one self-upgrade would permanently break
+// self-upgrades.
+func TestUpgradingTheOwnReleaseDoesNotWaitForReadiness(t *testing.T) {
+	repo, store := newFakeRepo(), newFakeStore()
+	deployment := seededDeployment(store, "replicaCount: 1\n")
+
+	service := NewService(repo, store, testPolicy(),
+		Self{Namespace: deployment.Namespace, Release: deployment.ReleaseName},
+		time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	accepted, err := service.Rollout(t.Context(), deployment.ID, RolloutRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	waitForJob(t, repo)
+
+	if !repo.upgraded.SkipWait {
+		t.Error("an upgrade of the panel's own release must not wait for readiness")
+	}
+	// And whoever called is told, because the status they are about to poll for
+	// means less than it usually does.
+	if !strings.Contains(accepted.Message, "manifests are applied") {
+		t.Errorf("the acceptance should say the wait was skipped, and says: %q", accepted.Message)
+	}
+}
+
+// Every other release still waits, so "deployed" keeps meaning the pods came up.
+func TestUpgradingAnyOtherReleaseStillWaits(t *testing.T) {
+	repo, store := newFakeRepo(), newFakeStore()
+	deployment := seededDeployment(store, "replicaCount: 1\n")
+
+	service := NewService(repo, store, testPolicy(),
+		Self{Namespace: "admin", Release: "home-lab-admin"},
+		time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if _, err := service.Rollout(t.Context(), deployment.ID, RolloutRequest{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	waitForJob(t, repo)
+
+	if repo.upgraded.SkipWait {
+		t.Error("only the panel's own release skips the wait")
+	}
+}
+
+// Half-configured identity must not match anything: recognising a self-upgrade
+// is what turns the wait off, so a blank matching a blank would silently stop
+// every release waiting.
+func TestSelfMatches(t *testing.T) {
+	full := Self{Namespace: "admin", Release: "home-lab-admin"}
+	if !full.Matches("admin", "home-lab-admin") {
+		t.Error("the configured release should match itself")
+	}
+	if full.Matches("admin", "something-else") || full.Matches("apps", "home-lab-admin") {
+		t.Error("a different release must not match")
+	}
+
+	for _, partial := range []Self{{}, {Namespace: "admin"}, {Release: "home-lab-admin"}} {
+		if partial.Matches("", "") || partial.Matches("admin", "home-lab-admin") {
+			t.Errorf("%+v should match nothing", partial)
+		}
 	}
 }

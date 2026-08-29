@@ -40,6 +40,14 @@ Two more consequences worth holding on to:
 - The panel can only reach namespaces this lab made Helm targets. A release
   elsewhere is invisible here — not missing, not broken, outside what the panel
   was given. `501` means no namespace was named at all.
+- The panel's own namespace is a normal Helm target: it cannot be deleted, and it
+  can be deployed into. Deploying the panel from a pipeline is the reason this
+  feature exists. If somebody asks whether the panel can upgrade itself, the
+  answer is yes with two caveats — `admin.api.helm.selfDeploy` has to be on
+  because this chart creates Roles, and for that one release "deployed" means the
+  manifests were applied rather than that the new pods are healthy, because the
+  pod doing the upgrade is one of the ones being replaced. Point at
+  `docs/deploying-from-a-pipeline.md` rather than reciting it.
 
 ## Reading
 

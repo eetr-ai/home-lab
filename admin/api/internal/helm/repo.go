@@ -507,7 +507,7 @@ func (r *Repository) Install(ctx context.Context, spec installSpec) (Release, er
 	// Wait, so "deployed" means the pods came up rather than that the manifests
 	// were accepted. Without it a release reports success while its pods are in
 	// ImagePullBackOff, which is the answer a pipeline would act on.
-	install.WaitStrategy = kube.StatusWatcherStrategy
+	install.WaitStrategy = waitStrategy(spec.SkipWait)
 	install.RollbackOnFailure = spec.RollbackOnFailure
 	// Never. The namespace has to exist and be one this lab manages, and letting
 	// Helm conjure one would route around the whole protection policy.
@@ -541,7 +541,7 @@ func (r *Repository) Upgrade(ctx context.Context, spec upgradeSpec) (Release, er
 	upgrade.Namespace = spec.Namespace
 	upgrade.Version = spec.Version
 	upgrade.Timeout = r.timeout
-	upgrade.WaitStrategy = kube.StatusWatcherStrategy
+	upgrade.WaitStrategy = waitStrategy(spec.SkipWait)
 	upgrade.RollbackOnFailure = spec.RollbackOnFailure
 	upgrade.MaxHistory = maxHistory
 	upgrade.ReuseValues = spec.Values == nil
@@ -632,4 +632,30 @@ func (r *Repository) locate(options *action.ChartPathOptions, source ChartSource
 		return nil, fmt.Errorf("load the chart %s: %w", source.Chart, err)
 	}
 	return chart, nil
+}
+
+// waitStrategy decides whether an operation waits for the workloads it applied.
+//
+// Waiting is what makes "deployed" mean the pods came up rather than that the
+// manifests were accepted, so it is the default and almost always right.
+//
+// The exception is an upgrade of the release this process is itself running
+// from. Applying it rolls the panel's own Deployment, which terminates the pod
+// executing the upgrade — and Helm marks a release deployed only *after* the
+// wait, so the record is never written. The release stays pending-upgrade
+// forever, and Helm then refuses every later operation on it because the
+// previous one was never marked done. One self-upgrade would permanently break
+// self-upgrades.
+//
+// HookOnly still runs the chart's hooks and still applies everything; it just
+// does not wait for readiness, so the release is recorded within milliseconds of
+// the apply and the pod can be replaced immediately afterwards without losing
+// anything. The cost is real and worth stating: for that one release, "deployed"
+// means the manifests were accepted, not that the new pods are healthy. Whatever
+// triggered the deploy has to check that itself.
+func waitStrategy(skipWait bool) kube.WaitStrategy {
+	if skipWait {
+		return kube.HookOnlyStrategy
+	}
+	return kube.StatusWatcherStrategy
 }

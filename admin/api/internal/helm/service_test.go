@@ -94,7 +94,7 @@ func (f *fakeRepo) ReadHistory(_ context.Context, namespace, name string) ([]Rev
 // newTestService builds a service with the policy this lab actually runs: the
 // panel in "admin", platform-system protected, and "apps" the one Helm target.
 func newTestService(repo repository) *Service {
-	return NewService(repo, nil, testPolicy(), time.Minute,
+	return NewService(repo, nil, testPolicy(), Self{}, time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -149,9 +149,12 @@ func TestReadsRefuseANamespaceThisSliceMayNotReach(t *testing.T) {
 			wantErr:   ErrProtected,
 		},
 		{
+			// Not protected any more, and unmanaged only because testPolicy does
+			// not name it. A lab that names it may deploy the panel from a
+			// pipeline, which is what this feature was asked for.
 			name:      "the panel's own namespace",
 			namespace: "admin",
-			wantErr:   ErrProtected,
+			wantErr:   ErrUnmanaged,
 		},
 		{
 			// Changeable, and distinguished from protected for that reason: this
@@ -232,7 +235,7 @@ func TestReleaseNameValidation(t *testing.T) {
 // lab that was never switched on as a lab with nothing installed.
 func TestListReleasesReportsAnUnconfiguredLab(t *testing.T) {
 	repo := newFakeRepo()
-	service := NewService(repo, nil, nspolicy.New(nspolicy.Config{Own: "admin"}), time.Minute,
+	service := NewService(repo, nil, nspolicy.New(nspolicy.Config{Own: "admin"}), Self{}, time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	_, err := service.ListReleases(t.Context())
