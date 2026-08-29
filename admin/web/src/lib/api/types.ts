@@ -186,3 +186,17 @@ export interface FindResult {
 	truncated: boolean;
 	elapsedMs: number;
 }
+
+// ── Helm ────────────────────────────────────────────────────────────────────
+
+export type {
+	HelmAccepted,
+	HelmChart,
+	HelmChartListing,
+	HelmChartVersion,
+	HelmRelease,
+	HelmReleaseDetail,
+	HelmRevision,
+	InstallRelease,
+	UpgradeRelease,
+} from "./helm-types";

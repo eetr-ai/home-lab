@@ -52,11 +52,9 @@
             "helm.ChartListing": {
                 "properties": {
                     "chart": {
-                        "description": "Chart is what the chart is called in its repository.",
                         "type": "string"
                     },
                     "description": {
-                        "description": "Description is shown in the panel. Free text, and the operator's own words\nrather than the chart's, since the point is to say why this lab has it.",
                         "type": "string"
                     },
                     "fetchedAt": {
@@ -64,11 +62,9 @@
                         "type": "string"
                     },
                     "name": {
-                        "description": "Name is the catalog key a request uses, and need not be the chart's own\nname — two repositories may both publish a \"redis\".",
                         "type": "string"
                     },
                     "repository": {
-                        "description": "Repository is the name of one of the repositories above.",
                         "type": "string"
                     },
                     "unavailable": {
@@ -76,6 +72,7 @@
                         "type": "boolean"
                     },
                     "versions": {
+                        "description": "Versions is what this lab permits and the repository offers, which is the\nintersection rather than either one.",
                         "items": {
                             "$ref": "#/components/schemas/helm.ChartVersion"
                         },

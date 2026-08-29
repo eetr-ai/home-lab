@@ -58,8 +58,20 @@ func (c *versionCache) put(key string, versions []ChartVersion) time.Time {
 }
 
 // ChartListing is one catalogue entry with what can actually be installed.
+//
+// The catalog fields are repeated rather than embedded. Embedding Chart would put
+// two `versions` fields in one struct -- the entry's pinned strings and the
+// resolved list -- and rely on Go's shadowing rules to decide which one is
+// serialised. That works and it is invisible: a reader of the JSON has no way to
+// tell which one they are looking at, and moving a field would silently change
+// the wire format.
 type ChartListing struct {
-	Chart
+	Name        string `json:"name"`
+	Chart       string `json:"chart"`
+	Repository  string `json:"repository"`
+	Description string `json:"description,omitempty"`
+	// Versions is what this lab permits and the repository offers, which is the
+	// intersection rather than either one.
 	Versions []ChartVersion `json:"versions"`
 	// FetchedAt is when the version list was read from the repository. Reported
 	// because the list is cached, and a stale answer is only a problem when
@@ -108,22 +120,35 @@ func (s *Service) ListChartVersions(ctx context.Context, name string) (ChartList
 func (s *Service) listChart(ctx context.Context, chart Chart) ChartListing {
 	_, source, err := s.catalog.Find(chart.Name)
 	if err != nil {
-		return ChartListing{Chart: chart, Versions: []ChartVersion{}, Unavailable: true}
+		return listingOf(chart, []ChartVersion{}, time.Time{}, true)
 	}
 
 	if versions, fetched, ok := s.versions.get(chart.Name); ok {
-		return ChartListing{Chart: chart, Versions: permitted(chart, versions), FetchedAt: fetched}
+		return listingOf(chart, permitted(chart, versions), fetched, false)
 	}
 
 	offered, err := s.repo.ListChartVersions(ctx, source)
 	if err != nil {
 		s.logger.Warn("could not read a chart repository",
 			"chart", chart.Name, "repository", chart.Repository, "error", err)
-		return ChartListing{Chart: chart, Versions: declaredOnly(chart), Unavailable: true}
+		return listingOf(chart, declaredOnly(chart), time.Time{}, true)
 	}
 
 	fetched := s.versions.put(chart.Name, offered)
-	return ChartListing{Chart: chart, Versions: permitted(chart, offered), FetchedAt: fetched}
+	return listingOf(chart, permitted(chart, offered), fetched, false)
+}
+
+// listingOf copies a catalogue entry's fields onto a listing.
+func listingOf(chart Chart, versions []ChartVersion, fetched time.Time, unavailable bool) ChartListing {
+	return ChartListing{
+		Name:        chart.Name,
+		Chart:       chart.Chart,
+		Repository:  chart.Repository,
+		Description: chart.Description,
+		Versions:    versions,
+		FetchedAt:   fetched,
+		Unavailable: unavailable,
+	}
 }
 
 // permitted narrows what a repository offers to what this lab allows, newest
