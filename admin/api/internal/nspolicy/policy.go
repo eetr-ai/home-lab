@@ -87,23 +87,48 @@ func New(config Config) Policy {
 	}
 }
 
-// Protected reports whether a namespace may not be deleted or Helm-written, and
-// why.
+// Protected reports whether a namespace may not be DELETED, and why.
 //
 // The reason is returned rather than logged because the panel renders it: an
 // operator looking at a namespace with no delete button deserves to be told which
 // rule took it away, and "protected" alone does not say whether that is
 // Kubernetes' doing or theirs.
 //
-// Protection covers deletion and Helm writes, and nothing else. Reads are
-// unaffected — platform-system still lists its workloads, pods, events, and logs
-// exactly as before.
+// Deletion only. Reads are unaffected — platform-system still lists its
+// workloads, pods, events, and logs exactly as before — and so are Helm writes,
+// which ask DeployBlocked instead. The two questions used to be one, and merging
+// them was wrong in one specific place: see DeployBlocked.
 func (p Policy) Protected(namespace string, labels map[string]string) (bool, string) {
+	if p.own != "" && namespace == p.own {
+		return true, "the namespace the panel runs in"
+	}
+	return p.blocked(namespace, labels)
+}
+
+// DeployBlocked reports whether Helm may NOT write to a namespace, and why.
+//
+// The same rules as Protected with one exception: the panel's own namespace is
+// deployable. That is not an oversight to be tidied up later — upgrading the
+// panel itself from a pipeline is the reason this whole feature exists, and a
+// policy that refused it would refuse the use case it was built for.
+//
+// The two questions are genuinely different and were wrong to be one. Deleting
+// the namespace the panel runs in destroys the panel and everything in it, and
+// nothing about deploying needs that. Writing a release into it is an upgrade.
+// So `admin` stays undeletable and becomes deployable, and the asymmetry is the
+// point rather than a gap.
+//
+// Everything else is unchanged. Kubernetes' own namespaces, anything the lab
+// configured as protected, and anything carrying the label are all still refused.
+func (p Policy) DeployBlocked(namespace string, labels map[string]string) (bool, string) {
+	return p.blocked(namespace, labels)
+}
+
+// blocked is what both questions share.
+func (p Policy) blocked(namespace string, labels map[string]string) (bool, string) {
 	switch {
 	case slices.Contains(systemNamespaces, namespace), strings.HasPrefix(namespace, systemPrefix):
 		return true, "a Kubernetes system namespace"
-	case p.own != "" && namespace == p.own:
-		return true, "the namespace the panel runs in"
 	case slices.Contains(p.protected, namespace):
 		return true, "protected by this lab's configuration"
 	case labels[LabelProtected] == labelTrue:
@@ -134,7 +159,7 @@ func (p Policy) Protected(namespace string, labels map[string]string) (bool, str
 func (p Policy) ManagedNamespaces() []string {
 	managed := make([]string, 0, len(p.managed))
 	for _, namespace := range p.managed {
-		if protected, _ := p.Protected(namespace, nil); protected {
+		if blocked, _ := p.DeployBlocked(namespace, nil); blocked {
 			continue
 		}
 		managed = append(managed, namespace)
@@ -145,7 +170,7 @@ func (p Policy) ManagedNamespaces() []string {
 // Managed reports whether Helm may install into a namespace.
 //
 // Three conditions, and all of them are needed. The namespace must not be
-// protected, which wins over everything else here. It must be named in
+// deploy-blocked, which wins over everything else here. It must be named in
 // configuration, which is the operator's decision and is reviewable in a values
 // file. And it must carry the label, which is what makes the decision visible on
 // the object itself.
@@ -154,7 +179,7 @@ func (p Policy) ManagedNamespaces() []string {
 // can be applied by anything that can label a namespace, and the configured list
 // cannot be seen by someone looking at the cluster.
 func (p Policy) Managed(namespace string, labels map[string]string) bool {
-	if protected, _ := p.Protected(namespace, labels); protected {
+	if blocked, _ := p.DeployBlocked(namespace, labels); blocked {
 		return false
 	}
 	if p.everything {

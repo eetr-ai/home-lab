@@ -208,6 +208,82 @@ offers nothing to click. Uninstall it and roll out again — the release record 
 all that is wrong, and uninstalling removes whatever the half-finished install did
 create. The declared values are in the database and are not affected.
 
+## Deploying the panel itself
+
+This is the case the feature was asked for, and it is the awkward one. Three
+things have to be true, and each is a decision rather than a setting.
+
+**The panel's own namespace has to be a Helm target.** It is deployable by
+default now — `admin` is refused for *deletion* and permitted for *deploys*,
+because deleting it destroys the panel and nothing about upgrading needs that.
+But it still has to be named in `admin.api.helm.namespaces`, or covered by
+`allNamespaces`.
+
+Know what that means: it is the namespace holding the panel's OIDC client secret
+and its database connection strings, and a Helm grant there is read and write on
+all of them.
+
+**`admin.api.helm.selfDeploy` has to be on.** This chart renders a ClusterRole, a
+ClusterRoleBinding, a Role and a RoleBinding, and the deploy grant holds nothing
+in `rbac.authorization.k8s.io` without that flag — so `helm upgrade` of the admin
+release fails on four objects. The values comment says at length what turning it
+on costs; the short version is that the panel can then hand every permission it
+holds to any ServiceAccount, and its own credential becomes the most valuable one
+in the lab.
+
+**And "deployed" means something weaker for this one release.** Applying this
+chart rolls the panel's own Deployment, which terminates the pod running the
+upgrade. Helm records a release as deployed only *after* it finishes waiting for
+readiness — so if it waited, the record would never be written, the release would
+sit in `pending-upgrade` forever, and Helm would refuse every later operation on
+it. One self-upgrade would permanently break self-upgrades.
+
+So the API recognises an operation on its own release and does not wait: the
+chart's hooks still run and everything is still applied, but the release is
+recorded as soon as the manifests are accepted. The `202` says so. The completion
+rule at the top of this page therefore proves less here — status `deployed` and
+the right `chartVersion` mean the manifests went in, not that the new pods are
+healthy. Check the workload:
+
+```bash
+kubectl -n admin rollout status deployment/admin-api --timeout=5m
+kubectl -n admin rollout status deployment/admin-web --timeout=5m
+```
+
+### The alternative for today, which is not worse
+
+Give the pipeline a kubeconfig and let it run `helm upgrade` against the cluster
+directly for the admin chart, and use this API for everything else.
+
+It costs a credential to manage and it means the panel is deployed differently
+from everything else — but it leaves `selfDeploy` off, keeps the RBAC reach with
+the pipeline (which needs it anyway), and gets a real readiness wait back. If the
+only thing the pipeline deploys is the panel, this is the better trade.
+
+### Where this should go instead
+
+Every awkward thing on this page follows from one decision: the API runs Helm
+inside its own pods. **It should create a Job and let that do the work**, with the
+database credential injected so the Job can read the declared values and record
+the rollout.
+
+Three problems disappear rather than being managed:
+
+- **The RBAC grant stops being the API's.** The deploy permissions belong to the
+  Job's ServiceAccount, and the API keeps read-only access to the cluster.
+  `selfDeploy` stops being a flag that widens the panel's own credential and
+  becomes a property of a short-lived pod. That is most of what makes it
+  uncomfortable today.
+- **Self-upgrade stops being a special case.** Nothing is replacing the process
+  doing the upgrading, so the readiness wait can stay on and `deployed` goes back
+  to meaning the pods came up — for every release, including this one.
+- **The 202 gets something real behind it.** A Job is an object with a status,
+  which is a better answer to "did it work" than reading the release back and
+  inferring.
+
+Not built. Recorded here because it is the design, and the current arrangement is
+a first version rather than the intended one.
+
 ## What a pipeline cannot do
 
 Nothing on this list is enforced against the *caller* — the API does not know who

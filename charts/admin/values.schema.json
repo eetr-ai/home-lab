@@ -158,6 +158,10 @@
                 "postgres": {
                   "$ref": "#/$defs/managedService",
                   "description": "Where declared deployments and their versioned values are kept. Its own database and role, not the superuser DSN the panel administers PostgreSQL with. Disabled leaves the deployment routes answering 501."
+                },
+                "selfDeploy": {
+                  "type": "boolean",
+                  "description": "Let the deploy grant write Roles and bindings, so the panel can install charts that create them - including its own chart, which renders four such objects. Needed to deploy the panel from a pipeline. It lets the panel hand its own permissions to any ServiceAccount; see the comment in values.yaml."
                 }
               }
             }

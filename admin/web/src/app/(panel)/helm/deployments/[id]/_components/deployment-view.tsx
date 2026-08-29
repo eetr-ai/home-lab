@@ -42,6 +42,10 @@ export function DeploymentView({
 						{deployment.releaseName}
 					</h1>
 				</div>
+				{/* One control. It reports which version is loaded and is also how
+				    you change it — the list it opens is the way back to the latest,
+				    so a second button for that would be a third thing saying the
+				    same thing. */}
 				<VersionHistory
 					versions={deployment.versions}
 					selected={editing}

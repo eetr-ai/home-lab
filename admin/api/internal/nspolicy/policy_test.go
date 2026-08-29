@@ -157,10 +157,13 @@ func TestManaged(t *testing.T) {
 			want:      false,
 		},
 		{
-			name:      "the panel's own namespace, however it is labelled",
+			// Deployable, and deliberately so: upgrading the panel itself from a
+			// pipeline is the reason this feature exists. It is still not
+			// deletable — see TestTheOwnNamespaceIsUndeletableButDeployable.
+			name:      "the panel's own namespace, labelled managed",
 			namespace: "admin",
 			labels:    managed,
-			want:      false,
+			want:      true,
 		},
 		{
 			name:      "labelled managed and also labelled protected",
@@ -190,7 +193,9 @@ func TestManagedNamespacesExcludesProtected(t *testing.T) {
 	})
 
 	got := policy.ManagedNamespaces()
-	want := []string{"apps", "tools"}
+	// "admin" survives: it is the panel's own, which is deploy-able. The two
+	// genuinely protected names do not.
+	want := []string{"apps", "admin", "tools"}
 
 	if !slices.Equal(got, want) {
 		t.Errorf("ManagedNamespaces() = %v, want %v", got, want)
@@ -203,5 +208,45 @@ func TestManagedNamespacesKeepsWhatIsAllowed(t *testing.T) {
 
 	if got := policy.ManagedNamespaces(); !slices.Equal(got, []string{"tools", "apps"}) {
 		t.Errorf("ManagedNamespaces() = %v, want the configured list unchanged", got)
+	}
+}
+
+// The asymmetry the whole feature turns on, pinned in one place.
+//
+// The panel's own namespace may not be deleted — that destroys the panel and
+// everything in it, and nothing about deploying needs it — and may be deployed
+// into, because upgrading the panel from a pipeline is what this was built for.
+// Merging the two questions, which is what the first version of this policy did,
+// refuses the use case.
+func TestTheOwnNamespaceIsUndeletableButDeployable(t *testing.T) {
+	policy := New(Config{Own: "admin", Protected: []string{"platform-system"}})
+
+	protected, reason := policy.Protected("admin", nil)
+	if !protected {
+		t.Error("the panel's own namespace must not be deletable")
+	}
+	if reason == "" {
+		t.Error("a refusal has to say which rule took the delete button away")
+	}
+
+	if blocked, _ := policy.DeployBlocked("admin", nil); blocked {
+		t.Error("the panel's own namespace must be deployable")
+	}
+
+	// And nothing else moved. Each of these is refused by both questions.
+	for _, namespace := range []string{"platform-system", "kube-system", "kube-public", "default"} {
+		if protected, _ := policy.Protected(namespace, nil); !protected {
+			t.Errorf("%s must not be deletable", namespace)
+		}
+		if blocked, _ := policy.DeployBlocked(namespace, nil); !blocked {
+			t.Errorf("%s must not be deployable", namespace)
+		}
+	}
+
+	// The label still blocks both, including on the panel's own namespace: a
+	// label can only ever add protection.
+	labelled := map[string]string{LabelProtected: "true"}
+	if blocked, _ := policy.DeployBlocked("admin", labelled); !blocked {
+		t.Error("the protected label must still block a deploy into the own namespace")
 	}
 }
