@@ -209,7 +209,10 @@ admin:
     # that will call the API directly is not built yet, and an administrative
     # endpoint should not be publicly routable before it has a reason to be.
     #
-    # Enabling it means putting Cloudflare Access in front of the hostname first.
+    # Enabling it means putting Cloudflare Access in front of the hostname first,
+    # and giving any machine caller an Access service token -- without one, Access
+    # answers a pipeline with an interactive login challenge and the failure looks
+    # like an API problem. See docs/deploying-from-a-pipeline.md.
     route:
       enabled: false
       hostname: admin-api.example.invalid
