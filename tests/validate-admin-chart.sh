@@ -327,6 +327,81 @@ if [[ $node_stats_pairs != 'core/nodes/proxy get' ]]; then
   exit 1
 fi
 
+# The Helm read grant, which is the widest thing this chart can be asked to
+# create. Reading a release means reading every Secret in its namespace, so the
+# assertions here are about containment rather than about the grant itself.
+#
+# Nothing at all by default: an empty namespace list must leave no Role, no
+# RoleBinding, and no reference to one behind.
+if grep -qE '^kind: Role$|-helm$' "$output_file"; then
+  printf 'The Helm read grant must not be created by default\n' >&2
+  exit 1
+fi
+
+helm_rbac=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+  --show-only templates/api/rbac-deploy.yaml)
+
+# A Role, never a ClusterRole. That is the containment, and it is the failure that
+# matters: a ClusterRole here would grant read on every Secret in the cluster.
+if grep -q '^kind: ClusterRole' <<<"$helm_rbac"; then
+  printf 'The Helm grant must be a namespaced Role, never a ClusterRole\n' >&2
+  exit 1
+fi
+if [[ $(grep -c '^kind: Role$' <<<"$helm_rbac") != 1 ]] ||
+   [[ $(grep -c '^kind: RoleBinding$' <<<"$helm_rbac") != 1 ]]; then
+  printf 'One managed namespace must render exactly one Role and one RoleBinding\n' >&2
+  exit 1
+fi
+
+# ...bound into the namespace it names, not into the release namespace.
+if ! grep -A4 '^kind: Role$' <<<"$helm_rbac" | grep -q '  namespace: apps'; then
+  printf 'The Helm Role must live in the namespace it grants access to\n' >&2
+  exit 1
+fi
+
+# Read-only, and reaching nothing but Secrets. extract_pairs stops at the first
+# ClusterRoleBinding, of which this document has none, so it reads the whole thing.
+helm_pairs=$(printf '%s\n' "$helm_rbac" | extract_pairs)
+expected_helm_pairs=$(LC_ALL=C sort <<'HELMPAIRS'
+core/secrets get
+core/secrets list
+core/secrets watch
+HELMPAIRS
+)
+if [[ $helm_pairs != "$expected_helm_pairs" ]]; then
+  printf 'The Helm Role must grant read on secrets and nothing else.\n' >&2
+  diff <(printf '%s\n' "$expected_helm_pairs") <(printf '%s\n' "$helm_pairs") >&2 || true
+  exit 1
+fi
+
+# Two groups it must never reach. Granting RBAC would let a chart hand the panel's
+# ServiceAccount more than it holds; granting CRDs would let one change what the
+# cluster's kinds mean. Checked against the granted pairs rather than the rendered
+# text, because the RoleBinding's own roleRef legitimately names the RBAC group --
+# grepping the document would fail on a correct chart, which is the kind of
+# assertion that gets deleted rather than fixed.
+if grep -qE '^(rbac\.authorization\.k8s\.io|apiextensions\.k8s\.io)/' <<<"$helm_pairs"; then
+  printf 'The Helm Role must not reach RBAC or CustomResourceDefinitions\n' >&2
+  exit 1
+fi
+
+# A protected namespace in the list is a render failure, not a warning. This is
+# the mistake that turns a bounded grant into an unbounded one, and a warning in
+# a Helm output nobody reads is not a control.
+for forbidden in platform-system admin kube-system kube-flannel default; do
+  if render --set "admin.api.helm.namespaces[0]=$forbidden" >/dev/null 2>&1; then
+    printf 'The chart rendered with %s as a Helm-managed namespace\n' "$forbidden" >&2
+    exit 1
+  fi
+done
+
+# Helm reaches the cluster through the same credential the cluster slice does, so
+# it cannot be served without it.
+if ! render --set admin.api.kubernetes.enabled=false | grep -q 'ADMIN_HELM_DISABLED'; then
+  printf 'Disabling the cluster slice must also disable Helm\n' >&2
+  exit 1
+fi
+
 # The binding has to name this release's role and this release's ServiceAccount.
 # Checking only that *a* ClusterRoleBinding exists would pass on one pointing
 # somewhere else entirely.

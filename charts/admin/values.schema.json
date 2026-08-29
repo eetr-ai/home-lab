@@ -141,6 +141,20 @@
                   "type": "string"
                 }
               }
+            },
+            "helm": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "namespaces": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                  },
+                  "description": "Namespaces whose Helm releases the panel may read. Each renders a Role granting read on EVERY Secret in that namespace; see templates/api/rbac-deploy.yaml."
+                }
+              }
             }
           }
         },

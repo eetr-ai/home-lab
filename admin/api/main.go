@@ -21,6 +21,7 @@ import (
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
+	"github.com/eetr-ai/home-lab/admin/api/internal/helm"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 	"github.com/eetr-ai/home-lab/admin/api/internal/kube"
 	"github.com/eetr-ai/home-lab/admin/api/internal/mongo"
@@ -95,7 +96,13 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeMongo(ctx)
 
-	if err := registerKubernetes(api, guard, logger); err != nil {
+	policy := namespacePolicy(logger)
+
+	if err := registerKubernetes(api, guard, policy, logger); err != nil {
+		return err
+	}
+
+	if err := registerHelm(api, guard, policy, logger); err != nil {
 		return err
 	}
 
@@ -162,7 +169,9 @@ func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Con
 // own ServiceAccount is the credential, and off-cluster a kubeconfig is. It is on
 // by default for that reason, and ADMIN_KUBERNETES_DISABLED exists for running the
 // API somewhere with neither.
-func registerKubernetes(mux *stdhttp.ServeMux, guard *auth.Guard, logger *slog.Logger) error {
+func registerKubernetes(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Policy,
+	logger *slog.Logger,
+) error {
 	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == envTrue {
 		logger.Warn("ADMIN_KUBERNETES_DISABLED is set; the cluster endpoints are not served")
 		return nil
@@ -200,9 +209,39 @@ func registerKubernetes(mux *stdhttp.ServeMux, guard *auth.Guard, logger *slog.L
 	}
 
 	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
-	service := kube.NewService(repo, namespacePolicy(logger), os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"))
+	service := kube.NewService(repo, policy, os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"))
 	kube.NewHandler(service, guard).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
+	return nil
+}
+
+// registerHelm wires the Helm slice unless it is switched off.
+//
+// Like the cluster slice this needs no connection string: Helm reads its releases
+// through the same in-cluster credential, out of Secrets in the namespaces this
+// lab named. It is off unless a namespace was named — with none, every route
+// answers 501, which is the honest reply for a capability that was built and not
+// switched on.
+//
+// Switching it on is not free, and the chart says so at length: reading a release
+// means reading Secrets in that namespace, and RBAC cannot narrow that to Helm's
+// own.
+func registerHelm(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Policy,
+	logger *slog.Logger,
+) error {
+	if os.Getenv("ADMIN_HELM_DISABLED") == envTrue {
+		logger.Warn("ADMIN_HELM_DISABLED is set; the Helm endpoints are not served")
+		return nil
+	}
+
+	repo, err := helm.NewRepository(logger)
+	if err != nil {
+		return err
+	}
+
+	helm.NewHandler(helm.NewService(repo, policy), guard).Register(mux)
+	logger.Info("serving the Helm endpoints",
+		slog.Any("namespaces", policy.ManagedNamespaces()))
 	return nil
 }
 

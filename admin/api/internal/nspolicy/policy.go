@@ -98,6 +98,19 @@ func (p Policy) Protected(namespace string, labels map[string]string) (bool, str
 	}
 }
 
+// ManagedNamespaces returns the namespaces configuration names as Helm's, in the
+// order they were configured.
+//
+// This is the list to enumerate. Finding the managed namespaces by reading every
+// namespace in the cluster and checking its label would need a cluster-wide grant
+// on Helm's release Secrets, which is exactly what this design refuses to hold.
+//
+// It is deliberately not the same question as Managed: a name here has passed
+// configuration and nothing else, so anything that writes must still ask.
+func (p Policy) ManagedNamespaces() []string {
+	return slices.Clone(p.managed)
+}
+
 // Managed reports whether Helm may install into a namespace.
 //
 // Three conditions, and all of them are needed. The namespace must not be

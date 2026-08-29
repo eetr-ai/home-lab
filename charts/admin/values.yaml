@@ -142,12 +142,42 @@ admin:
 
     # Sized for a panel one operator uses, not for throughput. Per replica, so the
     # count above multiplies these.
+    # Raised when the Helm SDK was linked in. It is not a small dependency: it
+    # carries a large slice of kubectl, an OCI registry client, and its own YAML
+    # stack, and the API binary went from 45.6 MB to 95.6 MB. A Go binary's text
+    # is mapped rather than allocated, so that is not fifty megabytes of heap --
+    # but 128Mi with a 96 MB binary, a discovery cache, a REST mapper, and a
+    # rendered chart in flight is close enough to the edge that the first thing
+    # to go wrong would be an OOMKill part-way through an install.
     resources:
       requests:
         cpu: 25m
-        memory: 64Mi
+        memory: 96Mi
       limits:
-        memory: 128Mi
+        memory: 256Mi
+
+    # Helm releases.
+    #
+    # The panel reads the releases installed in the namespaces named below --
+    # what chart, which version, which values, and the whole revision history.
+    # There is no database behind it: Helm's own storage is the source of truth,
+    # which is why a release installed by hand from a laptop shows up here with
+    # nothing having recorded it.
+    #
+    # READ templates/api/rbac-deploy.yaml BEFORE ADDING A NAMESPACE.
+    #
+    # Helm keeps a release in a Secret, so reading releases in a namespace means
+    # reading *every* Secret in that namespace -- RBAC cannot narrow it to Helm's
+    # own, and no label selector exists that would. A namespace named here is a
+    # namespace whose credentials this panel can read. That is the entire cost of
+    # the feature and it is not reducible.
+    #
+    # Empty by default, which leaves the routes served and answering 501: the
+    # capability is built, and this lab has not switched it on. A protected
+    # namespace here is a render failure rather than a warning.
+    helm:
+      namespaces: []
+        # - apps
 
     # Reaching the API from outside the cluster, for a caller that is not the
     # panel's own browser session. Disabled until something needs it: the agent
