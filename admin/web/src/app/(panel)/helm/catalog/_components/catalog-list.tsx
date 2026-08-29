@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { AlertTriangle, Package, Plus } from "lucide-react";
-import { Banner, IconButton, Td, Th } from "@/components/ui";
+import { Banner, Button, Td, Th } from "@/components/ui";
+import { InteractiveRow, stopRowActivation } from "../../../_components/interactive-row";
 import { Directory } from "../../../_components/directory";
 import type { HelmChartListing } from "@/lib/api/types";
 import { InstallPanel } from "./install-panel";
@@ -50,11 +51,16 @@ export function CatalogList({
 						<Th>Repository</Th>
 						<Th>Description</Th>
 						<Th>Versions</Th>
-						<Th className="text-right">Actions</Th>
+						<Th className="w-px whitespace-nowrap text-right">Actions</Th>
 					</>
 				}
-				rows={charts.map((chart) => (
-					<tr key={chart.name}>
+				rows={charts.map((chart) => {
+					const installable = chart.versions.length > 0 && namespaces.length > 0;
+					return (
+					<InteractiveRow
+						key={chart.name}
+						onActivate={() => installable && setInstalling(chart)}
+					>
 						<Td className="font-medium">{chart.name}</Td>
 						<Td className="text-muted-foreground">{chart.repository}</Td>
 						<Td className="text-muted-foreground">{chart.description || "—"}</Td>
@@ -76,17 +82,22 @@ export function CatalogList({
 								</span>
 							)}
 						</Td>
-						<Td className="text-right">
-							<IconButton
-								aria-label={`Install ${chart.name}`}
-								disabled={chart.versions.length === 0 || namespaces.length === 0}
+						{/* A labelled button, not a bare icon. Installing is the only
+						    thing this page is for, and an unlabelled plus in the last
+						    column is not something anybody finds. */}
+						<Td className="text-right" onClick={stopRowActivation}>
+							<Button
+								icon={Plus}
+								variant="secondary"
+								disabled={!installable}
 								onClick={() => setInstalling(chart)}
 							>
-								<Plus className="h-4 w-4" />
-							</IconButton>
+								Install
+							</Button>
 						</Td>
-					</tr>
-				))}
+					</InteractiveRow>
+					);
+				})}
 			/>
 
 			{/* Keyed by chart, so opening a different one starts from its own

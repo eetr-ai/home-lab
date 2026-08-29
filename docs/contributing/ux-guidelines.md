@@ -147,10 +147,19 @@ contract to review a change against:
    separated by `divide-y`; `thead` on `--surface-sunken`.
 4. **Row actions** — `IconButton` only, in a fixed order: surface-specific icons
    first, then `Pencil`, then `Trash2`. No pills, no "View" link.
-5. **Clicking a row opens its edit panel — where there is one.** The actions
-   cell calls `stopPropagation`, so a row action never also opens the panel. Keep
-   the `Pencil` anyway: a `<tr>` cannot carry button semantics cleanly, so the
-   icon button stays the keyboard-reachable, labelled affordance.
+5. **Clicking a row opens its edit panel, or navigates — where the row leads
+   anywhere at all.** The whole row, not the one cell that happens to hold a
+   link: an underline on a single word is invisible until the pointer is already
+   on it, so the row reads as inert and the way in gets missed. Use
+   `InteractiveRow`, which supplies the pointer cursor, the hover background, and
+   the `group` class that lets the naming cell underline itself on
+   `group-hover`.
+
+   The actions cell calls `stopPropagation` — `stopRowActivation` beside the
+   component — so a row action never also opens the panel or navigates. Keep the
+   `Pencil`, or the `<Link>` on the name: a `<tr>` cannot carry button semantics
+   cleanly, so that stays the keyboard-reachable, labelled affordance and the row
+   click is a convenience layered over it.
 
    Several surfaces here have no edit at all, because the thing behind them has
    no update operation: a PostgreSQL database is created and dropped, never
