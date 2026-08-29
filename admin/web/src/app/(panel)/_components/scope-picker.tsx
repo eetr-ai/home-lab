@@ -22,11 +22,21 @@ export function ScopePicker({
 	param,
 	options,
 	selected,
+	allLabel,
 }: {
 	label: string;
 	param: string;
 	options: string[];
 	selected: string;
+	/**
+	 * When set, an extra choice meaning "all of them" is offered and selecting it
+	 * removes the parameter rather than setting it to an empty string — so the
+	 * unfiltered view has one address instead of two.
+	 *
+	 * Only for pages that are meaningful unfiltered. A collections list is not:
+	 * there, being made to choose is the point.
+	 */
+	allLabel?: string;
 }) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -34,8 +44,13 @@ export function ScopePicker({
 
 	function choose(next: string) {
 		const params = new URLSearchParams(searchParams.toString());
-		params.set(param, next);
-		startTransition(() => router.push(`?${params.toString()}`));
+		if (next === "") {
+			params.delete(param);
+		} else {
+			params.set(param, next);
+		}
+		const query = params.toString();
+		startTransition(() => router.push(query ? `?${query}` : "?"));
 	}
 
 	return (
@@ -49,6 +64,7 @@ export function ScopePicker({
 				disabled={pending || options.length === 0}
 				onChange={(event) => choose(event.target.value)}
 			>
+				{allLabel ? <option value="">{allLabel}</option> : null}
 				{options.map((option) => (
 					<option key={option} value={option}>
 						{option}

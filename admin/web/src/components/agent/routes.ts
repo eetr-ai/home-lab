@@ -45,15 +45,15 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	{ path: "/kubernetes/namespaces", description: "Every namespace, whether the panel may delete it, and creating one. A protected namespace shows why it is protected instead of a delete action." },
 	{ path: "/kubernetes/storage", description: "PersistentVolumes, claims and storage classes." },
 
+	{ path: "/helm/dashboard?namespace={namespace}", description: "Every Helm release the panel can see, including any installed outside it, filterable by namespace. The Helm section opens here." },
+	{
+		path: "/helm/dashboard/{namespace}/{name}",
+		description: "One live release: its status, the values it was given, its revision history, and where rolling back and uninstalling happen.",
+	},
 	{ path: "/helm/deployments", description: "The charts this lab has declared, each with how it stands against the cluster. Declaring a new one happens here." },
 	{
 		path: "/helm/deployments/{id}",
 		description: "One deployment: the values editor, the Roll out button, and every version that was ever declared with who wrote it.",
-	},
-	{ path: "/helm/releases", description: "Every Helm release the panel can see, including any installed outside it." },
-	{
-		path: "/helm/releases/{namespace}/{name}",
-		description: "One live release: its status, the values it was given, its revision history, and where rolling back and uninstalling happen.",
 	},
 
 	{ path: "/postgres", description: "The PostgreSQL section." },

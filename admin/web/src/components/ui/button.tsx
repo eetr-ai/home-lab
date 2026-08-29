@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 import { Loader2, type LucideIcon } from "lucide-react";
 import { cn } from "./cn";
 
@@ -15,6 +15,12 @@ export const buttonVariants: Record<ButtonVariant, string> = {
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+	/**
+	 * The underlying button element. Declared as an ordinary prop, which is what
+	 * React 19 made refs — no forwardRef wrapper. Needed by anything that has to
+	 * measure this button, such as a Popover anchored to it.
+	 */
+	ref?: Ref<HTMLButtonElement>;
 	variant?: ButtonVariant;
 	/** When true, the leading icon is replaced by a spinner and the button is disabled. */
 	loading?: boolean;

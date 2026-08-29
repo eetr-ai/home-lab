@@ -47,6 +47,7 @@ export default async function HelmReleasePage({
 
 	return (
 		<ReleaseView
+			backHref={`/helm/dashboard?namespace=${encodeURIComponent(namespace)}`}
 			release={release.data}
 			history={history.ok ? history.data : []}
 			historyError={history.ok ? null : history.error}

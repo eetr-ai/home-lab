@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { History } from "lucide-react";
-import { Banner, Card, Th } from "@/components/ui";
-import { Directory } from "../../../../_components/directory";
+import { Banner, Card } from "@/components/ui";
+import { BackLink } from "../../../../_components/back-link";
 import { StatusBadge } from "../../../_components/status-badge";
 import { StateBadge } from "../../_components/state-badge";
 import { isPending, stuckForMinutes } from "@/lib/helm/status";
-import { useReleasePolling } from "../../../releases/[namespace]/[name]/_components/use-release-polling";
+import { useReleasePolling } from "../../../_components/use-release-polling";
 import type { HelmDeploymentDetail } from "@/lib/api/types";
 import { ValuesCard } from "./values-card";
-import { VersionRow } from "./version-row";
+import { VersionHistory } from "./version-history";
 
 export function DeploymentView({
 	deployment,
@@ -28,8 +27,29 @@ export function DeploymentView({
 	useReleasePolling(release ? isPending(release.status) : false);
 	const stuck = release ? stuckForMinutes(release, now) : null;
 
+	const releaseHref = `/helm/dashboard/${encodeURIComponent(deployment.namespace)}/${encodeURIComponent(deployment.releaseName)}`;
+
 	return (
 		<div className="flex flex-col gap-6">
+			{/* The way back, what you are looking at, and the one action that is
+			    reference rather than change. Everything that alters something lives
+			    on the values card, so this row cannot be mistaken for a toolbar. */}
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex min-w-0 flex-col gap-1">
+					<BackLink href="/helm/deployments" label="All deployments" />
+					<h1 className="truncate text-lg font-medium">
+						<span className="text-muted-foreground">{deployment.namespace} / </span>
+						{deployment.releaseName}
+					</h1>
+				</div>
+				<VersionHistory
+					versions={deployment.versions}
+					selected={editing}
+					now={now}
+					onOpenVersion={setEditing}
+				/>
+			</div>
+
 			{/* A failed read of the live release, said out loud. Showing the record
 			    with nothing beside it would read as "nothing is deployed", which is
 			    a different and much more inviting statement than "I could not look". */}
@@ -41,7 +61,7 @@ export function DeploymentView({
 					message={
 						`This release has been ${release?.status} for ${stuck} minutes. ` +
 						"An operation that was interrupted leaves it this way and Helm refuses every " +
-						"later attempt until it is resolved — rolling back from the Releases tab clears it."
+						"later attempt until it is resolved — rolling back from the release page clears it."
 					}
 				/>
 			) : null}
@@ -71,43 +91,15 @@ export function DeploymentView({
 				</dl>
 
 				{release ? (
-					<p className="mt-3 text-xs text-muted-foreground">
-						<Link
-							href={`/helm/releases/${encodeURIComponent(deployment.namespace)}/${encodeURIComponent(deployment.releaseName)}`}
-						>
-							See the live release, its revisions, and roll back
+					<p className="mt-3 text-xs">
+						<Link href={releaseHref} className="text-muted-foreground hover:text-foreground">
+							See the live release, its revisions, and roll back →
 						</Link>
 					</p>
 				) : null}
 			</Card>
 
 			<ValuesCard deployment={deployment} editing={editing} onEditingChange={setEditing} />
-
-			<Directory
-				error={null}
-				isEmpty={deployment.versions.length === 0}
-				minWidth="min-w-[720px]"
-				empty={{ icon: History, title: "No versions", description: "Nothing has been declared yet." }}
-				columns={
-					<>
-						<Th className="w-px whitespace-nowrap text-right">Version</Th>
-						<Th>Chart version</Th>
-						<Th>Written by</Th>
-						<Th>Source</Th>
-						<Th>Rolled out</Th>
-						<Th className="w-px whitespace-nowrap text-right">When</Th>
-					</>
-				}
-				rows={deployment.versions.map((version) => (
-					<VersionRow
-						key={version.version}
-						version={version}
-						selected={version.version === editing}
-						now={now}
-						onOpen={() => setEditing(version.version)}
-					/>
-				))}
-			/>
 		</div>
 	);
 }
@@ -122,7 +114,11 @@ function Fact({
 	wide?: boolean;
 }) {
 	return (
-		<div className={wide ? "flex items-center gap-2 sm:col-span-2 lg:col-span-3" : "flex items-center gap-2"}>
+		<div
+			className={
+				wide ? "flex items-center gap-2 sm:col-span-2 lg:col-span-3" : "flex items-center gap-2"
+			}
+		>
 			<dt className="text-muted-foreground">{label}</dt>
 			<dd className="text-foreground">{value}</dd>
 		</div>

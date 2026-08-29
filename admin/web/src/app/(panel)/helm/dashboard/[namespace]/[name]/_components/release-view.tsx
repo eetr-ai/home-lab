@@ -6,6 +6,7 @@ import { History, SlidersHorizontal, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { uninstallRelease } from "@/app/actions/helm";
 import { Banner, Button, buttonVariants, Card, cn, InlineDeleteConfirm, Th } from "@/components/ui";
+import { BackLink } from "../../../../../_components/back-link";
 import { Directory } from "../../../../../_components/directory";
 import { useRowDelete } from "../../../../../_components/use-row-delete";
 import { StatusBadge } from "../../../../_components/status-badge";
@@ -13,7 +14,7 @@ import { formatAge } from "@/lib/format/age";
 import { describeOutcome, isPending, stuckForMinutes } from "@/lib/helm/status";
 import type { HelmReleaseDetail, HelmRevision } from "@/lib/api/types";
 import { RevisionRow } from "./revision-row";
-import { useReleasePolling } from "./use-release-polling";
+import { useReleasePolling } from "../../../../_components/use-release-polling";
 
 export function ReleaseView({
 	release,
@@ -21,6 +22,7 @@ export function ReleaseView({
 	historyError,
 	deploymentId,
 	deploymentsError,
+	backHref,
 	now,
 }: {
 	release: HelmReleaseDetail;
@@ -35,6 +37,8 @@ export function ReleaseView({
 	deploymentId: string | null;
 	/** Why the deployment lookup failed, when it did. */
 	deploymentsError: string | null;
+	/** Back to the dashboard, keeping the namespace that was being looked at. */
+	backHref: string;
 	now: Date;
 }) {
 	// Two error sources, kept apart on purpose. historyError is a property of the
@@ -56,6 +60,13 @@ export function ReleaseView({
 
 	return (
 		<div className="flex flex-col gap-6">
+			<div className="flex flex-wrap items-baseline justify-between gap-2">
+				<BackLink href={backHref} label="All releases" />
+				<span className="text-sm text-muted-foreground">
+					{release.namespace} / <span className="text-foreground">{release.name}</span>
+				</span>
+			</div>
+
 			<Banner variant="error" message={error} />
 
 			{stuck !== null ? (
