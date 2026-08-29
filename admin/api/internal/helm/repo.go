@@ -79,7 +79,7 @@ func (r *Repository) ListReleases(ctx context.Context, namespaces []string) ([]R
 }
 
 func (r *Repository) listNamespace(namespace string) ([]Release, error) {
-	configuration, err := r.clients.configurationFor(namespace)
+	configuration, err := r.clients.configurationFor(namespace, forReading)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (r *Repository) listNamespace(namespace string) ([]Release, error) {
 // SDK and each reads the same stored revision, so the cost is in the Secret
 // decode rather than in the round trips.
 func (r *Repository) ReadRelease(ctx context.Context, namespace, name string) (ReleaseDetail, error) {
-	configuration, err := r.clients.configurationFor(namespace)
+	configuration, err := r.clients.configurationFor(namespace, forReading)
 	if err != nil {
 		return ReleaseDetail{}, err
 	}
@@ -152,7 +152,7 @@ func (r *Repository) ReadRelease(ctx context.Context, namespace, name string) (R
 
 // ReadHistory returns a release's revisions, newest first.
 func (r *Repository) ReadHistory(ctx context.Context, namespace, name string) ([]Revision, error) {
-	configuration, err := r.clients.configurationFor(namespace)
+	configuration, err := r.clients.configurationFor(namespace, forReading)
 	if err != nil {
 		return nil, err
 	}

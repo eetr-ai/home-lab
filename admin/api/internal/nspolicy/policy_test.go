@@ -1,6 +1,9 @@
 package nspolicy
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestProtected(t *testing.T) {
 	lab := Config{
@@ -173,5 +176,32 @@ func TestManaged(t *testing.T) {
 				t.Errorf("Managed(%q, %v) = %v, want %v", test.namespace, test.labels, got, test.want)
 			}
 		})
+	}
+}
+
+// Enumerating a namespace is not a passive act: reading its Helm releases means
+// reading its Secrets. So a protected name must not survive into the list that
+// gets enumerated, however it got into the configured one.
+func TestManagedNamespacesExcludesProtected(t *testing.T) {
+	policy := New(Config{
+		Own:       "admin",
+		Protected: []string{"platform-system"},
+		Managed:   []string{"apps", "platform-system", "admin", "kube-system", "tools"},
+	})
+
+	got := policy.ManagedNamespaces()
+	want := []string{"apps", "tools"}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("ManagedNamespaces() = %v, want %v", got, want)
+	}
+}
+
+// ...and the ordinary case still comes back whole, in the order it was written.
+func TestManagedNamespacesKeepsWhatIsAllowed(t *testing.T) {
+	policy := New(Config{Own: "admin", Managed: []string{"tools", "apps"}})
+
+	if got := policy.ManagedNamespaces(); !slices.Equal(got, []string{"tools", "apps"}) {
+		t.Errorf("ManagedNamespaces() = %v, want the configured list unchanged", got)
 	}
 }

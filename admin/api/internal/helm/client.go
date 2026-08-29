@@ -30,6 +30,17 @@ import (
 // in charts/admin/templates/api/rbac-deploy.yaml.
 const storageDriver = "secret"
 
+// operationKind says whether a Helm action is one that must finish inside a
+// request or one that is allowed to take minutes.
+type operationKind int
+
+const (
+	// forReading is served on the request path and is bounded.
+	forReading operationKind = iota
+	// forWriting runs off the request path, under the job's own timeout.
+	forWriting
+)
+
 // clients holds what every Helm action configuration is built from.
 //
 // The REST config and the discovery client are built once and shared. Discovery
@@ -38,7 +49,17 @@ const storageDriver = "secret"
 // audit log, for information that changes when a CRD is installed and at no other
 // time.
 type clients struct {
-	config    *rest.Config
+	// config bounds a request, and is what every read uses. Reads are served on
+	// the request path: a listing that never returns holds a goroutine and a
+	// connection to the API server, and Helm's read actions take no context, so
+	// the caller hanging up does not end one.
+	config *rest.Config
+	// unbounded has no deadline, and is only for the operations that legitimately
+	// outlast a request. An install waits for pods to come up; a twenty-second
+	// ceiling would cut it off mid-way and leave the release wedged, which is the
+	// state that is hardest to recover from. What bounds those instead is the
+	// job's own timeout.
+	unbounded *rest.Config
 	discovery discovery.CachedDiscoveryInterface
 	mapper    meta.RESTMapper
 	logger    *slog.Logger
@@ -46,17 +67,23 @@ type clients struct {
 
 // newClients builds the shared half of the Helm plumbing.
 //
-// It uses the unbounded REST config. Helm's own operations carry their own
-// timeouts and an install that waits for pods legitimately outlasts any single
-// API request; a twenty-second ceiling would cut one off mid-way and leave the
-// release wedged in a pending state, which is the failure that is hardest to
-// recover from.
+// Two REST configurations, because reads and writes want opposite things. A read
+// is served inside a request and must not outlive one; an install waits for pods
+// and legitimately does. Helm's actions take no context, so a caller hanging up
+// cannot end either — the deadline is the only thing that can, which is why the
+// read path gets one.
 func newClients(logger *slog.Logger) (*clients, error) {
-	config, err := restconfig.NewUnbounded()
+	config, err := restconfig.New()
 	if err != nil {
 		return nil, err
 	}
 
+	unbounded, err := restconfig.NewUnbounded()
+	if err != nil {
+		return nil, err
+	}
+
+	// Discovery is a read, so it takes the bounded configuration.
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("build the discovery client: %w", err)
@@ -65,6 +92,7 @@ func newClients(logger *slog.Logger) (*clients, error) {
 	cached := memory.NewMemCacheClient(discoveryClient)
 	return &clients{
 		config:    config,
+		unbounded: unbounded,
 		discovery: cached,
 		mapper:    restmapper.NewDeferredDiscoveryRESTMapper(cached),
 		logger:    logger,
@@ -81,9 +109,14 @@ func newClients(logger *slog.Logger) (*clients, error) {
 // design: reading releases across every namespace would need a cluster-wide grant
 // on Secrets. Instead each managed namespace is asked separately, with a Role
 // that reaches only into it.
-func (c *clients) configurationFor(namespace string) (*action.Configuration, error) {
+//
+// The kind picks which REST configuration the actions get: a read is bounded, a
+// write is not. Asking the caller to say which is deliberate — there is no way to
+// infer it here, and defaulting either way would silently give one of them the
+// wrong deadline.
+func (c *clients) configurationFor(namespace string, kind operationKind) (*action.Configuration, error) {
 	configuration := new(action.Configuration)
-	getter := &restClientGetter{clients: c, namespace: namespace}
+	getter := &restClientGetter{clients: c, namespace: namespace, kind: kind}
 
 	if err := configuration.Init(getter, namespace, storageDriver); err != nil {
 		return nil, fmt.Errorf("initialise helm for namespace %s: %w", namespace, err)
@@ -101,9 +134,13 @@ func (c *clients) configurationFor(namespace string) (*action.Configuration, err
 type restClientGetter struct {
 	clients   *clients
 	namespace string
+	kind      operationKind
 }
 
 func (g *restClientGetter) ToRESTConfig() (*rest.Config, error) {
+	if g.kind == forWriting {
+		return g.clients.unbounded, nil
+	}
 	return g.clients.config, nil
 }
 
