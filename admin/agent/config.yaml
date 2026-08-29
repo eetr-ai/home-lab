@@ -121,6 +121,8 @@ resources:
       as: diagnosing
     - resource: skills/databases.md
       as: databases
+    - resource: skills/helm.md
+      as: helm
     - resource: skills/commands.md
       as: commands
     - resource: skills/voice.md
@@ -611,6 +613,14 @@ flows:
               How this panel models PostgreSQL and MongoDB, what it can and cannot
               change about them, and why there is no database pod to look at.
             resource: databases
+          - name: helm
+            description: >
+              What Helm releases are and where they live, what each status means,
+              how to recognise a release wedged by an interrupted operation, and
+              why deploying is a screen rather than something you do. Load it when
+              somebody asks what installed a workload, what version is running, or
+              to change one.
+            resource: helm
           - name: commands
             description: >
               Running curl, jq and find without a shell: how to chain them through
