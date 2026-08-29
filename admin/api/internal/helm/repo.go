@@ -296,9 +296,9 @@ func releaseFrom(item release.Releaser) (Release, error) {
 // All three come from the map, including the name, even though the accessor has
 // a typed Name(). That method dereferences the chart's Metadata without checking
 // it for nil, so a release carrying a chart without one panics the process --
-// and this runs inside a detached goroutine, where a panic is not a failed
-// request but a dead API. MetadataAsMap checks, which is the whole reason to
-// prefer it.
+// and this is reached from the Job runner as well as from a request, where a
+// panic is not a failed read but a deploy that dies without saying why.
+// MetadataAsMap checks, which is the whole reason to prefer it.
 func chartMetadata(charter chartapi.Charter) (name, version, appVersion string) {
 	accessor, err := chartapi.NewAccessor(charter)
 	if err != nil {

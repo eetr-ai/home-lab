@@ -9,6 +9,11 @@ then polls until it stops being pending. This page is mostly about the three
 things that are easy to get wrong — what the token has to carry, what the
 overrides do to the values somebody wrote, and what counts as success.
 
+Every mutation runs as a Kubernetes Job rather than inside the API's own pods.
+That is mostly invisible from a pipeline, and it changes two things that are not:
+the `202` names a job whose log is Helm's own output, and deploying the panel
+itself no longer needs a flag or a caveat about what `deployed` means.
+
 ## What has to be true first
 
 **The deployment has to exist.** A pipeline addresses a deployment by id, and
@@ -131,18 +136,25 @@ line.
 The answer is `202`:
 
 ```json
-{"namespace":"lab","release":"podinfo","operation":"upgrade","message":"accepted, not performed; ..."}
+{"namespace":"lab","release":"podinfo","operation":"rollout","job":"helm-rollout-lab-podinfo-x7k2q","message":"accepted, not performed; ..."}
 ```
 
 Accepted, not done. Helm waits for the pods to come up, which takes longer than
 any HTTP request this API will hold open, so there is no version of this that
 answers with the result.
 
+`operation` is `rollout`, `rollback`, or `uninstall` — not `install` or `upgrade`.
+Which of those a rollout turns out to be is decided by the Job when the work
+starts, from what Helm has then: between this answer and the pod starting, a
+release can be uninstalled or appear, and an answer given here would be a second
+opinion about something the cluster is about to be asked again.
+
+`job` is a Kubernetes Job in the panel's namespace, and it is what does the work.
+
 ## Knowing whether it worked
 
-There is no job to poll and no job id, because the outcome is not something this
-API decides — it is written into Helm's own storage by the operation itself. So
-the check is to read the deployment back.
+**Read the deployment back.** There is a job to poll now, and it is still not the
+success criterion — see the box below.
 
 ```bash
 for _ in $(seq 1 60); do
@@ -183,20 +195,63 @@ fails. So is `.release.description`, which carries Helm's account of what happen
 all. It is not `not-installed`, and a pipeline that treats it as one will try to
 install a second copy of something that is already running.
 
+### The job, and why it is not the check
+
+Every mutation now runs as a Kubernetes Job, and the `202` names it:
+
+```bash
+curl -sS "$API/api/helm/jobs/$JOB" -H "Authorization: Bearer $token"
+# {"name":"...","phase":"running","operation":"rollout", ...}
+```
+
+`phase` is `pending`, `running`, `succeeded`, or `failed`.
+
+> **A succeeded job is not a successful deploy.** With `rollbackOnFailure` set, a
+> failed upgrade is undone — and the job that undid it succeeded. The completion
+> rule above is unchanged and is still the one to use: `status` is `deployed`
+> **and** `chartVersion` is what you asked for.
+
+What the job is genuinely better at is saying *why*. Its log is Helm's own output,
+which used to go to the API pod's log where only `kubectl` could reach it:
+
+```bash
+curl -N "$API/api/helm/jobs/$JOB/logs?follow=true" -H "Authorization: Bearer $token"
+```
+
+Worth doing in a pipeline: it puts the deploy's own account of itself into the
+build output, next to whatever failed.
+
+A `404` with code `no_pod_yet` means the pod has not been scheduled — the normal
+state for the first moment of every operation, so retry. A `404` with `not_found`
+means the job is gone: finished jobs are removed by the cluster after a day. That
+is not a loss of the record. **The log is a view; the record is Helm's release
+history and the rollout stamp**, and the pod's log can vanish earlier than the TTL
+to kubelet garbage collection anyway.
+
+There is also `GET /api/helm/jobs?namespace=&release=&deployment=`, which is how
+something that did not start an operation finds it.
+
 ## When a deploy will not start
 
 A `503` means the record of declared deployments could not be reached. The
 database is down or unreachable; nothing was changed, and retrying is right.
 
-A `409` means something else is already changing that release. Usually that is a
-second pipeline run, and waiting is the right response.
+A `409` means a job is already operating on that release, and it names the job.
+Usually that is a second pipeline run, and waiting is the right response;
+`GET /api/helm/jobs/<name>` says how far along it is.
 
-If it persists, the release is probably wedged: an operation interrupted part-way
-— most often the API pod restarting during a rollout — leaves the release in a
-`pending-*` state that nothing clears on its own, and Helm refuses every later
-attempt because the previous one was never marked done. Nothing recovers this
-automatically, deliberately: two API replicas plus a guess about whether somebody
-else's operation is still alive is how a release gets corrupted.
+The check behind that is a listing of jobs, and it is **not a lock**: two API
+replicas can both list, both see nothing, and both create. What actually prevents
+a double operation is what always did — Helm refuses an operation against a
+release its own storage has left pending.
+
+If a 409 persists with no job to point at, the release is wedged: an operation
+interrupted part-way leaves it in a `pending-*` state that nothing clears on its
+own, and Helm refuses every later attempt because the previous one was never
+marked done. That is rarer than it was — the work no longer dies with an API pod
+— but a Job can still be evicted or hit its deadline. Nothing recovers it
+automatically, deliberately: a guess about whether somebody else's operation is
+still alive is how a release gets corrupted.
 
 Clear it by rolling back to a revision from the release's history, which Helm
 permits from a pending state. The panel shows this on the Dashboard tab, on the
@@ -210,79 +265,69 @@ create. The declared values are in the database and are not affected.
 
 ## Deploying the panel itself
 
-This is the case the feature was asked for, and it is the awkward one. Three
-things have to be true, and each is a decision rather than a setting.
+This is the case the feature was asked for, and it used to be the awkward one.
+Most of what made it awkward is gone.
 
 **The panel's own namespace has to be a Helm target.** It is deployable by
-default now — `admin` is refused for *deletion* and permitted for *deploys*,
-because deleting it destroys the panel and nothing about upgrading needs that.
-But it still has to be named in `admin.api.helm.namespaces`, or covered by
+default — `admin` is refused for *deletion* and permitted for *deploys*, because
+deleting it destroys the panel and nothing about upgrading needs that. But it
+still has to be named in `admin.api.helm.namespaces`, or covered by
 `allNamespaces`.
 
 Know what that means: it is the namespace holding the panel's OIDC client secret
 and its database connection strings, and a Helm grant there is read and write on
 all of them.
 
-**`admin.api.helm.selfDeploy` has to be on.** This chart renders a ClusterRole, a
-ClusterRoleBinding, a Role and a RoleBinding, and the deploy grant holds nothing
-in `rbac.authorization.k8s.io` without that flag — so `helm upgrade` of the admin
-release fails on four objects. The values comment says at length what turning it
-on costs; the short version is that the panel can then hand every permission it
-holds to any ServiceAccount, and its own credential becomes the most valuable one
-in the lab.
+**That is the whole list now.** There is no `admin.api.helm.selfDeploy` to turn
+on: the RBAC verbs the admin chart needs belong to the Job's ServiceAccount and
+are always there. And `deployed` means the same thing for this release as for any
+other — the pods came up.
 
-**And "deployed" means something weaker for this one release.** Applying this
-chart rolls the panel's own Deployment, which terminates the pod running the
-upgrade. Helm records a release as deployed only *after* it finishes waiting for
-readiness — so if it waited, the record would never be written, the release would
-sit in `pending-upgrade` forever, and Helm would refuse every later operation on
-it. One self-upgrade would permanently break self-upgrades.
+### What happens, and what you will see
 
-So the API recognises an operation on its own release and does not wait: the
-chart's hooks still run and everything is still applied, but the release is
-recorded as soon as the manifests are accepted. The `202` says so. The completion
-rule at the top of this page therefore proves less here — status `deployed` and
-the right `chartVersion` mean the manifests went in, not that the new pods are
-healthy. Check the workload:
+Every Helm mutation runs as a Kubernetes Job in the panel's namespace. The Job is
+created imperatively by the API, so **it is not part of any Helm release**: Helm
+decides what to delete on upgrade by diffing rendered manifests, and it will not
+adopt an object that does not carry its ownership labels. Applying the admin chart
+therefore does not touch the Job applying it.
 
-```bash
-kubectl -n admin rollout status deployment/admin-api --timeout=5m
-kubectl -n admin rollout status deployment/admin-web --timeout=5m
-```
+So:
 
-### The alternative for today, which is not worse
+1. The `202` comes back with a job name. The panel opens its stream.
+2. The Job applies the chart. `admin-api` and `admin-web` begin rolling.
+3. **The panel goes away.** The pod serving the page and the pod proxying the
+   stream are both being replaced. The panel shows *reconnecting*; a pipeline's
+   `curl` gets a connection reset. **This is not the deploy failing.**
+4. The Job carries on, because nothing is replacing it, and Helm inside it waits
+   for the new `admin-api` and `admin-web` pods to become Ready. That wait was
+   impossible before.
+5. The new pods come up, the browser reconnects to the same job, and the panel
+   shows the rest of it.
+6. The Job writes the rollout stamp and exits. The release is `deployed`, meaning
+   the pods came up.
 
-Give the pipeline a kubeconfig and let it run `helm upgrade` against the cluster
-directly for the admin chart, and use this API for everything else.
+From outside the panel, `kubectl -n admin get jobs` and `kubectl -n admin logs
+job/<name>` follow it across the gap.
 
-It costs a credential to manage and it means the panel is deployed differently
-from everything else — but it leaves `selfDeploy` off, keeps the RBAC reach with
-the pipeline (which needs it anyway), and gets a real readiness wait back. If the
-only thing the pipeline deploys is the panel, this is the better trade.
+If the upgrade *broke* the panel, the Job fails, Helm records why on the revision,
+and the log is still there — which is strictly better than the old arrangement,
+where the process doing the upgrading was the one that died.
 
-### Where this should go instead
+**The Job runs the image that is running now, not the one being installed.** The
+API templates its own image into the Job it creates. That is the right way round —
+the code performing the upgrade is the code that was reviewed and is known to
+work — and it means a fix to the runner does not apply to the deploy that installs
+it.
 
-Every awkward thing on this page follows from one decision: the API runs Helm
-inside its own pods. **It should create a Job and let that do the work**, with the
-database credential injected so the Job can read the declared values and record
-the rollout.
+### The alternative, which is now worse
 
-Three problems disappear rather than being managed:
+Giving the pipeline a kubeconfig and letting it run `helm upgrade` directly still
+works, and it used to be the better trade for a pipeline that only deployed the
+panel: it kept `selfDeploy` off and got a real readiness wait back.
 
-- **The RBAC grant stops being the API's.** The deploy permissions belong to the
-  Job's ServiceAccount, and the API keeps read-only access to the cluster.
-  `selfDeploy` stops being a flag that widens the panel's own credential and
-  becomes a property of a short-lived pod. That is most of what makes it
-  uncomfortable today.
-- **Self-upgrade stops being a special case.** Nothing is replacing the process
-  doing the upgrading, so the readiness wait can stay on and `deployed` goes back
-  to meaning the pods came up — for every release, including this one.
-- **The 202 gets something real behind it.** A Job is an object with a status,
-  which is a better answer to "did it work" than reading the release back and
-  inferring.
-
-Not built. Recorded here because it is the design, and the current arrangement is
-a first version rather than the intended one.
+Both of those reasons are gone. There is no flag to keep off, and the readiness
+wait is real here. What is left is a credential to manage and a panel deployed
+differently from everything else, with nothing bought for it.
 
 ## What a pipeline cannot do
 
