@@ -9,6 +9,7 @@ import type {
 	ClusterEvent,
 	ClusterNode,
 	ClusterSummary,
+	CreateNamespace,
 	Namespace,
 	Pod,
 	Storage,
@@ -19,15 +20,36 @@ import type {
 /**
  * The cluster section's actions.
  *
- * Mostly reads. The two writes are wrapped in withWrite, which is where the
- * ADMIN_WRITE_EMAILS allowlist is enforced — the API itself does not authorize
- * per endpoint, so this is the only thing standing between a signed-in operator
- * and restarting anything on the cluster. Worth knowing before that list is left
- * unset, which permits everyone.
+ * Mostly reads. The writes are wrapped in withWrite, which is where the
+ * ADMIN_WRITE_EMAILS allowlist is enforced — and it is the only thing standing
+ * between a signed-in operator and the cluster. The API authenticates a caller
+ * and does not authorize one: any token it accepts may call any route, until the
+ * platform's authorization module arrives. Worth knowing before that list is
+ * left unset, which permits everyone.
  */
 
 export async function listNamespaces(): Promise<ActionResult<Namespace[]>> {
 	return withRead(() => kube.listNamespaces());
+}
+
+export async function createNamespace(
+	request: CreateNamespace,
+): Promise<ActionResult<Namespace>> {
+	const result = await withWrite(() => kube.createNamespace(request));
+	if (result.ok) revalidatePath("/kubernetes", "layout");
+	return result;
+}
+
+/**
+ * Deletes a namespace and everything in it.
+ *
+ * `force` says only that the caller knows it is not empty. A protected namespace
+ * is refused by the API either way, and there is no flag here that changes that.
+ */
+export async function deleteNamespace(namespace: string, force: boolean): Promise<ActionResult<void>> {
+	const result = await withWrite(() => kube.deleteNamespace(namespace, force));
+	if (result.ok) revalidatePath("/kubernetes", "layout");
+	return result;
 }
 
 export async function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {

@@ -116,6 +116,7 @@ export type {
 	ClusterSummary,
 	Condition,
 	Filesystem,
+	CreateNamespace,
 	Namespace,
 	NodeSummary,
 	Pod,

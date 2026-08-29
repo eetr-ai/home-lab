@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionTabs } from "../_components/section-tabs";
 
 const tabs = [
+	{ href: "/kubernetes/namespaces", label: "Namespaces" },
 	{ href: "/kubernetes/workloads", label: "Workloads" },
 	{ href: "/kubernetes/pods", label: "Pods" },
 	{ href: "/kubernetes/events", label: "Events" },

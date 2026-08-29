@@ -20,6 +20,7 @@ export {
 } from "./card";
 export { Input, inputClass, type InputProps } from "./input";
 export { Select, selectClass, type SelectProps } from "./select";
+export { Checkbox, type CheckboxProps } from "./checkbox";
 export { Label, type LabelProps } from "./label";
 export { FormField, type FormFieldProps } from "./form-field";
 export { Spinner, FullPageSpinner, type SpinnerProps } from "./spinner";
