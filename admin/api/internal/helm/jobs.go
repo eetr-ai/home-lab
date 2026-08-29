@@ -87,8 +87,10 @@ func (s *Service) accept(ctx context.Context, namespace, name, operation string,
 		Namespace: namespace,
 		Release:   name,
 		Operation: operation,
-		Message: "accepted; read the release to see whether it succeeded — it is " +
-			operation + "ing until its status is no longer pending",
+		// No gerund built by appending "ing" to the operation: that produced
+		// "upgradeing". The sentence says what to do instead of conjugating.
+		Message: "accepted, not performed; read the release to see whether the " +
+			operation + " succeeded — it is not finished until the status is no longer pending",
 	}, nil
 }
 

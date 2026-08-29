@@ -99,6 +99,21 @@ spec:
             - name: ADMIN_HELM_DISABLED
               value: "true"
             {{- end }}
+            {{- if .Values.admin.api.kubernetes.enabled }}
+            # Helm writes while it works: it downloads a chart, unpacks it, and
+            # keeps an OCI layer cache. The root filesystem is read-only, so it
+            # is pointed at an emptyDir instead. XDG_CACHE_HOME is here too
+            # because Helm's registry client reaches for it directly rather than
+            # going through HELM_CACHE_HOME.
+            - name: HELM_CACHE_HOME
+              value: /helm/cache
+            - name: HELM_CONFIG_HOME
+              value: /helm/config
+            - name: HELM_DATA_HOME
+              value: /helm/data
+            - name: XDG_CACHE_HOME
+              value: /helm/cache
+            {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
               valueFrom:
@@ -130,6 +145,11 @@ spec:
             failureThreshold: 3
           resources:
             {{- toYaml .Values.admin.api.resources | nindent 12 }}
+          {{- if .Values.admin.api.kubernetes.enabled }}
+          volumeMounts:
+            - name: helm-cache
+              mountPath: /helm
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -140,3 +160,13 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
+      {{- if .Values.admin.api.kubernetes.enabled }}
+      volumes:
+        # An emptyDir rather than a claim: the cache is derivable from the
+        # registry, and a claim would make a two-replica Deployment fight over a
+        # ReadWriteOnce volume. Bounded, because an unbounded scratch directory
+        # on a node is somebody else's outage.
+        - name: helm-cache
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- end }}

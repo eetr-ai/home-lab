@@ -248,19 +248,20 @@ func (h *Handler) pipelineRollout(w http.ResponseWriter, r *http.Request) {
 
 // actorFrom names whoever is making the change, for the record.
 //
-// The email when the token carries one and the subject otherwise, which is what a
-// client_credentials token from a pipeline has. Never empty: an unattributed
-// version in the history is the one nobody can explain later.
+// The email for a person, and the client id for a pipeline — which is the only
+// identity a client_credentials token carries here, because this provider leaves
+// `sub` empty for one. Never empty: an unattributed version in the history is
+// the one nobody can explain later.
 func actorFrom(r *http.Request) string {
 	subject, ok := auth.SubjectFrom(r.Context())
-	switch {
-	case !ok:
-		return "unknown"
-	case subject.Email != "":
-		return subject.Email
-	case subject.ID != "":
-		return subject.ID
-	default:
+	if !ok {
 		return "unknown"
 	}
+
+	for _, candidate := range []string{subject.Email, subject.ClientID, subject.ID} {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return "unknown"
 }

@@ -26,6 +26,12 @@ type Subject struct {
 	// Nil is not "no permissions" — see HasScope in scope.go for why the
 	// difference matters.
 	Scopes []string
+	// ClientID is the application the token was issued to, from client_id or azp.
+	//
+	// It is the only identity a client_credentials token carries: this provider
+	// leaves `sub` empty for one, so without this a pipeline's changes are
+	// attributed to nobody. Never an authorisation input — scopes are.
+	ClientID string
 }
 
 // TokenVerifier verifies a raw bearer token and reports whose it is.

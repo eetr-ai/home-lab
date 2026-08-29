@@ -71,7 +71,11 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (Subject, er
 	var claims struct {
 		Email json.RawMessage `json:"email"`
 		Scope json.RawMessage `json:"scope"`
-		Scp   json.RawMessage `json:"scp"`
+		// Both spellings: client_id is RFC 9068's, azp is OpenID Connect's, and
+		// providers disagree about which they emit.
+		ClientID json.RawMessage `json:"client_id"`
+		Azp      json.RawMessage `json:"azp"`
+		Scp      json.RawMessage `json:"scp"`
 	}
 	_ = token.Claims(&claims)
 
@@ -79,8 +83,24 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (Subject, er
 	_ = json.Unmarshal(claims.Email, &email)
 
 	return Subject{
-		ID:     token.Subject,
-		Email:  email,
-		Scopes: parseScopes(claims.Scope, claims.Scp),
+		ID:       token.Subject,
+		Email:    email,
+		ClientID: stringClaim(claims.ClientID, claims.Azp),
+		Scopes:   parseScopes(claims.Scope, claims.Scp),
 	}, nil
+}
+
+// stringClaim reads the first of these claims that carries a string.
+//
+// Each is decoded on its own, for the same reason every claim above is a
+// json.RawMessage: one claim arriving in an unexpected shape must not decide
+// another claim's fate.
+func stringClaim(candidates ...json.RawMessage) string {
+	for _, candidate := range candidates {
+		var value string
+		if err := json.Unmarshal(candidate, &value); err == nil && value != "" {
+			return value
+		}
+	}
+	return ""
 }

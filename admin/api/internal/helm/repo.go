@@ -57,12 +57,19 @@ func NewRepository(logger *slog.Logger, timeout time.Duration) (*Repository, err
 	return &Repository{clients: clients, logger: logger, timeout: timeout}, nil
 }
 
-// ListReleases returns the releases in each of the given namespaces.
+// ListReleases returns the releases in each of the given namespaces, or every
+// release on the cluster when no namespace is named.
 //
-// One listing per namespace rather than one cluster-wide listing, because a
-// cluster-wide one needs a cluster-wide grant on Secrets — and Helm keeps a
-// release in a Secret. Asking each namespace separately is what lets the grant be
-// a Role in that namespace and nothing more.
+// One listing per namespace by default, rather than one cluster-wide listing,
+// because a cluster-wide one needs a cluster-wide grant on Secrets — and Helm
+// keeps a release in a Secret. Asking each namespace separately is what lets the
+// grant be a Role in that namespace and nothing more.
+//
+// An empty list means the lab chose the cluster-scoped grant instead, so the
+// cluster-wide listing is available and is what the caller wants. It is not the
+// same as "no namespaces": the service reports that case as unconfigured before
+// reaching here, because listing everything for a lab that named nothing would
+// be the opposite of what it asked for.
 //
 // A namespace that cannot be read is logged and skipped rather than failing the
 // whole request. The usual cause is a namespace named in configuration that does
@@ -70,6 +77,14 @@ func NewRepository(logger *slog.Logger, timeout time.Duration) (*Repository, err
 // at all" for every other namespace because of it would be the wrong trade.
 func (r *Repository) ListReleases(ctx context.Context, namespaces []string) ([]Release, error) {
 	releases := []Release{}
+
+	if len(namespaces) == 0 {
+		found, err := r.listEverywhere()
+		if err != nil {
+			return nil, err
+		}
+		return sortReleases(found), nil
+	}
 
 	for _, namespace := range namespaces {
 		found, err := r.listNamespace(namespace)
@@ -81,12 +96,53 @@ func (r *Repository) ListReleases(ctx context.Context, namespaces []string) ([]R
 		releases = append(releases, found...)
 	}
 
+	return sortReleases(releases), nil
+}
+
+func sortReleases(releases []Release) []Release {
 	sort.Slice(releases, func(a, b int) bool {
 		if releases[a].Namespace != releases[b].Namespace {
 			return releases[a].Namespace < releases[b].Namespace
 		}
 		return releases[a].Name < releases[b].Name
 	})
+	return releases
+}
+
+// listEverywhere lists releases in every namespace at once.
+//
+// Only reachable when the lab rendered the cluster-scoped grant.
+//
+// The configuration is built with an empty namespace, not the pod's. Setting
+// AllNamespaces on the action is not enough on its own: the storage driver is
+// bound when the configuration is initialised, and one bound to a namespace
+// keeps answering for that namespace whatever the action asks for. Passing the
+// pod's namespace here returns exactly one release — the panel's own — which
+// looks like a cluster with nothing on it.
+func (r *Repository) listEverywhere() ([]Release, error) {
+	configuration, err := r.clients.configurationFor("", forReading)
+	if err != nil {
+		return nil, err
+	}
+
+	list := action.NewList(configuration)
+	list.AllNamespaces = true
+	list.StateMask = action.ListAll
+
+	found, err := list.Run()
+	if err != nil {
+		return nil, translate(err, "list releases across the cluster")
+	}
+
+	releases := make([]Release, 0, len(found))
+	for _, item := range found {
+		converted, err := releaseFrom(item)
+		if err != nil {
+			r.logger.Warn("skipping an unreadable helm release", slog.Any("error", err))
+			continue
+		}
+		releases = append(releases, converted)
+	}
 	return releases, nil
 }
 

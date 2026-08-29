@@ -209,13 +209,25 @@ func (s *Store) AppendVersion(ctx context.Context, id string,
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
-	// Locked so the number this reads is still the highest when it writes.
+	// The parent row is what gets locked, not the versions: PostgreSQL refuses
+	// FOR UPDATE alongside an aggregate, and locking the deployment is the
+	// stronger thing to do anyway — it serialises every appender for this
+	// deployment, including the first one, when there are no version rows to lock.
+	var locked string
+	err = transaction.QueryRow(ctx,
+		"SELECT id FROM helm_deployments WHERE id = $1 FOR UPDATE", id).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DeploymentVersion{}, fmt.Errorf("%w: no deployment %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return DeploymentVersion{}, storeError("take the deployment lock", err)
+	}
+
 	var next int
 	err = transaction.QueryRow(ctx, `
 		SELECT coalesce(max(version), 0) + 1
 		FROM helm_deployment_versions
-		WHERE deployment_id = $1
-		FOR UPDATE`, id).Scan(&next)
+		WHERE deployment_id = $1`, id).Scan(&next)
 	if err != nil {
 		return DeploymentVersion{}, storeError("work out the next version", err)
 	}

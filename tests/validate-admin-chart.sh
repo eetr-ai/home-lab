@@ -507,6 +507,37 @@ if [[ $(printf '%s\n' "$helm_all" | extract_pairs) != "$expected_helm_pairs" ]];
   exit 1
 fi
 
+# Helm needs somewhere to write while it works -- it unpacks charts and keeps an
+# OCI layer cache -- and the pod's root filesystem is read-only. This is the
+# assertion that would have caught "mkdir /home/nonroot/.cache: read-only file
+# system", which presents as every install failing for an unrelated-looking reason.
+cache=$(render --show-only templates/api/deployment.yaml)
+if ! grep -q 'name: helm-cache' <<<"$cache"; then
+  printf 'The API needs a writable volume for the Helm cache\n' >&2
+  exit 1
+fi
+if ! grep -A2 'name: helm-cache' <<<"$cache" | grep -q 'emptyDir'; then
+  printf 'The Helm cache must be an emptyDir, not a claim: two replicas would fight over one\n' >&2
+  exit 1
+fi
+if ! grep -A3 'name: helm-cache' <<<"$cache" | grep -q 'sizeLimit'; then
+  printf 'The Helm cache emptyDir must be bounded\n' >&2
+  exit 1
+fi
+# Both variables, and both pointing inside the mount. Helm's registry client
+# reads XDG_CACHE_HOME directly rather than going through HELM_CACHE_HOME, so
+# setting only the Helm one leaves OCI pulls writing to a read-only home.
+for cache_var in HELM_CACHE_HOME XDG_CACHE_HOME; do
+  if ! grep -A1 "name: $cache_var" <<<"$cache" | grep -q 'value: /helm/'; then
+    printf '%s must point inside the writable Helm volume\n' "$cache_var" >&2
+    exit 1
+  fi
+done
+if ! grep -q 'readOnlyRootFilesystem: true' <<<"$cache"; then
+  printf 'The root filesystem must stay read-only with the Helm cache mounted\n' >&2
+  exit 1
+fi
+
 # The record of declared deployments: its credential is read from a Secret, and
 # the DSN is never rendered as a literal. Same rule as every other credential in
 # this chart, and the installer's pre-flight depends on the secretKeyRef shape.
