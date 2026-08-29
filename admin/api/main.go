@@ -11,13 +11,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
@@ -274,7 +280,16 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		Release:   os.Getenv("ADMIN_RELEASE_NAME"),
 	}
 
-	helm.NewHandler(helm.NewService(repo, deployments, policy, self, timeout, logger)).
+	jobConfig, err := helmJobConfig(timeout)
+	if err != nil {
+		return err
+	}
+	runner, err := helm.NewJobRepository(jobConfig)
+	if err != nil {
+		return err
+	}
+
+	helm.NewHandler(helm.NewService(repo, deployments, runner, policy, self, timeout, logger)).
 		Register(mux)
 	logger.Info("serving the Helm endpoints",
 		slog.Any("namespaces", policy.ManagedNamespaces()),
@@ -282,6 +297,65 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		slog.String("ownRelease", self.Release),
 		slog.Duration("timeout", timeout))
 	return nil
+}
+
+// helmJobConfig describes the Job that performs one Helm operation.
+//
+// Every field is read here, from this process's own environment, and none of it
+// is ever influenced by a request. That is the point rather than a detail: the
+// account these Jobs run as holds the whole deploy grant, so a request able to
+// name one would be a request able to name any account in this namespace.
+//
+// It is read at startup rather than per operation so a malformed value fails the
+// pod immediately. Deferring it would surface a typo in the chart as a 500 on the
+// first deploy, which might be weeks later.
+func helmJobConfig(timeout time.Duration) (helm.JobConfig, error) {
+	config := helm.JobConfig{
+		Namespace:       os.Getenv("POD_NAMESPACE"),
+		Image:           os.Getenv("ADMIN_HELM_JOB_IMAGE"),
+		ImagePullPolicy: corev1.PullPolicy(os.Getenv("ADMIN_HELM_JOB_IMAGE_PULL_POLICY")),
+		PullSecrets:     splitList(os.Getenv("ADMIN_HELM_JOB_PULL_SECRETS")),
+		ServiceAccount:  os.Getenv("ADMIN_HELM_JOB_SERVICE_ACCOUNT"),
+		Timeout:         timeout,
+		// The name and the key, never the value. The API holds its own connection
+		// string in its environment and must not copy it into a Job: a Job is not
+		// a Secret, and anything able to list Jobs here would be able to read it.
+		DSNSecretName: os.Getenv("ADMIN_HELM_DSN_SECRET_NAME"),
+		DSNSecretKey:  os.Getenv("ADMIN_HELM_DSN_SECRET_KEY"),
+	}
+
+	if config.Namespace == "" {
+		return helm.JobConfig{}, errors.New(
+			"POD_NAMESPACE is unset, and it is the namespace Helm jobs are created in")
+	}
+	if config.Image == "" {
+		return helm.JobConfig{}, errors.New(
+			"ADMIN_HELM_JOB_IMAGE is unset, and a Helm job runs this same image")
+	}
+	if config.ServiceAccount == "" {
+		return helm.JobConfig{}, errors.New(
+			"ADMIN_HELM_JOB_SERVICE_ACCOUNT is unset, and a Helm job needs the deploy grant")
+	}
+
+	ttl, err := strconv.Atoi(os.Getenv("ADMIN_HELM_JOB_TTL_SECONDS"))
+	if err != nil {
+		return helm.JobConfig{}, fmt.Errorf(
+			"ADMIN_HELM_JOB_TTL_SECONDS is not a number of seconds: %w", err)
+	}
+	if ttl < 0 {
+		return helm.JobConfig{}, fmt.Errorf(
+			"ADMIN_HELM_JOB_TTL_SECONDS must not be negative, and is %d", ttl)
+	}
+	config.TTLSeconds = int32(ttl) //nolint:gosec // bounded above, and a TTL in seconds does not reach 2^31
+
+	// One JSON object rather than four scalars, so the values file keeps the
+	// normal Kubernetes shape and there is no second vocabulary to learn.
+	if raw := os.Getenv("ADMIN_HELM_JOB_RESOURCES"); raw != "" && raw != "{}" {
+		if err := json.Unmarshal([]byte(raw), &config.Resources); err != nil {
+			return helm.JobConfig{}, fmt.Errorf("ADMIN_HELM_JOB_RESOURCES is not resource requirements: %w", err)
+		}
+	}
+	return config, nil
 }
 
 // helmStore opens the record of what this lab has declared, and returns nil when

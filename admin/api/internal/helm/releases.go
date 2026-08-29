@@ -3,11 +3,12 @@ package helm
 import (
 	"context"
 	"fmt"
-	"log/slog"
 )
 
 // Rollback returns a release to an earlier revision.
-func (s *Service) Rollback(ctx context.Context, namespace, name string, revision int) (Accepted, error) {
+func (s *Service) Rollback(ctx context.Context, namespace, name string, revision int,
+	actor string,
+) (Accepted, error) {
 	if err := s.checkRelease(namespace, name); err != nil {
 		return Accepted{}, err
 	}
@@ -23,9 +24,12 @@ func (s *Service) Rollback(ctx context.Context, namespace, name string, revision
 		return Accepted{}, fmt.Errorf("%w: %s has no revision %d", ErrNotFound, name, revision)
 	}
 
-	return s.accept(ctx, namespace, name, "rollback", func(jobCtx context.Context) error {
-		return s.repo.Rollback(jobCtx, namespace, name, revision)
-	})
+	return s.dispatch(ctx, JobSpec{
+		Operation: OpRollback,
+		Namespace: namespace,
+		Release:   name,
+		Revision:  revision,
+	}, ReleaseRef{Namespace: namespace, Release: name}, actor)
 }
 
 // Uninstall removes a release and everything it created.
@@ -33,7 +37,9 @@ func (s *Service) Rollback(ctx context.Context, namespace, name string, revision
 // The deployment record, if there is one, is deliberately left behind: an
 // operator who uninstalls a release usually means "take it off the cluster", not
 // "forget the values I wrote". Forgetting is its own, separate request.
-func (s *Service) Uninstall(ctx context.Context, namespace, name string) (Accepted, error) {
+func (s *Service) Uninstall(ctx context.Context, namespace, name string,
+	actor string,
+) (Accepted, error) {
 	if err := s.checkRelease(namespace, name); err != nil {
 		return Accepted{}, err
 	}
@@ -41,56 +47,62 @@ func (s *Service) Uninstall(ctx context.Context, namespace, name string) (Accept
 		return Accepted{}, err
 	}
 
-	return s.accept(ctx, namespace, name, "uninstall", func(jobCtx context.Context) error {
-		return s.repo.Uninstall(jobCtx, namespace, name)
-	})
-}
-
-// accept takes the release's lock and runs the operation off the request.
-//
-// Helm waits for pods, and that outlasts every timeout between the browser and
-// here: the panel gives up at twenty seconds and the HTTP server stops writing at
-// thirty. So the request is answered as soon as the rules have passed and the work
-// is detached with context.WithoutCancel — the caller hanging up must not cancel
-// an install that is already applying manifests, which is how a release ends up
-// half-applied and wedged.
-//
-// There is no job id. The outcome is read back out of Helm's storage through the
-// release endpoint, which is the same place both replicas read it from — a job
-// table would be a second account of something the cluster already knows, and the
-// two would disagree the first time a pod was killed mid-operation.
-func (s *Service) accept(ctx context.Context, namespace, name, operation string,
-	run func(context.Context) error,
-) (Accepted, error) {
-	if !s.locks.acquire(namespace, name) {
-		return Accepted{}, fmt.Errorf("%w: %s in %s", ErrInProgress, name, namespace)
-	}
-
-	jobCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.timeout)
-	go func() {
-		defer cancel()
-		defer s.locks.release(namespace, name)
-
-		if err := run(jobCtx); err != nil {
-			// The only place this is reported. There is no caller left to tell,
-			// and the release itself carries the outcome — Helm records the
-			// failure and its reason on the revision.
-			s.logger.Error("a helm operation failed",
-				slog.String("operation", operation),
-				slog.String("namespace", namespace),
-				slog.String("release", name),
-				slog.Any("error", err))
-		}
-	}()
-
-	return Accepted{
+	return s.dispatch(ctx, JobSpec{
+		Operation: OpUninstall,
 		Namespace: namespace,
 		Release:   name,
-		Operation: operation,
-		// No gerund built by appending "ing" to the operation: that produced
-		// "upgradeing". The sentence says what to do instead of conjugating.
-		Message: "accepted, not performed; read the release to see whether the " +
-			operation + " succeeded — it is not finished until the status is no longer pending",
+	}, ReleaseRef{Namespace: namespace, Release: name}, actor)
+}
+
+// dispatch hands one operation to a Job and answers as soon as it exists.
+//
+// Accepted, not performed. Helm waits for pods, and that outlasts every timeout
+// between the browser and here: the panel gives up at twenty seconds and the HTTP
+// server stops writing at thirty. What changed is where the work goes. It used to
+// be a goroutine in this process, which meant the deploy died with the pod running
+// it — and meant an upgrade of the panel's own chart could not wait for readiness,
+// because the pod doing the waiting was one of the ones being replaced.
+//
+// A Job is not replaced by the thing it is applying. So the wait is real for every
+// release, and the answer now carries the name of an object that has a status and
+// somewhere to put its logs, rather than asking the caller to infer the outcome
+// from Helm's storage.
+//
+// Every rule is checked before this is reached — the namespace, the chart
+// reference, the version, the values — so a bad request is a 400 rather than a 202
+// followed by a pod that fails two seconds later.
+func (s *Service) dispatch(ctx context.Context, spec JobSpec, ref ReleaseRef,
+	actor string,
+) (Accepted, error) {
+	if s.jobs == nil {
+		return Accepted{}, ErrNotConfigured
+	}
+
+	running, err := s.jobs.ListJobs(ctx, JobFilter{
+		Namespace: ref.Namespace,
+		Release:   ref.Release,
+	})
+	if err != nil {
+		return Accepted{}, err
+	}
+	if active := activeJob(running); active != nil {
+		return Accepted{}, fmt.Errorf("%w: %s is already running a %s of %s in %s",
+			ErrInProgress, active.Name, active.Operation, ref.Release, ref.Namespace)
+	}
+
+	job, err := s.jobs.CreateJob(ctx, spec, ref, actor)
+	if err != nil {
+		return Accepted{}, err
+	}
+
+	return Accepted{
+		Namespace: ref.Namespace,
+		Release:   ref.Release,
+		Operation: spec.Operation,
+		Job:       job.Name,
+		Message: "accepted, not performed; job " + job.Name +
+			" is doing the work — read /api/helm/jobs/" + job.Name +
+			" for its status, or follow its events",
 	}, nil
 }
 

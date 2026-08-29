@@ -203,7 +203,7 @@ func (h *Handler) rollbackRelease(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accepted, err := h.service.Rollback(r.Context(),
-		r.PathValue("namespace"), r.PathValue("release"), request.Revision)
+		r.PathValue("namespace"), r.PathValue("release"), request.Revision, actorFrom(r))
 	if err != nil {
 		respondError(w, err)
 		return
@@ -231,7 +231,7 @@ func (h *Handler) rollbackRelease(w http.ResponseWriter, r *http.Request) {
 //	@Router			/api/helm/namespaces/{namespace}/releases/{release} [delete]
 func (h *Handler) uninstallRelease(w http.ResponseWriter, r *http.Request) {
 	accepted, err := h.service.Uninstall(r.Context(),
-		r.PathValue("namespace"), r.PathValue("release"))
+		r.PathValue("namespace"), r.PathValue("release"), actorFrom(r))
 	if err != nil {
 		respondError(w, err)
 		return

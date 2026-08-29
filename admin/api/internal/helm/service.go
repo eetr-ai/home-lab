@@ -3,6 +3,7 @@ package helm
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -21,6 +22,19 @@ type repository interface {
 	Upgrade(ctx context.Context, spec upgradeSpec) (Release, error)
 	Rollback(ctx context.Context, namespace, name string, revision int) error
 	Uninstall(ctx context.Context, namespace, name string) error
+}
+
+// jobs is how one Helm operation is started and followed. Declared here, where it
+// is consumed, so the service can be tested without a cluster.
+//
+// Exported nowhere, unlike DeploymentStore, because there is no nil case to
+// distinguish: a lab with the Helm endpoints switched on always has one.
+type jobs interface {
+	CreateJob(ctx context.Context, spec JobSpec, ref ReleaseRef, actor string) (Job, error)
+	ReadJob(ctx context.Context, name string) (Job, error)
+	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
+	WatchJob(ctx context.Context, name string) (<-chan Job, error)
+	PodLogs(ctx context.Context, pod string, follow bool, tail int64) (io.ReadCloser, error)
 }
 
 // DeploymentStore is the record of what this lab has declared. Declared here,
@@ -85,7 +99,10 @@ type Service struct {
 	// store is nil when this lab configured no database, and every deployment
 	// route then answers 501. The release routes still work: reading the cluster
 	// never needed a record.
-	store   DeploymentStore
+	store DeploymentStore
+	// jobs performs every mutation. Nothing writes to the cluster from this
+	// process any more.
+	jobs    jobs
 	policy  nspolicy.Policy
 	self    Self
 	locks   *locks
@@ -94,12 +111,13 @@ type Service struct {
 }
 
 // NewService builds the service.
-func NewService(repo repository, deployments DeploymentStore, policy nspolicy.Policy,
-	self Self, timeout time.Duration, logger *slog.Logger,
+func NewService(repo repository, deployments DeploymentStore, runner jobs,
+	policy nspolicy.Policy, self Self, timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		repo:    repo,
 		store:   deployments,
+		jobs:    runner,
 		policy:  policy,
 		self:    self,
 		locks:   newLocks(),

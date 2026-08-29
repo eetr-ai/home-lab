@@ -94,7 +94,7 @@ func (f *fakeRepo) ReadHistory(_ context.Context, namespace, name string) ([]Rev
 // newTestService builds a service with the policy this lab actually runs: the
 // panel in "admin", platform-system protected, and "apps" the one Helm target.
 func newTestService(repo repository) *Service {
-	return NewService(repo, nil, testPolicy(), Self{}, time.Minute,
+	return NewService(repo, nil, &fakeJobs{}, testPolicy(), Self{}, time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -235,7 +235,7 @@ func TestReleaseNameValidation(t *testing.T) {
 // lab that was never switched on as a lab with nothing installed.
 func TestListReleasesReportsAnUnconfiguredLab(t *testing.T) {
 	repo := newFakeRepo()
-	service := NewService(repo, nil, nspolicy.New(nspolicy.Config{Own: "admin"}), Self{}, time.Minute,
+	service := NewService(repo, nil, &fakeJobs{}, nspolicy.New(nspolicy.Config{Own: "admin"}), Self{}, time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	_, err := service.ListReleases(t.Context())

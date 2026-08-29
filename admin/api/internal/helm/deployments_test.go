@@ -124,9 +124,60 @@ func (f *fakeStore) MarkRolledOut(_ context.Context, id string, number, helmRevi
 	return nil
 }
 
-// newDeploymentService wires a service over both fakes.
+// fakeJobs stands in for the cluster: it records what the service asked to run
+// and can claim that something is already running.
+type fakeJobs struct {
+	created []JobSpec
+	refs    []ReleaseRef
+	// active is what ListJobs reports, so a test can put an operation in flight
+	// without a cluster.
+	active   []Job
+	failWith error
+}
+
+func (f *fakeJobs) CreateJob(_ context.Context, spec JobSpec, ref ReleaseRef,
+	_ string,
+) (Job, error) {
+	if f.failWith != nil {
+		return Job{}, f.failWith
+	}
+	f.created = append(f.created, spec)
+	f.refs = append(f.refs, ref)
+	return Job{Name: "helm-" + spec.Operation + "-abcde", Operation: spec.Operation}, nil
+}
+
+func (f *fakeJobs) ListJobs(_ context.Context, _ JobFilter) ([]Job, error) {
+	return f.active, nil
+}
+
+func (f *fakeJobs) ReadJob(_ context.Context, name string) (Job, error) {
+	for _, job := range f.active {
+		if job.Name == name {
+			return job, nil
+		}
+	}
+	return Job{}, ErrNotFound
+}
+
+func (f *fakeJobs) WatchJob(_ context.Context, _ string) (<-chan Job, error) {
+	updates := make(chan Job)
+	close(updates)
+	return updates, nil
+}
+
+func (f *fakeJobs) PodLogs(_ context.Context, _ string, _ bool, _ int64) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+// newDeploymentService wires a service over the fakes.
 func newDeploymentService(repo repository, deployments DeploymentStore) *Service {
-	return NewService(repo, deployments, testPolicy(), Self{}, time.Minute,
+	return newDeploymentServiceWithJobs(repo, deployments, &fakeJobs{})
+}
+
+func newDeploymentServiceWithJobs(repo repository, deployments DeploymentStore,
+	runner jobs,
+) *Service {
+	return NewService(repo, deployments, runner, testPolicy(), Self{}, time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -160,7 +211,6 @@ func TestPipelineRolloutWithNoValuesCarriesThePreviousOnesForward(t *testing.T) 
 		PipelineRequest{Version: "6.1.0"}, "ci@pipeline"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	waitForJob(t, repo)
 
 	newest := store.versions[deployment.ID][0]
 	if newest.Version != 2 {
@@ -181,10 +231,10 @@ func TestPipelineRolloutWithNoValuesCarriesThePreviousOnesForward(t *testing.T) 
 // Overrides merge over the operator's values rather than replacing them, which is
 // what lets a pipeline own image.tag and nothing else.
 func TestPipelineRolloutMergesOverridesOverTheStoredValues(t *testing.T) {
-	repo, store := newFakeRepo(), newFakeStore()
+	repo, store, runner := newFakeRepo(), newFakeStore(), &fakeJobs{}
 	deployment := seededDeployment(store,
 		"image:\n  repository: podinfo\n  tag: 6.0.0\nreplicaCount: 2\n")
-	service := newDeploymentService(repo, store)
+	service := newDeploymentServiceWithJobs(repo, store, runner)
 
 	_, err := service.PipelineRollout(t.Context(), deployment.ID, PipelineRequest{
 		Version: "6.1.0",
@@ -193,7 +243,6 @@ func TestPipelineRolloutMergesOverridesOverTheStoredValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	waitForJob(t, repo)
 
 	stored, err := parseValues(store.versions[deployment.ID][0].ValuesYAML)
 	if err != nil {
@@ -210,50 +259,97 @@ func TestPipelineRolloutMergesOverridesOverTheStoredValues(t *testing.T) {
 		t.Errorf("an untouched key should survive, got %#v", stored["replicaCount"])
 	}
 
-	// And what Helm was actually handed matches what was stored.
-	if repo.installed.Values == nil && repo.upgraded.Values == nil {
-		t.Fatal("nothing reached the repository")
+	// And the version the Job was pointed at is the one that was just written.
+	// That is the whole addressing scheme: the values never travel through the
+	// Job, so a version appended between here and the pod starting cannot change
+	// what gets applied.
+	if len(runner.created) != 1 {
+		t.Fatalf("%d jobs created, want 1", len(runner.created))
+	}
+	if got := runner.created[0].Version; got != 2 {
+		t.Errorf("the job was pointed at version %d, want 2", got)
 	}
 }
 
-// A release Helm already has is upgraded; one it does not have is installed. The
-// endpoint called does not decide it, because a record whose release was
-// uninstalled has to be able to come back.
-func TestRolloutInstallsWhenThereIsNoReleaseAndUpgradesWhenThereIs(t *testing.T) {
-	t.Run("no release yet", func(t *testing.T) {
-		repo, store := newFakeRepo(), newFakeStore()
-		repo.readErr = ErrNotFound
+// A rollout is dispatched as a rollout, whichever it turns out to be.
+//
+// The API used to probe Helm and answer "install" or "upgrade". It no longer
+// does, and that is the point rather than a simplification: the Job decides, from
+// what Helm has at the moment the work starts. Between this answering and the pod
+// starting, a release can be uninstalled or appear, and an answer given here would
+// be a second opinion about something the cluster is about to be asked again.
+//
+// Which way the Job actually goes is exercised against a real cluster by hand —
+// there is no fake Helm storage here, and inventing one would test the fake.
+func TestRolloutIsDispatchedWithoutDecidingInstallOrUpgrade(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		repo, store, runner := newFakeRepo(), newFakeStore(), &fakeJobs{}
+		if !present {
+			repo.readErr = ErrNotFound
+		}
 		deployment := seededDeployment(store, "replicaCount: 1\n")
 
-		accepted, err := newDeploymentService(repo, store).
-			Rollout(t.Context(), deployment.ID, RolloutRequest{})
+		accepted, err := newDeploymentServiceWithJobs(repo, store, runner).
+			Rollout(t.Context(), deployment.ID, RolloutRequest{}, "tester")
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("release present=%v: unexpected error: %v", present, err)
 		}
-		if accepted.Operation != "install" {
-			t.Errorf("want install, got %q", accepted.Operation)
+		if accepted.Operation != OpRollout {
+			t.Errorf("release present=%v: operation = %q, want %q",
+				present, accepted.Operation, OpRollout)
 		}
-		if got := waitForJob(t, repo); got != "install" {
-			t.Errorf("the repository should have been asked to install, got %q", got)
+		if accepted.Job == "" {
+			t.Errorf("release present=%v: the acceptance should name the job doing the work", present)
 		}
-	})
+		if len(runner.created) != 1 {
+			t.Fatalf("release present=%v: %d jobs created, want 1", present, len(runner.created))
+		}
+		// Addressed by deployment and version, never by chart or values: the Job
+		// reads those from the record itself.
+		if got := runner.created[0]; got.DeploymentID != deployment.ID || got.Version != 1 {
+			t.Errorf("release present=%v: job spec = %+v, want deployment %s version 1",
+				present, got, deployment.ID)
+		}
+	}
+}
 
-	t.Run("a release is already there", func(t *testing.T) {
-		repo, store := newFakeRepo(), newFakeStore()
-		deployment := seededDeployment(store, "replicaCount: 1\n")
+// A second operation on a release something is already deploying is a clean 409
+// naming the job that holds it, rather than whatever error Helm produces for a
+// release mid-flight.
+func TestRolloutRefusesWhenAJobIsAlreadyRunning(t *testing.T) {
+	repo, store := newFakeRepo(), newFakeStore()
+	runner := &fakeJobs{active: []Job{{
+		Name: "helm-rollout-podinfo-x7k2q", Operation: OpRollout, Phase: PhaseRunning,
+	}}}
+	deployment := seededDeployment(store, "replicaCount: 1\n")
 
-		accepted, err := newDeploymentService(repo, store).
-			Rollout(t.Context(), deployment.ID, RolloutRequest{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if accepted.Operation != "upgrade" {
-			t.Errorf("want upgrade, got %q", accepted.Operation)
-		}
-		if got := waitForJob(t, repo); got != "upgrade" {
-			t.Errorf("the repository should have been asked to upgrade, got %q", got)
-		}
-	})
+	_, err := newDeploymentServiceWithJobs(repo, store, runner).
+		Rollout(t.Context(), deployment.ID, RolloutRequest{}, "tester")
+	if !errors.Is(err, ErrInProgress) {
+		t.Fatalf("want ErrInProgress, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "helm-rollout-podinfo-x7k2q") {
+		t.Errorf("the refusal should name the job already running, and says: %v", err)
+	}
+	if len(runner.created) != 0 {
+		t.Error("nothing should have been created while another job holds the release")
+	}
+}
+
+// A job that has finished does not hold the release. Reading it as one would mean
+// a release could be deployed exactly once until somebody deleted the Job.
+func TestRolloutProceedsWhenTheOnlyJobIsFinished(t *testing.T) {
+	repo, store := newFakeRepo(), newFakeStore()
+	runner := &fakeJobs{active: []Job{{Name: "helm-rollout-old", Phase: PhaseSucceeded}}}
+	deployment := seededDeployment(store, "replicaCount: 1\n")
+
+	if _, err := newDeploymentServiceWithJobs(repo, store, runner).
+		Rollout(t.Context(), deployment.ID, RolloutRequest{}, "tester"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runner.created) != 1 {
+		t.Errorf("%d jobs created, want 1", len(runner.created))
+	}
 }
 
 // A read failure that is not "not found" must not be read as absence: installing
@@ -263,7 +359,7 @@ func TestRolloutRefusesWhenTheReleaseCannotBeRead(t *testing.T) {
 	repo.readErr = ErrForbidden
 	deployment := seededDeployment(store, "replicaCount: 1\n")
 
-	_, err := newDeploymentService(repo, store).Rollout(t.Context(), deployment.ID, RolloutRequest{})
+	_, err := newDeploymentService(repo, store).Rollout(t.Context(), deployment.ID, RolloutRequest{}, "tester")
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("want ErrForbidden, got %v", err)
 	}
@@ -285,7 +381,7 @@ func TestDeploymentsRefuseANamespaceThisLabDoesNotManage(t *testing.T) {
 		}, DeploymentVersion{Version: 1, ChartVersion: "1.0.0", Source: SourcePanel})
 
 		_, err := newDeploymentService(repo, store).
-			Rollout(t.Context(), "d1", RolloutRequest{})
+			Rollout(t.Context(), "d1", RolloutRequest{}, "tester")
 		if !errors.Is(err, ErrProtected) && !errors.Is(err, ErrUnmanaged) {
 			t.Errorf("%s should be refused, got %v", namespace, err)
 		}
@@ -341,7 +437,7 @@ func TestDeploymentsReportAnUnconfiguredStore(t *testing.T) {
 	if _, err := service.ReadDeployment(t.Context(), "d1"); !errors.Is(err, ErrNotConfigured) {
 		t.Errorf("read: want ErrNotConfigured, got %v", err)
 	}
-	if _, err := service.Rollout(t.Context(), "d1", RolloutRequest{}); !errors.Is(err, ErrNotConfigured) {
+	if _, err := service.Rollout(t.Context(), "d1", RolloutRequest{}, "tester"); !errors.Is(err, ErrNotConfigured) {
 		t.Errorf("rollout: want ErrNotConfigured, got %v", err)
 	}
 }
@@ -352,7 +448,7 @@ func TestAnUnreachableStoreIsReportedAsSuchAndNothingIsDeployed(t *testing.T) {
 	repo, store := newFakeRepo(), newFakeStore()
 	store.failWith = ErrStoreUnavailable
 
-	_, err := newDeploymentService(repo, store).Rollout(t.Context(), "d1", RolloutRequest{})
+	_, err := newDeploymentService(repo, store).Rollout(t.Context(), "d1", RolloutRequest{}, "tester")
 	if !errors.Is(err, ErrStoreUnavailable) {
 		t.Fatalf("want ErrStoreUnavailable, got %v", err)
 	}
@@ -397,18 +493,6 @@ func TestDescribeState(t *testing.T) {
 	}
 }
 
-// waitForJob waits for the detached operation instead of sleeping and hoping.
-func waitForJob(t *testing.T, repo *fakeRepo) string {
-	t.Helper()
-	select {
-	case operation := <-repo.ran:
-		return operation
-	case <-time.After(2 * time.Second):
-		t.Fatal("the detached operation never ran")
-		return ""
-	}
-}
-
 // A declared deployment reads back with its live release beside it, and a failed
 // read is reported rather than shown as an absent release.
 func TestReadDeploymentReportsAFailedReleaseRead(t *testing.T) {
@@ -431,53 +515,19 @@ func TestReadDeploymentReportsAFailedReleaseRead(t *testing.T) {
 	}
 }
 
-// An upgrade of the panel's own release must not wait for the workloads it
-// applies, because one of them is the pod running the upgrade. Waiting there
-// leaves the release wedged in pending-upgrade, and Helm then refuses every
-// later operation on it — so one self-upgrade would permanently break
-// self-upgrades.
-func TestUpgradingTheOwnReleaseDoesNotWaitForReadiness(t *testing.T) {
-	repo, store := newFakeRepo(), newFakeStore()
-	deployment := seededDeployment(store, "replicaCount: 1\n")
-
-	service := NewService(repo, store, testPolicy(),
-		Self{Namespace: deployment.Namespace, Release: deployment.ReleaseName},
-		time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	accepted, err := service.Rollout(t.Context(), deployment.ID, RolloutRequest{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	waitForJob(t, repo)
-
-	if !repo.upgraded.SkipWait {
-		t.Error("an upgrade of the panel's own release must not wait for readiness")
-	}
-	// And whoever called is told, because the status they are about to poll for
-	// means less than it usually does.
-	if !strings.Contains(accepted.Message, "manifests are applied") {
-		t.Errorf("the acceptance should say the wait was skipped, and says: %q", accepted.Message)
-	}
-}
-
-// Every other release still waits, so "deployed" keeps meaning the pods came up.
-func TestUpgradingAnyOtherReleaseStillWaits(t *testing.T) {
-	repo, store := newFakeRepo(), newFakeStore()
-	deployment := seededDeployment(store, "replicaCount: 1\n")
-
-	service := NewService(repo, store, testPolicy(),
-		Self{Namespace: "admin", Release: "home-lab-admin"},
-		time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	if _, err := service.Rollout(t.Context(), deployment.ID, RolloutRequest{}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	waitForJob(t, repo)
-
-	if repo.upgraded.SkipWait {
-		t.Error("only the panel's own release skips the wait")
-	}
-}
+// The panel's own release now waits like every other one.
+//
+// There used to be two tests here asserting the opposite: that an upgrade of this
+// release skipped the readiness wait, and that every other release did not. That
+// was never desirable — it made "deployed" mean "the manifests were accepted" for
+// exactly the release an operator most wants a real answer about. It existed
+// because the pod running the upgrade was one of the pods being replaced.
+//
+// A Job is not replaced by the chart it applies, so the exception is gone rather
+// than configured, and there is nothing left here to assert that a fake could
+// see. What replaces it is a live check, recorded on the pull request: upgrade
+// the admin release from the panel and watch the Job outlive both Deployments
+// rolling.
 
 // Half-configured identity must not match anything: recognising a self-upgrade
 // is what turns the wait off, so a blank matching a blank would silently stop
