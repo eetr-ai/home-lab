@@ -121,15 +121,40 @@ func (s *Service) apply(ctx context.Context, deployment Deployment, version Depl
 		operation = "install"
 	}
 
-	return s.accept(ctx, deployment.Namespace, deployment.ReleaseName, operation,
+	// An operation on the release this process is running from cannot wait for
+	// the workloads it applies, because one of them is this pod. See
+	// waitStrategy — the short version is that waiting would leave the release
+	// wedged and refuse every later deploy.
+	self := s.self.Matches(deployment.Namespace, deployment.ReleaseName)
+	if self {
+		s.logger.Info("this operation targets the panel's own release; not waiting for readiness",
+			slog.String("namespace", deployment.Namespace),
+			slog.String("release", deployment.ReleaseName))
+	}
+
+	accepted, err := s.accept(ctx, deployment.Namespace, deployment.ReleaseName, operation,
 		func(jobCtx context.Context) error {
 			return s.run(jobCtx, deployment, version, applySpec{
 				source:            source,
 				values:            values,
 				installing:        installing,
 				rollbackOnFailure: rollbackOnFailure,
+				skipWait:          self,
 			})
 		})
+	if err != nil {
+		return Accepted{}, err
+	}
+
+	// Said in the response, not only in the log. Whoever called this is about to
+	// poll for a status that will mean less than usual, and the difference is
+	// theirs to know about.
+	if self {
+		accepted.Message = "accepted, not performed; this is the panel's own release, so it " +
+			"is recorded as deployed once the manifests are applied rather than once the new " +
+			"pods are ready — check the workload itself, not just the release status"
+	}
+	return accepted, nil
 }
 
 // applySpec is what apply worked out and run carries out.
@@ -138,6 +163,7 @@ type applySpec struct {
 	values            map[string]any
 	installing        bool
 	rollbackOnFailure bool
+	skipWait          bool
 }
 
 // run performs the Helm operation and records that the version reached the
@@ -164,6 +190,7 @@ func (s *Service) run(ctx context.Context, deployment Deployment, version Deploy
 			Version:           version.ChartVersion,
 			Values:            spec.values,
 			RollbackOnFailure: spec.rollbackOnFailure,
+			SkipWait:          spec.skipWait,
 		})
 	} else {
 		release, err = s.repo.Upgrade(ctx, upgradeSpec{
@@ -173,6 +200,7 @@ func (s *Service) run(ctx context.Context, deployment Deployment, version Deploy
 			Version:           version.ChartVersion,
 			Values:            spec.values,
 			RollbackOnFailure: spec.rollbackOnFailure,
+			SkipWait:          spec.skipWait,
 		})
 	}
 	if err != nil {

@@ -480,7 +480,74 @@ fi
 # grepping the document would fail on a correct chart, which is the kind of
 # assertion that gets deleted rather than fixed.
 if grep -qE '^(rbac\.authorization\.k8s\.io|apiextensions\.k8s\.io)/' <<<"$helm_pairs"; then
-  printf 'The Helm Role must not reach RBAC or CustomResourceDefinitions\n' >&2
+  printf 'The Helm Role must not reach RBAC or CustomResourceDefinitions by default\n' >&2
+  exit 1
+fi
+
+# admin.api.helm.selfDeploy is the one way to reach RBAC, and it is opt-in
+# because it lets the panel hand every permission it holds to any ServiceAccount.
+# Two things are asserted: that it grants exactly the four resources the admin
+# chart needs, and that it does NOT grant escalate or bind -- without those,
+# Kubernetes refuses a role holding more than the panel already holds, which is
+# the difference between a wide grant and an unbounded one.
+self_deploy_pairs=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+  --set admin.api.helm.selfDeploy=true \
+  --show-only templates/api/rbac-deploy.yaml | extract_pairs)
+
+expected_self_deploy=$(LC_ALL=C sort <<'SELFPAIRS'
+rbac.authorization.k8s.io/clusterrolebindings create
+rbac.authorization.k8s.io/clusterrolebindings delete
+rbac.authorization.k8s.io/clusterrolebindings get
+rbac.authorization.k8s.io/clusterrolebindings list
+rbac.authorization.k8s.io/clusterrolebindings patch
+rbac.authorization.k8s.io/clusterrolebindings update
+rbac.authorization.k8s.io/clusterrolebindings watch
+rbac.authorization.k8s.io/clusterroles create
+rbac.authorization.k8s.io/clusterroles delete
+rbac.authorization.k8s.io/clusterroles get
+rbac.authorization.k8s.io/clusterroles list
+rbac.authorization.k8s.io/clusterroles patch
+rbac.authorization.k8s.io/clusterroles update
+rbac.authorization.k8s.io/clusterroles watch
+rbac.authorization.k8s.io/rolebindings create
+rbac.authorization.k8s.io/rolebindings delete
+rbac.authorization.k8s.io/rolebindings get
+rbac.authorization.k8s.io/rolebindings list
+rbac.authorization.k8s.io/rolebindings patch
+rbac.authorization.k8s.io/rolebindings update
+rbac.authorization.k8s.io/rolebindings watch
+rbac.authorization.k8s.io/roles create
+rbac.authorization.k8s.io/roles delete
+rbac.authorization.k8s.io/roles get
+rbac.authorization.k8s.io/roles list
+rbac.authorization.k8s.io/roles patch
+rbac.authorization.k8s.io/roles update
+rbac.authorization.k8s.io/roles watch
+SELFPAIRS
+)
+added=$(comm -13 <(printf '%s\n' "$expected_helm_pairs") <(printf '%s\n' "$self_deploy_pairs"))
+if [[ $added != "$expected_self_deploy" ]]; then
+  printf 'selfDeploy must add exactly the RBAC resources this chart renders, and nothing else.\n' >&2
+  diff <(printf '%s\n' "$expected_self_deploy") <(printf '%s\n' "$added") >&2 || true
+  exit 1
+fi
+if grep -qE ' (escalate|bind)$' <<<"$self_deploy_pairs"; then
+  printf 'selfDeploy must never grant escalate or bind: that removes the only bound left\n' >&2
+  exit 1
+fi
+if grep -q '^apiextensions\.k8s\.io/' <<<"$self_deploy_pairs"; then
+  printf 'selfDeploy must not reach CustomResourceDefinitions\n' >&2
+  exit 1
+fi
+
+# ...but the release namespace is allowed, because deploying the panel's own chart
+# from a pipeline is what this feature was asked for. Asserted rather than left
+# implicit: it is one line away from being refused again by somebody tidying the
+# protected list, and the failure would look like a chart bug rather than a
+# policy change.
+if ! render --set 'admin.api.helm.namespaces[0]=admin' \
+    --show-only templates/api/rbac-deploy.yaml | grep -q '  namespace: admin'; then
+  printf "The release's own namespace must be allowed as a Helm target\n" >&2
   exit 1
 fi
 
@@ -559,7 +626,7 @@ fi
 # A protected namespace in the list is a render failure, not a warning. This is
 # the mistake that turns a bounded grant into an unbounded one, and a warning in
 # a Helm output nobody reads is not a control.
-for forbidden in platform-system admin kube-system kube-flannel default; do
+for forbidden in platform-system kube-system kube-flannel default; do
   if render --set "admin.api.helm.namespaces[0]=$forbidden" >/dev/null 2>&1; then
     printf 'The chart rendered with %s as a Helm-managed namespace\n' "$forbidden" >&2
     exit 1
