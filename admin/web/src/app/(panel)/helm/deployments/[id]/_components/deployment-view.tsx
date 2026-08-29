@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Banner, Card } from "@/components/ui";
+import { Undo2 } from "lucide-react";
+import { Banner, Button, Card } from "@/components/ui";
 import { BackLink } from "../../../../_components/back-link";
 import { StatusBadge } from "../../../_components/status-badge";
 import { StateBadge } from "../../_components/state-badge";
@@ -29,6 +30,10 @@ export function DeploymentView({
 
 	const releaseHref = `/helm/dashboard/${encodeURIComponent(deployment.namespace)}/${encodeURIComponent(deployment.releaseName)}`;
 
+	// The editor is showing something other than the newest declared version, so
+	// everything on this page that could be mistaken for "current" has to say so.
+	const viewingOlder = editing !== deployment.current.version;
+
 	return (
 		<div className="flex flex-col gap-6">
 			{/* The way back, what you are looking at, and the one action that is
@@ -42,12 +47,33 @@ export function DeploymentView({
 						{deployment.releaseName}
 					</h1>
 				</div>
-				<VersionHistory
-					versions={deployment.versions}
-					selected={editing}
-					now={now}
-					onOpenVersion={setEditing}
-				/>
+				<div className="flex flex-wrap items-center gap-2">
+					{/* Only while an older version is open. Two controls rather than
+					    one, each doing a single job: the chip states which version is
+					    on screen, and the button is the way back. A passive label
+					    alone would name the problem and leave you to find the newest
+					    in the history yourself. */}
+					{viewingOlder ? (
+						<>
+							<span className="inline-flex items-center whitespace-nowrap rounded-chip border border-warning-border bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning-fg">
+								Version {editing} of {deployment.current.version}
+							</span>
+							<Button
+								variant="secondary"
+								icon={Undo2}
+								onClick={() => setEditing(deployment.current.version)}
+							>
+								Back to newest
+							</Button>
+						</>
+					) : null}
+					<VersionHistory
+						versions={deployment.versions}
+						selected={editing}
+						now={now}
+						onOpenVersion={setEditing}
+					/>
+				</div>
 			</div>
 
 			{/* A failed read of the live release, said out loud. Showing the record

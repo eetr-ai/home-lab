@@ -48,6 +48,8 @@ export function ValuesCard({
 	}
 
 	const dirty = draft !== shown.valuesYaml || chartVersion !== shown.chartVersion;
+	const newest = deployment.current.version;
+	const older = shown.version !== newest;
 
 	async function save() {
 		setError(null);
@@ -67,8 +69,15 @@ export function ValuesCard({
 	async function rollout() {
 		setError(null);
 		setBusy("rolling-out");
-		// A dirty editor is saved first, so the button never deploys something
-		// other than what is on screen.
+
+		// Whichever version is on screen is the one that gets deployed, and it is
+		// named explicitly. Leaving it out asks the API for "the newest", which is
+		// not the same thing the moment somebody opens an older version from the
+		// history — the button would then deploy something other than what they
+		// were reading, which is the one thing it must never do.
+		let version = shown.version;
+
+		// A dirty editor is saved first, and what that produces is the new newest.
 		if (dirty) {
 			const saved = await addDeploymentVersion(deployment.id, {
 				version: chartVersion,
@@ -79,10 +88,11 @@ export function ValuesCard({
 				setError(saved.error);
 				return;
 			}
-			onEditingChange(saved.data.version);
+			version = saved.data.version;
+			onEditingChange(version);
 		}
 
-		const result = await rolloutDeployment(deployment.id, { rollbackOnFailure });
+		const result = await rolloutDeployment(deployment.id, { version, rollbackOnFailure });
 		setBusy(null);
 		if (!result.ok) setError(result.error);
 	}
@@ -93,8 +103,8 @@ export function ValuesCard({
 				<div className="flex items-baseline gap-2">
 					<h2 className="text-sm font-medium">Values</h2>
 					<span className="text-xs text-muted-foreground">
-						version {shown.version}
-						{shown.version !== deployment.current.version ? " (not the newest)" : ""}
+						version {shown.version} of {newest}
+						{older ? " · not the newest" : ""}
 						{dirty ? " · unsaved" : ""}
 					</span>
 				</div>
@@ -119,13 +129,17 @@ export function ValuesCard({
 					>
 						Save version
 					</Button>
+					{/* The label names the version when it is not the newest. A bare
+					    "Roll out" next to an older version on screen reads as "deploy
+					    the current state", which is the wrong half of an ambiguity
+					    that has a cluster on the other side of it. */}
 					<Button
 						icon={Rocket}
 						onClick={rollout}
 						disabled={busy !== null}
 						loading={busy === "rolling-out"}
 					>
-						Roll out
+						{older && !dirty ? `Roll out version ${shown.version}` : "Roll out"}
 					</Button>
 				</div>
 			</div>
