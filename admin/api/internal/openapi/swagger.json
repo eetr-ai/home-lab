@@ -30,6 +30,53 @@
                 },
                 "type": "object"
             },
+            "helm.ChartListing": {
+                "properties": {
+                    "chart": {
+                        "description": "Chart is what the chart is called in its repository.",
+                        "type": "string"
+                    },
+                    "description": {
+                        "description": "Description is shown in the panel. Free text, and the operator's own words\nrather than the chart's, since the point is to say why this lab has it.",
+                        "type": "string"
+                    },
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the version list was read from the repository. Reported\nbecause the list is cached, and a stale answer is only a problem when\nnobody can tell it is stale.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is the catalog key a request uses, and need not be the chart's own\nname — two repositories may both publish a \"redis\".",
+                        "type": "string"
+                    },
+                    "repository": {
+                        "description": "Repository is the name of one of the repositories above.",
+                        "type": "string"
+                    },
+                    "unavailable": {
+                        "description": "Unavailable says the repository could not be reached, and that Versions\ntherefore holds what configuration alone knows — the pinned list, or\nnothing. The catalog degrading to its own declarations is the point of not\nhaving a database.",
+                        "type": "boolean"
+                    },
+                    "versions": {
+                        "items": {
+                            "$ref": "#/components/schemas/helm.ChartVersion"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "helm.ChartVersion": {
+                "properties": {
+                    "appVersion": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "helm.Release": {
                 "properties": {
                     "appVersion": {
@@ -1046,6 +1093,141 @@
         "url": ""
     },
     "paths": {
+        "/api/helm/charts": {
+            "get": {
+                "description": "The catalog is configuration, not discovery: a request names an entry\nfrom this list and never a URL, which is what bounds what can be\ninstalled. Each entry's versions are read from its repository and cached\nbriefly; when the repository cannot be reached the entry is still\nreturned, marked unavailable, carrying whatever versions configuration\npinned.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.ChartListing"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the chart catalog",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/charts/{chart}/versions": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Catalog entry name",
+                        "in": "path",
+                        "name": "chart",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.ChartListing"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a chart's installable versions",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
         "/api/helm/namespaces/{namespace}/releases": {
             "get": {
                 "parameters": [

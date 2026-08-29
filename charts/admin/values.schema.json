@@ -153,6 +153,72 @@
                     "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                   },
                   "description": "Namespaces whose Helm releases the panel may read. Each renders a Role granting read on EVERY Secret in that namespace; see templates/api/rbac-deploy.yaml."
+                },
+                "repositories": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "url"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(https|oci)://[^@]+$",
+                        "description": "The repository's base URL. No userinfo: credentials in a URL would land in the catalog ConfigMap, which is readable by anything that can list one. A private repository's credentials belong in a Secret."
+                      },
+                      "oci": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "description": "Chart repositories this lab trusts. Credentials never live here."
+                },
+                "charts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "chart",
+                      "repository"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The key a request uses. Need not be the chart's own name."
+                      },
+                      "chart": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "versions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "description": "The exact versions this lab permits. Empty means any the repository offers."
+                      }
+                    }
+                  },
+                  "description": "The allowlist of installable charts. A request names an entry here, never a URL."
                 }
               }
             }

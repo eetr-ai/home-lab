@@ -25,6 +25,10 @@ func NewHandler(service *Service, guard *auth.Guard) *Handler {
 // All reads, for now. Every one of them is behind admin:read, which a token
 // naming no scopes still satisfies — see auth.Guard.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/helm/charts",
+		h.guard.Require(auth.ScopeRead, h.listCharts))
+	mux.HandleFunc("GET /api/helm/charts/{chart}/versions",
+		h.guard.Require(auth.ScopeRead, h.listChartVersions))
 	mux.HandleFunc("GET /api/helm/releases",
 		h.guard.Require(auth.ScopeRead, h.listReleases))
 	mux.HandleFunc("GET /api/helm/namespaces/{namespace}/releases",
@@ -33,6 +37,54 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.guard.Require(auth.ScopeRead, h.readRelease))
 	mux.HandleFunc("GET /api/helm/namespaces/{namespace}/releases/{release}/history",
 		h.guard.Require(auth.ScopeRead, h.readHistory))
+}
+
+// listCharts returns the charts this lab will install.
+//
+//	@Summary		List the chart catalog
+//	@Description	The catalog is configuration, not discovery: a request names an entry
+//	@Description	from this list and never a URL, which is what bounds what can be
+//	@Description	installed. Each entry's versions are read from its repository and cached
+//	@Description	briefly; when the repository cannot be reached the entry is still
+//	@Description	returned, marked unavailable, carrying whatever versions configuration
+//	@Description	pinned.
+//	@Tags			helm
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{array}		helm.ChartListing
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Failure		501	{object}	http.ErrorBody
+//	@Router			/api/helm/charts [get]
+func (h *Handler) listCharts(w http.ResponseWriter, r *http.Request) {
+	charts, err := h.service.ListCharts(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, charts)
+}
+
+// listChartVersions returns one catalogue entry's installable versions.
+//
+//	@Summary		List a chart's installable versions
+//	@Tags			helm
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			chart	path		string	true	"Catalog entry name"
+//	@Success		200		{object}	helm.ChartListing
+//	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
+//	@Failure		404		{object}	http.ErrorBody
+//	@Failure		501		{object}	http.ErrorBody
+//	@Router			/api/helm/charts/{chart}/versions [get]
+func (h *Handler) listChartVersions(w http.ResponseWriter, r *http.Request) {
+	listing, err := h.service.ListChartVersions(r.Context(), r.PathValue("chart"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, listing)
 }
 
 // listReleases returns every release in every managed namespace.
@@ -137,6 +189,11 @@ func respondError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidName):
 		httpx.Error(w, http.StatusBadRequest, "invalid_request", err.Error())
+	case errors.Is(err, ErrUnknownChart):
+		// 404 rather than 400: the caller asked for a thing by name and this lab
+		// does not have it, which is the same shape of answer as a missing
+		// release even though the reason is an allowlist rather than absence.
+		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, ErrProtected), errors.Is(err, ErrUnmanaged):
@@ -153,7 +210,7 @@ func respondError(w http.ResponseWriter, err error) {
 		// not named a namespace for it to work in. A 404 would read as "no such
 		// endpoint" and send someone looking for a missing route.
 		httpx.Error(w, http.StatusNotImplemented, "not_configured",
-			"no namespaces are configured for Helm")
+			"this lab has no Helm namespaces or no chart catalog configured")
 	default:
 		slog.Error("helm request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error",

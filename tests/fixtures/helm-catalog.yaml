@@ -1,0 +1,27 @@
+# A configured Helm catalog, for the chart validation.
+#
+# Deliberately close to what a real one looks like: two repositories of different
+# kinds, a pinned chart and an unpinned one. The assertions about what must not
+# appear in the rendered ConfigMap are only worth anything against a catalog that
+# has something in it.
+admin:
+  api:
+    helm:
+      namespaces:
+        - apps
+      repositories:
+        - name: traefik
+          url: https://traefik.github.io/charts
+        - name: internal
+          url: oci://registry.test.invalid/charts
+          oci: true
+      charts:
+        - name: whoami
+          chart: whoami
+          repository: traefik
+          description: The request echo used to check routing
+          versions:
+            - 1.15.0
+        - name: panel
+          chart: home-lab-admin
+          repository: internal

@@ -234,14 +234,23 @@ func registerHelm(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Poli
 		return nil
 	}
 
+	// Read once at startup, and a malformed one is fatal. A panel that starts and
+	// then refuses every install with a parse error is worse than one that does
+	// not start: the first looks like a bug in the request.
+	catalog, err := helm.LoadCatalog(os.Getenv("ADMIN_HELM_CATALOG"))
+	if err != nil {
+		return err
+	}
+
 	repo, err := helm.NewRepository(logger)
 	if err != nil {
 		return err
 	}
 
-	helm.NewHandler(helm.NewService(repo, policy), guard).Register(mux)
+	helm.NewHandler(helm.NewService(repo, policy, catalog, logger), guard).Register(mux)
 	logger.Info("serving the Helm endpoints",
-		slog.Any("namespaces", policy.ManagedNamespaces()))
+		slog.Any("namespaces", policy.ManagedNamespaces()),
+		slog.Int("charts", len(catalog.Charts)))
 	return nil
 }
 

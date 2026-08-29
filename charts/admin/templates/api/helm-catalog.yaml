@@ -1,0 +1,33 @@
+{{- if .Values.admin.api.kubernetes.enabled }}
+{{- if .Values.admin.api.helm.charts }}
+{{- /*
+The charts this lab will install, and where they come from.
+
+A ConfigMap mounted as a file rather than a JSON blob in an environment variable.
+It is a structure, not a value: as a file it stays readable in `kubectl describe`,
+it can be diffed, and the checksum annotation on the Deployment rolls the pods
+when it changes -- which is what an operator expects after editing a values file.
+
+THE CATALOG IS THE ALLOWLIST. A request names an entry from this list and a
+version, never a URL, so the API never fetches something a caller chose. That is
+what turns "the panel can install arbitrary charts" -- which is cluster-admin, and
+no RBAC rule fixes it -- into "the panel can install charts somebody vetted and
+wrote down here". Every other bound in this chart is secondary to this one.
+
+No credentials live here. Repository names, URLs, and versions only; a private
+repository's credentials come from a Secret the same as every other credential in
+this chart. tests/validate-admin-chart.sh asserts that nothing password-shaped
+appears in this ConfigMap.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-helm-catalog
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+data:
+  catalog.yaml: |
+    {{- toYaml (dict "repositories" (.Values.admin.api.helm.repositories | default list)
+                     "charts" .Values.admin.api.helm.charts) | nindent 4 }}
+{{- end }}
+{{- end }}

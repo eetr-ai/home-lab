@@ -179,6 +179,31 @@ admin:
       namespaces: []
         # - apps
 
+      # The charts this lab will install, and where they come from.
+      #
+      # THIS LIST IS THE ALLOWLIST. A request names an entry from it and a
+      # version, never a URL, so the API never fetches something a caller chose.
+      # That is what turns "the panel can install arbitrary charts" -- which is
+      # cluster-admin, because a chart's templates are arbitrary manifests and no
+      # RBAC rule can say otherwise -- into "the panel can install charts somebody
+      # vetted and wrote down here".
+      #
+      # `name` is the key a request uses and need not be the chart's own name: two
+      # repositories may both publish a redis. `versions`, when set, is the exact
+      # list this lab permits; empty means any version the repository offers,
+      # which is looser and is why it is not what the examples show.
+      repositories: []
+        # - name: traefik
+        #   url: https://traefik.github.io/charts
+        #   oci: false
+
+      charts: []
+        # - name: whoami
+        #   chart: whoami
+        #   repository: traefik
+        #   description: The request echo used to check routing
+        #   versions: ["1.15.0"]
+
     # Reaching the API from outside the cluster, for a caller that is not the
     # panel's own browser session. Disabled until something needs it: the agent
     # that will call the API directly is not built yet, and an administrative

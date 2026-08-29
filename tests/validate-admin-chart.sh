@@ -402,6 +402,75 @@ if ! render --set admin.api.kubernetes.enabled=false | grep -q 'ADMIN_HELM_DISAB
   exit 1
 fi
 
+# The chart catalog. It is the allowlist that turns "the panel installs arbitrary
+# charts" into "the panel installs charts somebody wrote down", so the assertions
+# are about it existing only when asked for and carrying nothing it should not.
+if grep -q 'helm-catalog' "$output_file"; then
+  printf 'The Helm catalog must not be created by default\n' >&2
+  exit 1
+fi
+
+catalog_values="${repo_root}/tests/fixtures/helm-catalog.yaml"
+catalog_render=$(render --values "$catalog_values")
+
+# Credentials belong in a Secret, the same as every other credential in this
+# chart. A ConfigMap is readable by anything that can list them.
+#
+# The schema's additionalProperties refuses a `password` key outright, so the
+# realistic leak is the one it cannot refuse by name: a credential smuggled into
+# a field that is allowed. A repository URL carrying userinfo --
+# https://user:token@example -- is exactly that, so the schema forbids an @ in a
+# URL and this asserts that it does. Both halves matter: the pattern is what
+# stops it, and this is what stops the pattern being loosened.
+catalog_cm=$(render --values "$catalog_values" --show-only templates/api/helm-catalog.yaml)
+if grep -qiE 'password|token|secret|authorization|[[:alnum:]]{32,}' <<<"$catalog_cm"; then
+  printf 'The Helm catalog ConfigMap must carry no credentials:\n' >&2
+  grep -niE 'password|token|secret|authorization|[[:alnum:]]{32,}' <<<"$catalog_cm" >&2
+  exit 1
+fi
+if render --values "$catalog_values" \
+    --set 'admin.api.helm.repositories[0].url=https://user:hunter2@charts.test.invalid' \
+    >/dev/null 2>&1; then
+  printf 'A repository URL carrying credentials must be a render failure\n' >&2
+  exit 1
+fi
+
+# Editing the catalog must roll the pods. A mounted ConfigMap updates in place and
+# the API reads the catalog once at startup, so without the checksum the values
+# file would change and the running panel would not.
+if ! grep -q 'checksum/helm-catalog:' <<<"$catalog_render"; then
+  printf 'A configured catalog must carry a checksum annotation that rolls the pods\n' >&2
+  exit 1
+fi
+
+# Helm's downloader writes an index before reading it, and this pod's root
+# filesystem is read-only. Assert the volume exists, that it is an emptyDir rather
+# than a claim, that it is bounded, and that the cache actually points into it --
+# any one of those alone would pass on a broken configuration.
+if ! grep -q 'name: helm-cache' "$output_file"; then
+  printf 'The API needs a writable volume for Helm to download an index into\n' >&2
+  exit 1
+fi
+if ! grep -A2 'name: helm-cache' "$output_file" | grep -q 'emptyDir'; then
+  printf 'The Helm cache must be an emptyDir, not a claim two replicas would fight over\n' >&2
+  exit 1
+fi
+if ! grep -A3 'name: helm-cache' "$output_file" | grep -q 'sizeLimit:'; then
+  printf 'An emptyDir with no sizeLimit is node disk with no ceiling\n' >&2
+  exit 1
+fi
+if ! grep -A1 'name: HELM_CACHE_HOME' "$output_file" | grep -q 'value: /helm/'; then
+  printf 'HELM_CACHE_HOME must point inside the writable volume\n' >&2
+  exit 1
+fi
+
+# ...and the root filesystem stays read-only regardless. The volume is the
+# exception, not a reason to drop the rule.
+if ! grep -q 'readOnlyRootFilesystem: true' <<<"$catalog_render"; then
+  printf 'The API pod must keep a read-only root filesystem with Helm configured\n' >&2
+  exit 1
+fi
+
 # The binding has to name this release's role and this release's ServiceAccount.
 # Checking only that *a* ClusterRoleBinding exists would pass on one pointing
 # somewhere else entirely.

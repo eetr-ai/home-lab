@@ -3,6 +3,7 @@ package helm
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -13,6 +14,22 @@ import (
 // happened before anything did.
 type fakeRepo struct {
 	asked []string
+	// offered is what a chart repository answers with, and versionErr is what it
+	// answers with instead when it cannot be reached.
+	offered    []ChartVersion
+	versionErr error
+	// fetches counts trips to the repository, which is how the cache is tested
+	// without waiting for anything.
+	fetches int
+}
+
+func (f *fakeRepo) ListChartVersions(_ context.Context, source ChartSource) ([]ChartVersion, error) {
+	f.fetches++
+	f.asked = append(f.asked, "versions:"+source.Chart)
+	if f.versionErr != nil {
+		return nil, f.versionErr
+	}
+	return f.offered, nil
 }
 
 func (f *fakeRepo) ListReleases(_ context.Context, namespaces []string) ([]Release, error) {
@@ -33,11 +50,15 @@ func (f *fakeRepo) ReadHistory(_ context.Context, namespace, name string) ([]Rev
 // newTestService builds a service with the policy this lab actually runs: the
 // panel in "admin", platform-system protected, and "apps" the one Helm target.
 func newTestService(repo repository) *Service {
+	return newTestServiceWithCatalog(repo, Catalog{})
+}
+
+func newTestServiceWithCatalog(repo repository, catalog Catalog) *Service {
 	return NewService(repo, nspolicy.New(nspolicy.Config{
 		Own:       "admin",
 		Protected: []string{"platform-system"},
 		Managed:   []string{"apps"},
-	}))
+	}), catalog, slog.New(slog.DiscardHandler))
 }
 
 // Every read is refused for a namespace this slice may not reach, and refused
@@ -164,7 +185,8 @@ func TestReleaseNameValidation(t *testing.T) {
 // lab that was never switched on as a lab with nothing installed.
 func TestListReleasesReportsAnUnconfiguredLab(t *testing.T) {
 	repo := &fakeRepo{}
-	service := NewService(repo, nspolicy.New(nspolicy.Config{Own: "admin"}))
+	service := NewService(repo, nspolicy.New(nspolicy.Config{Own: "admin"}), Catalog{},
+		slog.New(slog.DiscardHandler))
 
 	_, err := service.ListReleases(t.Context())
 	if !errors.Is(err, ErrNotConfigured) {

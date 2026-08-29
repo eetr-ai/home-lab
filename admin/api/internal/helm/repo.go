@@ -12,8 +12,12 @@ import (
 
 	"helm.sh/helm/v4/pkg/action"
 	chartapi "helm.sh/helm/v4/pkg/chart"
+	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/getter"
+	"helm.sh/helm/v4/pkg/registry"
 	"helm.sh/helm/v4/pkg/release"
 	releasev1 "helm.sh/helm/v4/pkg/release/v1"
+	repo "helm.sh/helm/v4/pkg/repo/v1"
 	"helm.sh/helm/v4/pkg/storage/driver"
 )
 
@@ -297,4 +301,80 @@ func translate(err error, what string) error {
 	default:
 		return fmt.Errorf("%s: %w", what, err)
 	}
+}
+
+// ListChartVersions returns the versions a repository offers for one chart.
+//
+// Two shapes, because the two kinds of repository answer differently. An HTTP
+// repository publishes index.yaml listing every chart it holds with every
+// version and app version; an OCI registry answers with tags and nothing else,
+// so an OCI chart reports versions with no app version rather than fetching each
+// manifest to find one.
+//
+// Helm's downloader writes the index to its cache directory, which is why the
+// pod carries a writable volume for it. Nothing else in this slice writes to
+// disk.
+func (r *Repository) ListChartVersions(_ context.Context, source ChartSource) ([]ChartVersion, error) {
+	if source.OCI {
+		return r.ociTags(source)
+	}
+	return r.indexVersions(source)
+}
+
+func (r *Repository) indexVersions(source ChartSource) ([]ChartVersion, error) {
+	chartRepo, err := repo.NewChartRepository(
+		&repo.Entry{Name: source.Chart, URL: source.URL}, getter.All(cli.New()))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+	}
+
+	path, err := chartRepo.DownloadIndexFile()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+	}
+
+	index, err := repo.LoadIndexFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s has an index this cannot read", ErrRepositoryUnreachable, source.URL)
+	}
+
+	entries, ok := index.Entries[source.Chart]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s does not publish %s",
+			ErrUnknownChart, source.URL, source.Chart)
+	}
+
+	versions := make([]ChartVersion, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil || entry.Metadata == nil || entry.Removed {
+			continue
+		}
+		versions = append(versions, ChartVersion{
+			Version:    entry.Version,
+			AppVersion: entry.AppVersion,
+		})
+	}
+	return versions, nil
+}
+
+func (r *Repository) ociTags(source ChartSource) ([]ChartVersion, error) {
+	client, err := registry.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+	}
+
+	reference := strings.TrimSuffix(strings.TrimPrefix(source.URL, "oci://"), "/") + "/" + source.Chart
+	tags, err := client.Tags(reference)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryUnreachable, source.URL)
+	}
+
+	versions := make([]ChartVersion, 0, len(tags))
+	for _, tag := range tags {
+		// An OCI registry answers with tags and nothing else. Reading an app
+		// version would mean pulling every manifest, which is one request per
+		// version for a field the panel shows and nothing depends on.
+		versions = append(versions, ChartVersion{Version: tag})
+	}
+	return versions, nil
 }

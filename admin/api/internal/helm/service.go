@@ -3,6 +3,7 @@ package helm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
@@ -13,6 +14,7 @@ type repository interface {
 	ListReleases(ctx context.Context, namespaces []string) ([]Release, error)
 	ReadRelease(ctx context.Context, namespace, name string) (ReleaseDetail, error)
 	ReadHistory(ctx context.Context, namespace, name string) ([]Revision, error)
+	ListChartVersions(ctx context.Context, source ChartSource) ([]ChartVersion, error)
 }
 
 // Service reads the Helm releases in the namespaces this lab manages.
@@ -28,13 +30,24 @@ type repository interface {
 // both API replicas agree without coordinating, and what makes a release
 // installed by hand visible here without anything having recorded it.
 type Service struct {
-	repo   repository
-	policy nspolicy.Policy
+	repo     repository
+	policy   nspolicy.Policy
+	catalog  Catalog
+	versions *versionCache
+	logger   *slog.Logger
 }
 
 // NewService builds the service.
-func NewService(repo repository, policy nspolicy.Policy) *Service {
-	return &Service{repo: repo, policy: policy}
+func NewService(repo repository, policy nspolicy.Policy, catalog Catalog,
+	logger *slog.Logger,
+) *Service {
+	return &Service{
+		repo:     repo,
+		policy:   policy,
+		catalog:  catalog,
+		versions: newVersionCache(),
+		logger:   logger,
+	}
 }
 
 // ListReleases returns every release in every managed namespace.

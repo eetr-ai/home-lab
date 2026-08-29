@@ -13,6 +13,14 @@ spec:
       app.kubernetes.io/name: admin-api
   template:
     metadata:
+      {{- if .Values.admin.api.helm.charts }}
+      annotations:
+        # Editing the catalog is editing a ConfigMap, and a mounted ConfigMap
+        # updates in place without restarting anything. The API reads the catalog
+        # once at startup, so without this the values file would change and the
+        # running panel would not.
+        checksum/helm-catalog: {{ include (print $.Template.BasePath "/api/helm-catalog.yaml") . | sha256sum }}
+      {{- end }}
       labels:
         app.kubernetes.io/name: admin-api
     spec:
@@ -75,6 +83,22 @@ spec:
               value: {{ .Values.admin.api.kubernetes.namespaces.podSecurity | quote }}
             - name: ADMIN_HELM_MANAGED_NAMESPACES
               value: {{ join "," .Values.admin.api.helm.namespaces | quote }}
+            {{- if .Values.admin.api.helm.charts }}
+            - name: ADMIN_HELM_CATALOG
+              value: /etc/admin-api/helm/catalog.yaml
+            {{- end }}
+            # Helm's downloader writes a repository index to its cache before
+            # reading it, and this pod's root filesystem is read-only. An
+            # emptyDir rather than a claim: the contents are derivable, and a
+            # claim would make a two-replica Deployment fight over one volume.
+            - name: HELM_CACHE_HOME
+              value: /helm/cache
+            - name: HELM_CONFIG_HOME
+              value: /helm/config
+            - name: HELM_DATA_HOME
+              value: /helm/data
+            - name: XDG_CACHE_HOME
+              value: /helm/cache
             {{- end }}
             {{- if not .Values.admin.api.kubernetes.enabled }}
             # Helm reaches the cluster through the same credential the cluster
@@ -118,8 +142,35 @@ spec:
             capabilities:
               drop:
                 - ALL
-            # The binary is static and writes nothing to disk; it logs to stdout.
+            # The binary logs to stdout and writes nothing of its own. Helm's
+            # downloader does write -- a repository index, before reading it --
+            # so it is given a volume rather than the root filesystem.
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
+          volumeMounts:
+            {{- if .Values.admin.api.kubernetes.enabled }}
+            - name: helm-cache
+              mountPath: /helm
+            {{- end }}
+            {{- if .Values.admin.api.helm.charts }}
+            - name: helm-catalog
+              mountPath: /etc/admin-api/helm
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.admin.api.kubernetes.enabled }}
+        # Derivable content, so an emptyDir rather than a claim: a claim would
+        # make a two-replica Deployment fight over one ReadWriteOnce volume, and
+        # there is nothing here worth keeping across a restart. The size limit is
+        # not optional -- an emptyDir without one is node disk with no ceiling.
+        - name: helm-cache
+          emptyDir:
+            sizeLimit: 256Mi
+        {{- end }}
+        {{- if .Values.admin.api.helm.charts }}
+        - name: helm-catalog
+          configMap:
+            name: {{ .Release.Name }}-helm-catalog
+        {{- end }}
