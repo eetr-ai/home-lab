@@ -51,10 +51,14 @@ func (g *Guard) Require(scope string, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// A token naming no scopes is unrestricted unless configuration says
-		// otherwise; a token naming some is held to them. HasScope carries the
-		// first half of that rule, requireScopes the second.
-		if g.requireScopes && len(subject.Scopes) == 0 {
+		// A token naming none of this API's scopes is unrestricted unless
+		// configuration says otherwise; a token naming some is held to them.
+		// HasScope carries the first half of that rule, requireScopes the second.
+		//
+		// APIScopes rather than Scopes: `openid profile email` is three scopes and
+		// no statement about this API, so requiring scopes must not be satisfied
+		// by it either.
+		if g.requireScopes && len(subject.APIScopes()) == 0 {
 			insufficientScope(w, scope)
 			return
 		}

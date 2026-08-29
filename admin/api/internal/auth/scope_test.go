@@ -133,6 +133,41 @@ func TestSubjectHasScope(t *testing.T) {
 			want:    "admin:deploy",
 			ok:      true,
 		},
+		{
+			// Every token eetr-auth issues the panel's own client looks exactly
+			// like this. These are authentication scopes -- how the caller signed
+			// in -- and say nothing about what it may do here, so they must not
+			// narrow anything. Counting them refused every real token on every
+			// scoped route, which is how this was found: against the live
+			// provider, not in a test.
+			name:    "the OIDC scopes on every real token do not narrow",
+			subject: Subject{Scopes: []string{"openid", "profile", "email"}},
+			want:    "admin:deploy",
+			ok:      true,
+		},
+		{
+			// eetr-auth's coarse administrative scope. Still not one of ours, so
+			// it does not narrow either -- and it cannot be read as granting
+			// everything, because that would be widening.
+			name:    "the provider's own admin scope does not narrow",
+			subject: Subject{Scopes: []string{"openid", "email", "admin"}},
+			want:    "admin:deploy",
+			ok:      true,
+		},
+		{
+			// ...but once a token names one of ours, the foreign ones are still
+			// ignored and the narrowing is real.
+			name:    "our scopes narrow even alongside foreign ones",
+			subject: Subject{Scopes: []string{"openid", "email", "admin:read"}},
+			want:    "admin:deploy",
+			ok:      false,
+		},
+		{
+			name:    "and permit what they name",
+			subject: Subject{Scopes: []string{"openid", "email", "admin:deploy"}},
+			want:    "admin:deploy",
+			ok:      true,
+		},
 	}
 
 	for _, test := range tests {

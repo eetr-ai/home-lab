@@ -24,20 +24,50 @@ const (
 	ScopeDeploy = "admin:deploy"
 )
 
+// scopePrefix is this API's own scope namespace.
+//
+// It is what separates a scope that is an authorization decision here from one
+// that is not. `openid`, `profile` and `email` are on every OIDC token ever
+// issued: they say how the caller authenticated, not what it may do to this
+// cluster. An earlier version of this file counted them, and the result was that
+// every real token named scopes, none of them named `admin:read`, and the whole
+// API answered 403 — to the panel as much as to a pipeline.
+const scopePrefix = "admin:"
+
+// APIScopes returns the caller's scopes that are this API's to interpret.
+//
+// Nil when the token names none, which is the case that means "unrestricted"
+// rather than "permitted nothing".
+func (s Subject) APIScopes() []string {
+	var ours []string
+	for _, scope := range s.Scopes {
+		if strings.HasPrefix(scope, scopePrefix) {
+			ours = append(ours, scope)
+		}
+	}
+	return ours
+}
+
 // HasScope reports whether this caller may do something the given scope guards.
 //
-// Scopes narrow; they never widen. A token that carries no scopes at all is
+// Scopes narrow; they never widen. A token naming none of *this API's* scopes is
 // unrestricted, which is what every token this API has ever accepted looked like
-// and is why introducing scopes breaks nothing. A token that carries scopes is
-// held to exactly them.
+// and is why introducing scopes breaks nothing. A token that names some is held
+// to exactly those.
 //
-// Whether a scopeless token is acceptable in the first place is a separate
-// question, and not this one's to answer.
+// The qualifier is load-bearing. A token carrying `openid profile email` — which
+// is every token the panel's own client is issued — names three scopes and none
+// of them is a statement about this API, so it must not be read as one. Only
+// scopes under this API's own prefix narrow anything.
+//
+// Whether a token naming none of ours is acceptable in the first place is a
+// separate question, and not this one's to answer.
 func (s Subject) HasScope(scope string) bool {
-	if len(s.Scopes) == 0 {
+	ours := s.APIScopes()
+	if len(ours) == 0 {
 		return true
 	}
-	return slices.Contains(s.Scopes, scope)
+	return slices.Contains(ours, scope)
 }
 
 // parseScopes reads the scopes out of the two claims providers actually use.
