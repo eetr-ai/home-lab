@@ -157,3 +157,62 @@ func tailLines(raw string) int64 {
 func contextWithStreamLimit(r *http.Request) (ctx context.Context, cancel context.CancelFunc) {
 	return context.WithTimeout(r.Context(), httpx.MaxStreamDuration)
 }
+
+// jobEvents streams a Helm job's progress as server-sent events.
+//
+//	@Summary		Follow a Helm job
+//	@Description	One stream carrying both status transitions and log lines, in the order
+//	@Description	they happened. Events: `snapshot` (the whole job, first on every
+//	@Description	connection), `phase`, `log`, `done`, and `error`.
+//	@Description
+//	@Description	`error` means the STREAM failed, not the operation — an API pod restarting
+//	@Description	is not a failed deploy, and a client that conflates them will report one.
+//	@Description	The end of the stream is `done` followed by EOF; an EOF without `done` is
+//	@Description	a dropped connection, and the right response is to reconnect.
+//	@Description
+//	@Description	Nothing is remembered between connections. Reconnecting re-reads the job
+//	@Description	and resends the tail, which is idempotent — so upgrading the panel's own
+//	@Description	chart, which drops this stream from both ends, needs no special handling.
+//	@Description
+//	@Description	A pipeline should poll the deployment instead; see
+//	@Description	docs/deploying-from-a-pipeline.md.
+//	@Tags			helm
+//	@Produce		text/event-stream
+//	@Security		BearerAuth
+//	@Param			job		path		string	true	"Job name"
+//	@Param			tail	query		integer	false	"Lines of history first (default 500, max 5000)"
+//	@Success		200		{string}	string	"the event stream"
+//	@Failure		400		{object}	http.ErrorBody
+//	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
+//	@Failure		404		{object}	http.ErrorBody
+//	@Failure		501		{object}	http.ErrorBody
+//	@Router			/api/helm/jobs/{job}/events [get]
+func (h *Handler) jobEvents(w http.ResponseWriter, r *http.Request) {
+	if !httpx.ClearWriteDeadline(w, "helm job events") {
+		return
+	}
+
+	// Read it once before opening the stream, so a bad name or a missing job is
+	// still a status code. After NewEventStream there is no status line left.
+	if _, err := h.service.ReadJob(r.Context(), r.PathValue("job")); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	ctx, cancel := contextWithStreamLimit(r)
+	defer cancel()
+
+	stream := httpx.NewEventStream(w)
+	err := h.service.StreamJob(ctx, r.PathValue("job"), tailLines(r.URL.Query().Get("tail")),
+		func(event string, payload JobEvent) error {
+			if event == "" {
+				return stream.Comment("keep-alive")
+			}
+			return stream.Send(event, payload)
+		})
+	if err != nil {
+		// The status line is long gone, so this is an event rather than a code.
+		_ = stream.Send(EventError, JobEvent{Error: err.Error()})
+	}
+}

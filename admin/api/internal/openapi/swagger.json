@@ -2399,6 +2399,101 @@
                 ]
             }
         },
+        "/api/helm/jobs/{job}/events": {
+            "get": {
+                "description": "One stream carrying both status transitions and log lines, in the order\nthey happened. Events: `snapshot` (the whole job, first on every\nconnection), `phase`, `log`, `done`, and `error`.\n\n`error` means the STREAM failed, not the operation — an API pod restarting\nis not a failed deploy, and a client that conflates them will report one.\nThe end of the stream is `done` followed by EOF; an EOF without `done` is\na dropped connection, and the right response is to reconnect.\n\nNothing is remembered between connections. Reconnecting re-reads the job\nand resends the tail, which is idempotent — so upgrading the panel's own\nchart, which drops this stream from both ends, needs no special handling.\n\nA pipeline should poll the deployment instead; see\ndocs/deploying-from-a-pipeline.md.",
+                "parameters": [
+                    {
+                        "description": "Job name",
+                        "in": "path",
+                        "name": "job",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Lines of history first (default 500, max 5000)",
+                        "in": "query",
+                        "name": "tail",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the event stream"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Follow a Helm job",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
         "/api/helm/jobs/{job}/logs": {
             "get": {
                 "description": "Helm's own account of what it did, as plain text. This is where the reason\nfor a failed deploy is — the job's status says that it failed, not why.\n\nA 404 with code `no_pod_yet` means the pod has not been scheduled, which\nis the normal state for the first moment of every operation: retry. A 404\nwith `not_found` means the job is gone.",

@@ -45,6 +45,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/helm/jobs", h.listJobs)
 	mux.HandleFunc("GET /api/helm/jobs/{job}", h.readJob)
 	mux.HandleFunc("GET /api/helm/jobs/{job}/logs", h.jobLogs)
+	mux.HandleFunc("GET /api/helm/jobs/{job}/events", h.jobEvents)
 
 	mux.HandleFunc("GET /api/helm/deployments", h.listDeployments)
 	mux.HandleFunc("POST /api/helm/deployments", h.declareDeployment)
