@@ -19,19 +19,30 @@ export function ReleaseView({
 	history,
 	historyError,
 	versions,
-	inCatalog,
+	catalog,
 	now,
 }: {
 	release: HelmReleaseDetail;
 	history: HelmRevision[];
 	historyError: string | null;
 	versions: string[];
-	inCatalog: boolean;
+	/**
+	 * Whether this lab's catalog lists the chart this release came from, or could
+	 * not be read at all. Three states rather than two: an unreadable catalog is
+	 * not evidence that a chart is absent from it.
+	 */
+	catalog: "listed" | "unlisted" | "unknown";
 	now: Date;
 }) {
-	const [error, setError] = useState<string | null>(historyError);
+	// Two error sources, kept apart on purpose. historyError is a property of the
+	// data this render was given, so it must be read every render -- this page
+	// polls, and holding it in state would leave a recovered history showing a
+	// stale banner and a newly failed one showing none. actionError is what a
+	// rollback or an uninstall reported, which no re-render can recompute.
+	const [actionError, setActionError] = useState<string | null>(null);
 	const [upgrading, setUpgrading] = useState(false);
-	const rowDelete = useRowDelete(setError);
+	const rowDelete = useRowDelete(setActionError);
+	const error = actionError ?? historyError;
 
 	// The 202 design makes this page the progress indicator: nothing else reports
 	// what an install or upgrade did, because there is no job to poll.
@@ -89,14 +100,16 @@ export function ReleaseView({
 								{/* Offered only for a release this lab vetted. The API refuses
 								    an upgrade of anything else, and a version picker that
 								    would be refused is worse than none. */}
-								{inCatalog ? (
+								{catalog === "listed" ? (
 									<Button icon={History} onClick={() => setUpgrading(true)}>
 										Upgrade
 									</Button>
 								) : (
 									<span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
 										<AlertTriangle className="h-3.5 w-3.5" />
-										Not in this lab&rsquo;s catalog — upgrade it where it came from
+										{catalog === "unlisted"
+											? "Not in this lab\u2019s catalog \u2014 upgrade it where it came from"
+											: "The catalog could not be read, so there are no versions to offer"}
 									</span>
 								)}
 								<Button
@@ -133,7 +146,7 @@ export function ReleaseView({
 						revision={revision}
 						release={release}
 						now={now}
-						onError={setError}
+						onError={setActionError}
 					/>
 				))}
 			/>

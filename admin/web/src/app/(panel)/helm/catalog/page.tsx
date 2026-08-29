@@ -14,6 +14,11 @@ export const dynamic = "force-dynamic";
  * Namespaces come along because installing needs a target. Only the ones Helm may
  * write to are offered, and the API refuses the rest — offering a choice that
  * would be refused is worse than not offering it.
+ *
+ * A namespace read that failed is reported rather than folded into an empty list.
+ * Both leave the install action unavailable, and only one of them means "there is
+ * nowhere to install this" — an operator staring at a disabled button deserves to
+ * know which.
  */
 export default async function HelmCatalogPage() {
 	const [charts, namespaces] = await Promise.all([listCharts(), listNamespaces()]);
@@ -29,6 +34,7 @@ export default async function HelmCatalogPage() {
 					: []
 			}
 			loadError={charts.ok ? null : charts.error}
+			namespacesError={namespaces.ok ? null : namespaces.error}
 		/>
 	);
 }

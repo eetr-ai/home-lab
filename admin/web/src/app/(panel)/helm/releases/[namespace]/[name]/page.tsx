@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { Banner } from "@/components/ui/banner";
 import { listCharts, readHistory, readRelease } from "@/app/actions/helm";
 import { ReleaseView } from "./_components/release-view";
 
@@ -9,6 +9,11 @@ export const dynamic = "force-dynamic";
  *
  * The catalog comes along because upgrading offers its versions. Three round
  * trips either way, so they are made in parallel rather than in sequence.
+ *
+ * Each of the three failures is reported as itself. A read that fails is not the
+ * same as a release that is absent, and a catalog that could not be fetched is
+ * not the same as a chart this lab does not list — collapsing either into the
+ * other states something false with more confidence than a bare failure would.
  */
 export default async function HelmReleasePage({
 	params,
@@ -22,7 +27,13 @@ export default async function HelmReleasePage({
 		listCharts(),
 	]);
 
-	if (!release.ok) notFound();
+	// Not notFound(): the result carries a message and not a status, so a
+	// transport failure and an absent release are indistinguishable here. A 404
+	// page would assert the second whenever the first happened. This follows the
+	// workload detail page, which does the same for the same reason.
+	if (!release.ok) {
+		return <Banner variant="error" message={release.error} />;
+	}
 
 	// The catalog lists an entry by its key; a release records the chart's own
 	// name. Matching on the chart is what decides whether this release can be
@@ -38,7 +49,7 @@ export default async function HelmReleasePage({
 			history={history.ok ? history.data : []}
 			historyError={history.ok ? null : history.error}
 			versions={entry?.versions.map((version) => version.version) ?? []}
-			inCatalog={entry !== undefined}
+			catalog={!charts.ok ? "unknown" : entry ? "listed" : "unlisted"}
 			now={new Date()}
 		/>
 	);

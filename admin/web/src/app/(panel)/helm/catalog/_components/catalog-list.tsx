@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, Package, Plus } from "lucide-react";
-import { IconButton, Td, Th } from "@/components/ui";
+import { Banner, IconButton, Td, Th } from "@/components/ui";
 import { Directory } from "../../../_components/directory";
 import type { HelmChartListing } from "@/lib/api/types";
 import { InstallPanel } from "./install-panel";
@@ -11,15 +11,29 @@ export function CatalogList({
 	charts,
 	namespaces,
 	loadError,
+	namespacesError,
 }: {
 	charts: HelmChartListing[];
 	namespaces: string[];
 	loadError: string | null;
+	/**
+	 * Why there are no namespaces to install into, when the reason is a failure
+	 * rather than an empty cluster. Both disable the action; only one of them is
+	 * something to go and fix.
+	 */
+	namespacesError: string | null;
 }) {
 	const [installing, setInstalling] = useState<HelmChartListing | null>(null);
 
 	return (
 		<>
+			{namespacesError ? (
+				<Banner
+					variant="error"
+					message={`Namespaces could not be read, so there is nowhere to install into: ${namespacesError}`}
+				/>
+			) : null}
+
 			<Directory
 				error={loadError}
 				isEmpty={charts.length === 0}
