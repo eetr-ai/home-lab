@@ -566,6 +566,14 @@ for forbidden in platform-system admin kube-system kube-flannel default; do
   fi
 done
 
+# Scope enforcement is on, and this is what keeps it on. Without the assertion the
+# setting is one careless values edit away from being off again, and the failure
+# would be silent: everything keeps working, and the bound is gone.
+if ! render | grep -A1 'name: ADMIN_OIDC_REQUIRE_SCOPES' | grep -q 'value: "true"'; then
+  printf 'The API must require token scopes by default\n' >&2
+  exit 1
+fi
+
 # Helm reaches the cluster through the same credential the cluster slice does, so
 # it cannot be served without it.
 if ! render --set admin.api.kubernetes.enabled=false | grep -q 'ADMIN_HELM_DISABLED'; then
