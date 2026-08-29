@@ -3,11 +3,18 @@
 import { useRef, useState } from "react";
 import { Check, History, Minus } from "lucide-react";
 import { Button, Popover, cn } from "@/components/ui";
-import { formatAge } from "@/lib/format/age";
 import type { HelmDeploymentVersion } from "@/lib/api/types";
+import { formatAge } from "@/lib/format/age";
 
 /**
- * Every version ever declared, behind a button.
+ * Every version ever declared, behind a button that says which one you are on.
+ *
+ * One control doing both jobs, deliberately. The button is the indicator — it
+ * reads "Latest" while the newest version is loaded and names the version
+ * otherwise — and it is also how you change which version that is, because the
+ * list it opens is the way back. A separate badge and a separate "back to
+ * newest" button said the same thing in three places and still left the reader
+ * to connect them.
  *
  * A popover rather than a table down the page, because this is reference
  * material: it answers "what changed, and who changed it" when somebody asks,
@@ -26,6 +33,7 @@ export function VersionHistory({
 	now,
 	onOpenVersion,
 }: {
+	/** Newest first, which is the order the API returns them in. */
 	versions: HelmDeploymentVersion[];
 	/** The version currently loaded in the editor. */
 	selected: number;
@@ -35,18 +43,33 @@ export function VersionHistory({
 	const [open, setOpen] = useState(false);
 	const trigger = useRef<HTMLButtonElement>(null);
 
+	// versions is newest first, so the first entry is the one "latest" means.
+	const newest = versions[0]?.version ?? selected;
+	const older = selected !== newest;
+
 	return (
 		<>
+			{/* The label carries the state and the tone reinforces it. The button
+			    chrome stays the ordinary secondary pill: this is a control you press
+			    to look at something, not a warning you have to clear. */}
 			<Button
 				ref={trigger}
 				variant="secondary"
 				icon={History}
 				aria-expanded={open}
 				aria-haspopup="dialog"
+				aria-label={older ? `Version ${selected} of ${newest}. Choose a version.` : undefined}
+				className={cn(older && "text-warning-fg")}
 				onClick={() => setOpen((wasOpen) => !wasOpen)}
 			>
-				History
-				<span className="text-muted-foreground">({versions.length})</span>
+				{older ? (
+					`Version ${selected} of ${newest}`
+				) : (
+					<>
+						Latest
+						<span className="text-muted-foreground">({versions.length})</span>
+					</>
+				)}
 			</Button>
 
 			<Popover
@@ -60,7 +83,8 @@ export function VersionHistory({
 					<h3 className="text-sm font-medium">Version history</h3>
 					<p className="mt-0.5 text-xs text-muted-foreground">
 						Append-only. Choosing one loads its values into the editor; saving from there
-						writes a new version rather than changing this one.
+						writes a new version rather than changing this one. The top entry is the
+						latest.
 					</p>
 				</div>
 
