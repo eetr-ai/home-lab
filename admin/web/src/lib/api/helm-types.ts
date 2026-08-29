@@ -133,6 +133,44 @@ export interface RolloutDeployment {
 export interface HelmAccepted {
 	namespace: string;
 	release: string;
+	/** rollout, rollback, or uninstall. */
 	operation: string;
+	/**
+	 * The Kubernetes Job doing the work, in the panel's own namespace.
+	 *
+	 * This is what makes the 202 followable: the job has a status and a log, so
+	 * "did it work" is a question with a direct answer rather than one inferred by
+	 * reading the release back.
+	 */
+	job: string;
 	message: string;
+}
+
+/** How far along a Helm operation is. */
+export type HelmJobPhase = "pending" | "running" | "succeeded" | "failed";
+
+/**
+ * One Helm operation, as the Kubernetes Job performing it.
+ *
+ * Nothing here is stored anywhere: every field is read off the Job or derived
+ * from its labels. Finished jobs are removed by the cluster after a TTL, so this
+ * is a live view rather than a history — what survives a deploy is the release
+ * and its deployment record.
+ */
+export interface HelmJob {
+	name: string;
+	/** What the operation targets, not where the job runs. */
+	namespace: string;
+	release: string;
+	operation: string;
+	deploymentId?: string;
+	phase: HelmJobPhase;
+	/** Why it failed, when Kubernetes named a reason. Helm's own account is in the log. */
+	reason?: string;
+	actor?: string;
+	/** Empty until a pod has been scheduled, which is not immediate. */
+	pod?: string;
+	createdAt: string;
+	startedAt?: string;
+	finishedAt?: string;
 }

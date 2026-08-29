@@ -14,6 +14,7 @@ import type {
 	HelmDeploymentDetail,
 	HelmDeploymentSummary,
 	HelmDeploymentVersion,
+	HelmJob,
 	HelmRelease,
 	HelmReleaseDetail,
 	HelmRevision,
@@ -126,4 +127,23 @@ export async function uninstallRelease(
 	// The row-delete helper works in ActionResult<void>, and there is nothing in
 	// the acceptance a confirmation button would show.
 	return result.ok ? { ok: true, data: undefined } : result;
+}
+
+/**
+ * The Helm jobs matching a filter, newest first.
+ *
+ * A read rather than a write: looking at what is running changes nothing, and an
+ * operator without write access still needs to see whether a deploy somebody else
+ * started has finished.
+ */
+export async function listHelmJobs(filter: {
+	namespace?: string;
+	release?: string;
+	deployment?: string;
+}): Promise<ActionResult<HelmJob[]>> {
+	return withRead(() => helm.listJobs(filter));
+}
+
+export async function readHelmJob(name: string): Promise<ActionResult<HelmJob>> {
+	return withRead(() => helm.readJob(name));
 }
