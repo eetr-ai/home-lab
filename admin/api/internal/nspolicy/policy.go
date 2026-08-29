@@ -98,6 +98,35 @@ func (p Policy) Protected(namespace string, labels map[string]string) (bool, str
 	}
 }
 
+// ManagedNamespaces returns the namespaces configuration names as Helm's, minus
+// any that are protected, in the order they were configured.
+//
+// This is the list to enumerate. Finding the managed namespaces by reading every
+// namespace in the cluster and checking its label would need a cluster-wide grant
+// on Helm's release Secrets, which is exactly what this design refuses to hold.
+//
+// Protection is applied here and not left to the caller. Enumerating a namespace
+// is not a passive act: reading its Helm releases means reading its Secrets, so a
+// protected name surviving into this list is the leak, not a step towards one.
+// The chart refuses to render a protected namespace into the managed list, but
+// that list also arrives from an environment variable — and a policy that holds
+// only when the chart wrote it is not a policy.
+//
+// Labels are not consulted, because there is no object to read one from. That is
+// the same bound checkNamespace works under, and it is why this is still not the
+// same question as Managed: a name here has passed the checks that can be made
+// from configuration alone, so anything that writes must still ask.
+func (p Policy) ManagedNamespaces() []string {
+	managed := make([]string, 0, len(p.managed))
+	for _, namespace := range p.managed {
+		if protected, _ := p.Protected(namespace, nil); protected {
+			continue
+		}
+		managed = append(managed, namespace)
+	}
+	return managed
+}
+
 // Managed reports whether Helm may install into a namespace.
 //
 // Three conditions, and all of them are needed. The namespace must not be

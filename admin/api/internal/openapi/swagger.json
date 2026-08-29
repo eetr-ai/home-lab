@@ -26,6 +26,108 @@
                 },
                 "type": "object"
             },
+            "helm.Release": {
+                "properties": {
+                    "appVersion": {
+                        "type": "string"
+                    },
+                    "chart": {
+                        "type": "string"
+                    },
+                    "chartVersion": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "description": "Description is the log entry Helm writes on each revision: \"Upgrade\ncomplete\", or the reason one failed. It is the most useful field on a\nbroken release and the least interesting on a healthy one.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "revision": {
+                        "description": "Revision counts up from 1 and never repeats, including across a rollback:\nrolling back to revision 2 creates revision 5 rather than returning to 2.",
+                        "type": "integer"
+                    },
+                    "status": {
+                        "description": "Status is Helm's own vocabulary — deployed, failed, pending-upgrade,\nsuperseded, uninstalling — passed through rather than mapped, because an\noperator reading it here and running `helm status` should see one word.",
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.ReleaseDetail": {
+                "properties": {
+                    "appVersion": {
+                        "type": "string"
+                    },
+                    "chart": {
+                        "type": "string"
+                    },
+                    "chartVersion": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "description": "Description is the log entry Helm writes on each revision: \"Upgrade\ncomplete\", or the reason one failed. It is the most useful field on a\nbroken release and the least interesting on a healthy one.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "notes": {
+                        "description": "Notes is the chart's rendered NOTES.txt, which is where a chart says how to\nreach what it just installed.",
+                        "type": "string"
+                    },
+                    "revision": {
+                        "description": "Revision counts up from 1 and never repeats, including across a rollback:\nrolling back to revision 2 creates revision 5 rather than returning to 2.",
+                        "type": "integer"
+                    },
+                    "status": {
+                        "description": "Status is Helm's own vocabulary — deployed, failed, pending-upgrade,\nsuperseded, uninstalling — passed through rather than mapped, because an\noperator reading it here and running `helm status` should see one word.",
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    },
+                    "values": {
+                        "additionalProperties": {},
+                        "description": "Values are the values supplied when the release was installed or upgraded,\nand not the coalesced set. The coalesced set is the chart's entire\nvalues.yaml merged with these, which an operator would then re-submit as\ntheir own — pinning every default the chart ships with, forever.",
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.Revision": {
+                "properties": {
+                    "appVersion": {
+                        "type": "string"
+                    },
+                    "chartVersion": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "revision": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "http.ErrorBody": {
                 "properties": {
                     "error": {
@@ -940,6 +1042,309 @@
         "url": ""
     },
     "paths": {
+        "/api/helm/namespaces/{namespace}/releases": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.Release"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the Helm releases in one namespace",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/namespaces/{namespace}/releases/{release}": {
+            "get": {
+                "description": "The values are the ones supplied at install or upgrade, not the chart's\ndefaults merged with them. Re-submitting the merged set would pin every\ndefault the chart ships with.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Release name",
+                        "in": "path",
+                        "name": "release",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.ReleaseDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a Helm release",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/namespaces/{namespace}/releases/{release}/history": {
+            "get": {
+                "description": "Newest revision first. Revisions count up and never repeat: rolling back\nto revision 2 creates a new revision rather than returning to that one.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Release name",
+                        "in": "path",
+                        "name": "release",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.Revision"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a Helm release's history",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/releases": {
+            "get": {
+                "description": "Across every namespace this lab has made a Helm target. A release\ninstalled outside the panel is listed too: Helm's own storage is the\nsource of truth, so anything it recorded is visible here.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.Release"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List Helm releases",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
         "/api/kubernetes/namespaces": {
             "get": {
                 "responses": {

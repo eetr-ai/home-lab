@@ -1,0 +1,83 @@
+{{- if .Values.admin.api.kubernetes.enabled }}
+{{- if .Values.admin.api.helm.namespaces }}
+{{- /*
+Reading Helm releases, one namespace at a time.
+
+READ THIS BEFORE ADDING A NAMESPACE TO THE LIST.
+
+Helm keeps a release in a Secret in the namespace it was installed into: the
+chart it came from, the values it was given, the manifests it rendered, and every
+previous revision of all three. So reading releases means `get`, `list`, and
+`watch` on Secrets — and RBAC has no way to narrow that to Helm's own. There is no
+label selector in a Role, and `owner=helm` would buy nothing if there were.
+
+  A Helm-managed namespace is a namespace whose every Secret this panel can read.
+
+That is the whole cost of this feature, stated once and plainly. Anything holding
+a token the API accepts can reach those Secrets through it. A namespace holding a
+credential that matters must not appear in the list below.
+
+The read ClusterRole next door deliberately excludes configmaps, on the reasoning
+that plenty of workloads keep connection strings in one and the panel renders
+whatever it reads. Secrets are strictly worse, which is exactly why this grant is
+here rather than there:
+
+  - A Role, not a ClusterRole. It reaches into one namespace and stops.
+  - One per namespace named in admin.api.helm.namespaces, so the blast radius is
+    a list somebody has to edit rather than the cluster.
+  - Nothing wildcard, and no write verb at all yet — installing and upgrading is
+    a later change, and this one only reads.
+
+A protected namespace here is a render failure rather than a warning, because
+"someone put platform-system in the managed list" is exactly the mistake that
+turns a bounded grant into an unbounded one, and a warning in a Helm output
+nobody reads is not a control.
+
+tests/validate-admin-chart.sh asserts all of it: that these are Roles and not
+ClusterRoles, that the verbs are read-only, that nothing in
+rbac.authorization.k8s.io or apiextensions.k8s.io is granted, and that a
+protected namespace in the list fails the render.
+*/ -}}
+{{- $protected := concat (list .Release.Namespace "default" "kube-system" "kube-public" "kube-node-lease")
+      .Values.admin.api.kubernetes.namespaces.protected }}
+{{- range $namespace := .Values.admin.api.helm.namespaces }}
+{{- if has $namespace $protected }}
+{{- fail (printf "admin.api.helm.namespaces contains %s, which is a protected namespace" $namespace) }}
+{{- end }}
+{{- if hasPrefix "kube-" $namespace }}
+{{- fail (printf "admin.api.helm.namespaces contains %s, and kube-* namespaces are Kubernetes' own" $namespace) }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Release.Name }}-helm
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" $ | nindent 4 }}
+rules:
+  # Helm's release storage. See the warning above: this is every Secret in the
+  # namespace, and RBAC cannot make it fewer.
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Name }}-helm
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $.Release.Name }}-helm
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}
