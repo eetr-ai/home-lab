@@ -37,11 +37,19 @@ Register a confidential client in eetr-auth:
 
 - grant type `client_credentials` — a pipeline is not a person and has no browser
   to redirect
-- allowed scope: **`admin:deploy` and only that.** Not `admin:write`, which would
-  additionally let the pipeline scale and restart workloads; not `admin:read`,
-  which it does not need to check its own deploy — reading a release is permitted
-  to any accepted token today.
+- allowed scopes: **`admin:read admin:deploy`, and nothing else.** Not
+  `admin:write`, which would additionally let the pipeline scale and restart
+  workloads and delete namespaces.
 - audience: the value in `admin.api.oidc.audience`
+
+`admin:read` is not optional, and it is worth saying why rather than leaving it
+looking like slack in the scope list. A deploy is two operations: the `PUT` that
+starts it, and the polling that finds out whether it worked. The read routes
+require `admin:read`, and a token that names scopes is held to exactly the ones it
+names — so a pipeline issued `admin:deploy` alone gets its `202` and then **403 on
+every poll**, which a naive loop reads as "not finished yet" and waits out. A
+deployer that cannot observe its own deploy is not a smaller permission, it is a
+broken one.
 
 Store the client id and secret as pipeline secrets. Rotate them the way you rotate
 anything else.
@@ -54,8 +62,9 @@ anything else.
 ### How the scope is actually enforced, today
 
 Honestly: **partially.** The API refuses a caller whose token names scopes but not
-the one a route needs, and a pipeline's token names exactly one — so for the
-pipeline this is real authorization. A token naming *no* scopes is still
+the one a route needs, and a pipeline's token names two — so for the pipeline this
+is real authorization: it cannot restart a workload, scale one, or delete a
+namespace, because those need `admin:write`. A token naming *no* scopes is still
 unrestricted, which is what the panel's own token looks like, and is why
 `admin.api.oidc.requireScopes` is off.
 
@@ -68,7 +77,7 @@ is that scopes bound the callers that declare themselves, and the pipeline is on
 ```bash
 token=$(curl -sS -X POST "$ISSUER/token" \
   -d grant_type=client_credentials \
-  -d scope=admin:deploy \
+  -d 'scope=admin:read admin:deploy' \
   -u "$CLIENT_ID:$CLIENT_SECRET" | jq -r .access_token)
 
 curl -sS -X PUT "$API/api/helm/namespaces/apps/releases/my-app" \
@@ -139,6 +148,10 @@ rather than relying on the default.
 printing when the check fails.
 
 ## When a deploy will not start
+
+A `403` on the poll, right after a `202` on the deploy, means the token is missing
+`admin:read` — see the credential section. It is the one failure here that looks
+like a stuck deploy and is not.
 
 A `409` means something else is already changing that release. Usually that is a
 second pipeline run, and waiting is the right response.
