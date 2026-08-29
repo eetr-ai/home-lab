@@ -1,6 +1,7 @@
 package helm
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -355,5 +356,63 @@ func TestJobFromToleratesMissingLabels(t *testing.T) {
 	}
 	if job.Phase != PhasePending {
 		t.Errorf("phase = %q, want %q", job.Phase, PhasePending)
+	}
+}
+
+// A job name arrives as a path segment from a URL, so it is validated before it
+// reaches the API server rather than after.
+func TestReadJobValidatesTheName(t *testing.T) {
+	service := newDeploymentServiceWithJobs(newFakeRepo(), newFakeStore(), &fakeJobs{})
+
+	for _, name := range []string{"", "Not-A-Label", "../secrets", strings.Repeat("a", 64)} {
+		if _, err := service.ReadJob(t.Context(), name); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("%q: want ErrInvalidName, got %v", name, err)
+		}
+	}
+}
+
+// The pod is found through the job, never named by the caller. Otherwise this
+// would read the log of any pod in the panel's own namespace — which is where the
+// panel's own pods live.
+func TestJobLogsSaysSoWhenThereIsNoPodYet(t *testing.T) {
+	runner := &fakeJobs{active: []Job{{Name: "helm-rollout-abcde", Phase: PhasePending}}}
+	service := newDeploymentServiceWithJobs(newFakeRepo(), newFakeStore(), runner)
+
+	_, err := service.JobLogs(t.Context(), "helm-rollout-abcde", false, 100)
+	if !errors.Is(err, ErrNoPodYet) {
+		t.Fatalf("want ErrNoPodYet, got %v", err)
+	}
+	// And not ErrNotFound, which would tell a client to stop rather than retry.
+	if errors.Is(err, ErrNotFound) {
+		t.Error("a pod that has not started yet must not read as a job that is gone")
+	}
+}
+
+// A listing filtered to a namespace this lab does not manage is refused, like
+// every other read of one.
+func TestListJobsRefusesAnUnmanagedNamespace(t *testing.T) {
+	service := newDeploymentServiceWithJobs(newFakeRepo(), newFakeStore(), &fakeJobs{})
+
+	_, err := service.ListJobs(t.Context(), JobFilter{Namespace: "platform-system"})
+	if !errors.Is(err, ErrProtected) {
+		t.Fatalf("want ErrProtected, got %v", err)
+	}
+}
+
+// The tail parameter is an optimization, so a malformed one must not fail the
+// request — and an enormous one must not be honoured.
+func TestTailLines(t *testing.T) {
+	tests := map[string]int64{
+		"":       defaultLogTail,
+		"abc":    defaultLogTail,
+		"0":      defaultLogTail,
+		"-5":     defaultLogTail,
+		"100":    100,
+		"999999": maxLogTail,
+	}
+	for raw, want := range tests {
+		if got := tailLines(raw); got != want {
+			t.Errorf("tailLines(%q) = %d, want %d", raw, got, want)
+		}
 	}
 }

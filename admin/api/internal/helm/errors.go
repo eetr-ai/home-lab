@@ -39,4 +39,12 @@ var (
 	// ErrRepositoryUnreachable reports a chart repository that could not be read.
 	// Not the caller's fault, and deliberately not a 400.
 	ErrRepositoryUnreachable = errors.New("chart repository unreachable")
+	// ErrNoPodYet reports a job whose pod has not been scheduled.
+	//
+	// Deliberately distinct from ErrNotFound, because the two mean opposite
+	// things to a caller following an operation: this one says try again in a
+	// moment, and not-found says stop. Every job passes through it for the first
+	// moment of its life, so a client that conflates them shows "the log is gone"
+	// for every operation it watches from the start.
+	ErrNoPodYet = errors.New("no pod yet")
 )

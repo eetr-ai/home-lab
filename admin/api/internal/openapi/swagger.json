@@ -28,6 +28,10 @@
             },
             "helm.Accepted": {
                 "properties": {
+                    "job": {
+                        "description": "Job is the Kubernetes Job doing the work, in the panel's own namespace. It\nhas a status and a log, which is what makes \"did it work\" a question with a\ndirect answer rather than one inferred by reading the release back.",
+                        "type": "string"
+                    },
                     "message": {
                         "description": "Message says how to find out what happened, because the record of what was\nasked for and the record of what happened are two different systems.",
                         "type": "string"
@@ -36,7 +40,7 @@
                         "type": "string"
                     },
                     "operation": {
-                        "description": "Operation is install, upgrade, rollback, or uninstall.",
+                        "description": "Operation is rollout, rollback, or uninstall. Not install or upgrade:\nwhich of those a rollout turns out to be is decided by the Job, from what\nHelm has when the work starts.",
                         "type": "string"
                     },
                     "release": {
@@ -217,6 +221,51 @@
                     },
                     "version": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.Job": {
+                "properties": {
+                    "actor": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "finishedAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "description": "Namespace and Release are what the operation targets, not where the Job\nruns — the Job always runs in the panel's own namespace.",
+                        "type": "string"
+                    },
+                    "operation": {
+                        "type": "string"
+                    },
+                    "phase": {
+                        "description": "Phase is pending, running, succeeded, or failed.",
+                        "type": "string"
+                    },
+                    "pod": {
+                        "description": "Pod is empty until one has been scheduled, which is not immediate.",
+                        "type": "string"
+                    },
+                    "reason": {
+                        "description": "Reason says why, when a Job failed for a reason Kubernetes named —\nDeadlineExceeded, BackoffLimitExceeded. Helm's own account of a failure is\nin the log, not here.",
+                        "type": "string"
+                    },
+                    "release": {
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2173,6 +2222,281 @@
                     }
                 ],
                 "summary": "Add a version to a Helm deployment",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/jobs": {
+            "get": {
+                "description": "Every Helm mutation runs as a Kubernetes Job in the panel's own\nnamespace. This is how a caller that did not start one finds it — a page\nloaded after the operation began, or after the panel's own pods were\nreplaced by the upgrade being watched.\n\nFinished jobs are removed by the cluster after this lab's configured TTL,\nso this is a live view rather than a history. What survives is the release\nand its deployment record.",
+                "parameters": [
+                    {
+                        "description": "Only jobs targeting this namespace",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only jobs targeting this release",
+                        "in": "query",
+                        "name": "release",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only jobs for this deployment",
+                        "in": "query",
+                        "name": "deployment",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.Job"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List Helm jobs",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/jobs/{job}": {
+            "get": {
+                "description": "The status of one operation. `phase` is pending, running, succeeded, or\nfailed.\n\nA succeeded job is not the same as a successful deploy: with\nrollbackOnFailure set, a failed upgrade is undone and the job that undid\nit succeeded. The completion rule is still to read the deployment and\nassert both its status and its chart version.",
+                "parameters": [
+                    {
+                        "description": "Job name",
+                        "in": "path",
+                        "name": "job",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Job"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a Helm job",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/jobs/{job}/logs": {
+            "get": {
+                "description": "Helm's own account of what it did, as plain text. This is where the reason\nfor a failed deploy is — the job's status says that it failed, not why.\n\nA 404 with code `no_pod_yet` means the pod has not been scheduled, which\nis the normal state for the first moment of every operation: retry. A 404\nwith `not_found` means the job is gone.",
+                "parameters": [
+                    {
+                        "description": "Job name",
+                        "in": "path",
+                        "name": "job",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep the stream open",
+                        "in": "query",
+                        "name": "follow",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Lines of history first (default 500, max 5000)",
+                        "in": "query",
+                        "name": "tail",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the log"
+                    },
+                    "400": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a Helm job's log",
                 "tags": [
                     "helm"
                 ]

@@ -1,7 +1,9 @@
 package helm
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -345,4 +347,58 @@ func activeJob(jobs []Job) *Job {
 		}
 	}
 	return nil
+}
+
+// ReadJob returns one Helm job.
+//
+// The name is validated before it reaches the API server: it is a path segment
+// from a URL, and a generated Job name is a DNS label like any other.
+func (s *Service) ReadJob(ctx context.Context, name string) (Job, error) {
+	if s.jobs == nil {
+		return Job{}, ErrNotConfigured
+	}
+	if err := validateNamespace(name); err != nil {
+		return Job{}, fmt.Errorf("%w: %q is not a job name", ErrInvalidName, name)
+	}
+	return s.jobs.ReadJob(ctx, name)
+}
+
+// ListJobs returns the Helm jobs matching a filter, newest first.
+//
+// This is what lets a browser that never saw the 202 find the operation in
+// progress — a different operator's page, a pipeline's deploy, or the panel
+// loading again after its own pods were replaced mid-upgrade. Without it, the job
+// name would exist only in the reply to whoever started it.
+//
+// Unbounded, deliberately. These are reaped by ttlSecondsAfterFinished within a
+// day, and a lab that has run enough Helm operations in a day for this to need a
+// page has a different problem.
+func (s *Service) ListJobs(ctx context.Context, filter JobFilter) ([]Job, error) {
+	if s.jobs == nil {
+		return nil, ErrNotConfigured
+	}
+	if filter.Namespace != "" {
+		if err := s.checkNamespace(filter.Namespace); err != nil {
+			return nil, err
+		}
+	}
+	return s.jobs.ListJobs(ctx, filter)
+}
+
+// JobLogs opens the log of the pod performing an operation.
+//
+// The pod is found through the Job rather than named by the caller, so this
+// cannot be used to read the log of an arbitrary pod in the panel's namespace —
+// which is where the panel's own pods live.
+func (s *Service) JobLogs(ctx context.Context, name string, follow bool,
+	tail int64,
+) (io.ReadCloser, error) {
+	job, err := s.ReadJob(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if job.Pod == "" {
+		return nil, fmt.Errorf("%w: %s has no pod yet", ErrNoPodYet, name)
+	}
+	return s.jobs.PodLogs(ctx, job.Pod, follow, tail)
 }
