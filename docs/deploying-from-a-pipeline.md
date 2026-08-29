@@ -167,6 +167,12 @@ Clear it by rolling back to a revision from the release's history, which Helm
 permits from a pending state. The panel shows this on the release page with the
 history underneath it.
 
+**Unless it was the first install that wedged.** A release stuck on revision 1 has
+no earlier revision to return to, so there is nothing to roll back and the panel
+offers nothing to click. Uninstall it and install again — the release record is
+all that is wrong, and uninstalling removes whatever the half-finished install did
+create.
+
 ## What a pipeline cannot do
 
 - **Install a chart that is not in the catalog**, or at a version its repository

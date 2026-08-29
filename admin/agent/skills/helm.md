@@ -63,6 +63,12 @@ Say that plainly when you see it, and say what clears it: rolling back to a
 revision from the history. Rollback is deliberately still permitted from a pending
 state — it is the recovery path, not another thing that will be refused.
 
+Check the history before you recommend it, though. A release wedged on its *first*
+install is at revision 1 with nothing beneath it, so there is no revision to
+return to and rolling back is not available. That one is uninstalled and installed
+again instead, and saying "roll it back" would send somebody looking for a button
+that is not there.
+
 ## Revisions count up
 
 Rolling back does not return to the revision it names — it records a *new* one on
