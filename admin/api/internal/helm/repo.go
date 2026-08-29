@@ -214,10 +214,23 @@ func releaseFrom(item release.Releaser) (Release, error) {
 
 // chartMetadata reads the three fields worth showing off a chart.
 //
-// MetadataAsMap rather than the concrete metadata struct, for the same reason as
-// above: it is what the accessor interface offers, so it works for every release
-// shape. A field that is missing or is not a string comes back empty, which reads
-// as "unknown" in the panel rather than failing the whole listing.
+// The name comes from the accessor, which is typed. The two versions come from
+// MetadataAsMap, because the accessor interface offers no other way to reach
+// them — and that map is keyed by Helm's **Go field names**, not by the JSON
+// tags on the same struct. So the keys are Version and AppVersion rather than
+// the version and appVersion a reader of the chart's own YAML would expect.
+//
+// This is worth stating because getting it wrong is silent: a missing key yields
+// an empty string, the release still loads, and the chart column is simply blank
+// — which is what shipped until a real release was read back. Both spellings are
+// accepted so that a change to Helm's internals surfaces as neither.
+//
+// All three come from the map, including the name, even though the accessor has
+// a typed Name(). That method dereferences the chart's Metadata without checking
+// it for nil, so a release carrying a chart without one panics the process --
+// and this runs inside a detached goroutine, where a panic is not a failed
+// request but a dead API. MetadataAsMap checks, which is the whole reason to
+// prefer it.
 func chartMetadata(charter chartapi.Charter) (name, version, appVersion string) {
 	accessor, err := chartapi.NewAccessor(charter)
 	if err != nil {
@@ -225,13 +238,20 @@ func chartMetadata(charter chartapi.Charter) (name, version, appVersion string) 
 	}
 
 	metadata := accessor.MetadataAsMap()
-	return stringField(metadata, "name"), stringField(metadata, "version"),
-		stringField(metadata, "appVersion")
+	return stringField(metadata, "Name", "name"),
+		stringField(metadata, "Version", "version"),
+		stringField(metadata, "AppVersion", "appVersion")
 }
 
-func stringField(metadata map[string]any, key string) string {
-	value, _ := metadata[key].(string)
-	return value
+// stringField returns the first key that holds a string, so the caller can name
+// the spelling it expects and the one it would rather not depend on.
+func stringField(metadata map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := metadata[key].(string); ok && value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // descriptionOf reads the log entry Helm writes on each revision — "Upgrade
