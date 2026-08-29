@@ -24,12 +24,15 @@ type repository interface {
 	Uninstall(ctx context.Context, namespace, name string) error
 }
 
-// jobs is how one Helm operation is started and followed. Declared here, where it
+// Jobs is how one Helm operation is started and followed. Declared here, where it
 // is consumed, so the service can be tested without a cluster.
 //
-// Exported nowhere, unlike DeploymentStore, because there is no nil case to
-// distinguish: a lab with the Helm endpoints switched on always has one.
-type jobs interface {
+// Exported, like DeploymentStore and for the same reason: it is optional, and the
+// caller has to be able to declare a nil one. Handing a nil *JobRepository to a
+// parameter of interface type produces an interface that is not nil, and the
+// service's "can this lab deploy?" check would then be wrong in the one direction
+// that matters — it would try to.
+type Jobs interface {
 	CreateJob(ctx context.Context, spec JobSpec, ref ReleaseRef, actor string) (Job, error)
 	ReadJob(ctx context.Context, name string) (Job, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
@@ -84,14 +87,14 @@ type Service struct {
 	store DeploymentStore
 	// jobs performs every mutation. Nothing writes to the cluster from this
 	// process any more.
-	jobs    jobs
+	jobs    Jobs
 	policy  nspolicy.Policy
 	timeout time.Duration
 	logger  *slog.Logger
 }
 
 // NewService builds the service.
-func NewService(repo repository, deployments DeploymentStore, runner jobs,
+func NewService(repo repository, deployments DeploymentStore, runner Jobs,
 	policy nspolicy.Policy, timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{

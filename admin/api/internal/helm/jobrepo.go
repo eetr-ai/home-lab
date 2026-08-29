@@ -122,7 +122,7 @@ func (r *JobRepository) WatchJob(ctx context.Context, name string) (<-chan Job, 
 		return nil, translate(err, "watch job "+name)
 	}
 
-	watcher, err := watch.NewRetryWatcher(initial.ResourceVersion,
+	watcher, err := watch.NewRetryWatcherWithContext(ctx, initial.ResourceVersion,
 		&jobListWatch{jobs: jobs, name: name})
 	if err != nil {
 		return nil, fmt.Errorf("watch job %s: %w", name, err)
@@ -166,9 +166,22 @@ type jobListWatch struct {
 	name string
 }
 
-func (w *jobListWatch) Watch(options metav1.ListOptions) (apiwatch.Interface, error) {
+// The signature is fixed by cache.WatcherWithContext, which is what
+// RetryWatcherWithContext consumes. Taking the context here rather than reaching
+// for context.Background is the reason to use the context-aware watcher at all:
+// a re-established watch is bounded by the caller's stream like the first one.
+//
+//nolint:ireturn // the signature is fixed by cache.WatcherWithContext
+func (w *jobListWatch) WatchWithContext(ctx context.Context,
+	options metav1.ListOptions,
+) (apiwatch.Interface, error) {
 	options.FieldSelector = fields.OneTermEqualSelector("metadata.name", w.name).String()
-	return w.jobs.Watch(context.Background(), options)
+
+	watcher, err := w.jobs.Watch(ctx, options)
+	if err != nil {
+		return nil, fmt.Errorf("watch job %s: %w", w.name, err)
+	}
+	return watcher, nil
 }
 
 // PodLogs opens the log of the pod running a Job.
@@ -206,7 +219,7 @@ func (r *JobRepository) podFor(ctx context.Context, job *batchv1.Job) (string, e
 		LabelSelector: labels.Set{labelName: jobComponent}.String(),
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("find the pod for job %s: %w", job.Name, err)
 	}
 
 	for i := range pods.Items {

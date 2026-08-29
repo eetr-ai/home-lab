@@ -138,6 +138,21 @@ release_role='home-lab-admin-read'
 # block (`verbs:` then `- get`) — so a reformat does not quietly change what is
 # asserted. Parsing stops at the ClusterRoleBinding, which has no rules of its own
 # but would otherwise contribute to the set.
+# One YAML document out of a multi-document render, chosen by metadata.name.
+#
+# rbac-deploy.yaml renders two roles now — one the API reads with, one the Job
+# deploys with — and reading the whole file merges their rules into a single set.
+# That would pass on a chart that had given the API every write verb back, which
+# is the exact regression these assertions exist to catch.
+doc_named() {
+  awk -v want="  name: $1" '
+    /^---$/ { if (match_found) exit; buffer = ""; match_found = 0; next }
+    { buffer = buffer $0 "\n" }
+    $0 == want { match_found = 1 }
+    END { if (match_found) printf "%s", buffer }
+  '
+}
+
 extract_pairs() {
   awk '
     function items(line,   s) { s = line; sub(/^[^[]*\[/, "", s); sub(/\].*$/, "", s)
@@ -333,8 +348,8 @@ fi
 #
 # Nothing at all by default: an empty namespace list must leave no Role, no
 # RoleBinding, and no reference to one behind.
-if grep -qE '^kind: Role$|-helm$' "$output_file"; then
-  printf 'The Helm read grant must not be created by default\n' >&2
+if grep -qE '^kind: Role$|-helm(-read|-jobs)?$|admin-helm-job' "$output_file"; then
+  printf 'The Helm grants must not be created by default\n' >&2
   exit 1
 fi
 
@@ -347,9 +362,49 @@ if grep -q '^kind: ClusterRole' <<<"$helm_rbac"; then
   printf 'The Helm grant must be a namespaced Role, never a ClusterRole\n' >&2
   exit 1
 fi
-if [[ $(grep -c '^kind: Role$' <<<"$helm_rbac") != 1 ]] ||
-   [[ $(grep -c '^kind: RoleBinding$' <<<"$helm_rbac") != 1 ]]; then
-  printf 'One managed namespace must render exactly one Role and one RoleBinding\n' >&2
+# Two of each per namespace: one pair the API reads releases with, one pair the
+# Job deploys with. The split is the point of the whole arrangement, so a render
+# that collapsed back to one is a failure whichever one survived.
+if [[ $(grep -c '^kind: Role$' <<<"$helm_rbac") != 2 ]] ||
+   [[ $(grep -c '^kind: RoleBinding$' <<<"$helm_rbac") != 2 ]]; then
+  printf 'One managed namespace must render two Roles and two RoleBindings\n' >&2
+  exit 1
+fi
+
+# THE assertion of this change: the deploy grant belongs to the Job's account and
+# not to the API's.
+#
+# Read the binding's own subjects block rather than grepping the document. A
+# document-wide grep for admin-helm-job passes on a chart that ALSO still binds
+# admin-api, which is precisely the regression that would silently undo this.
+deploy_subjects=$(printf '%s\n' "$helm_rbac" |
+  awk '/^kind: RoleBinding$/ { inside = 0 } /name: home-lab-admin-helm$/ { inside = 1 }
+       inside && /^subjects:/ { grab = 1; next } grab && /^[^ ]/ { grab = 0 }
+       grab { print }')
+if ! grep -q 'name: admin-helm-job' <<<"$deploy_subjects"; then
+  printf 'The Helm deploy grant must be bound to admin-helm-job\n' >&2
+  exit 1
+fi
+if grep -q 'name: admin-api' <<<"$deploy_subjects"; then
+  printf 'The Helm deploy grant must NOT be bound to admin-api: it is the long-lived\n' >&2
+  printf 'credential two pods carry a token for, and moving it off that account is\n' >&2
+  printf 'the entire point of running Helm in a Job.\n' >&2
+  exit 1
+fi
+
+# The API keeps exactly enough to READ a release, which means Secrets and only
+# Secrets, and only get/list/watch. A write verb here would put the deploy grant
+# back on the long-lived credential one resource at a time.
+helm_read_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-helm-read | extract_pairs)
+expected_read_pairs=$(LC_ALL=C sort <<'READPAIRS'
+core/secrets get
+core/secrets list
+core/secrets watch
+READPAIRS
+)
+if [[ $helm_read_pairs != "$expected_read_pairs" ]]; then
+  printf 'The API Helm read grant must be Secrets get/list/watch and nothing else.\n' >&2
+  diff <(printf '%s\n' "$expected_read_pairs") <(printf '%s\n' "$helm_read_pairs") >&2 || true
   exit 1
 fi
 
@@ -359,10 +414,39 @@ if ! grep -A4 '^kind: Role$' <<<"$helm_rbac" | grep -q '  namespace: apps'; then
   exit 1
 fi
 
-# Read-only, and reaching nothing but Secrets. extract_pairs stops at the first
-# ClusterRoleBinding, of which this document has none, so it reads the whole thing.
-helm_pairs=$(printf '%s\n' "$helm_rbac" | extract_pairs)
+# The Job's own grant: everything a chart in this lab needs to be installed.
+# Scoped to that one role, because the document also holds the API's read role and
+# reading both together would merge their rules.
+helm_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-helm | extract_pairs)
 expected_helm_pairs=$(LC_ALL=C sort <<'HELMPAIRS'
+rbac.authorization.k8s.io/clusterrolebindings create
+rbac.authorization.k8s.io/clusterrolebindings delete
+rbac.authorization.k8s.io/clusterrolebindings get
+rbac.authorization.k8s.io/clusterrolebindings list
+rbac.authorization.k8s.io/clusterrolebindings patch
+rbac.authorization.k8s.io/clusterrolebindings update
+rbac.authorization.k8s.io/clusterrolebindings watch
+rbac.authorization.k8s.io/clusterroles create
+rbac.authorization.k8s.io/clusterroles delete
+rbac.authorization.k8s.io/clusterroles get
+rbac.authorization.k8s.io/clusterroles list
+rbac.authorization.k8s.io/clusterroles patch
+rbac.authorization.k8s.io/clusterroles update
+rbac.authorization.k8s.io/clusterroles watch
+rbac.authorization.k8s.io/rolebindings create
+rbac.authorization.k8s.io/rolebindings delete
+rbac.authorization.k8s.io/rolebindings get
+rbac.authorization.k8s.io/rolebindings list
+rbac.authorization.k8s.io/rolebindings patch
+rbac.authorization.k8s.io/rolebindings update
+rbac.authorization.k8s.io/rolebindings watch
+rbac.authorization.k8s.io/roles create
+rbac.authorization.k8s.io/roles delete
+rbac.authorization.k8s.io/roles get
+rbac.authorization.k8s.io/roles list
+rbac.authorization.k8s.io/roles patch
+rbac.authorization.k8s.io/roles update
+rbac.authorization.k8s.io/roles watch
 apps/daemonsets create
 apps/daemonsets delete
 apps/daemonsets get
@@ -479,64 +563,106 @@ fi
 # text, because the RoleBinding's own roleRef legitimately names the RBAC group --
 # grepping the document would fail on a correct chart, which is the kind of
 # assertion that gets deleted rather than fixed.
-if grep -qE '^(rbac\.authorization\.k8s\.io|apiextensions\.k8s\.io)/' <<<"$helm_pairs"; then
-  printf 'The Helm Role must not reach RBAC or CustomResourceDefinitions by default\n' >&2
+# CustomResourceDefinitions stay out. A chart needing them is one to install by
+# hand and then read from the panel.
+#
+# RBAC does not, and used to: admin.api.helm.selfDeploy gated it because these
+# verbs were held by the API's own long-lived credential, which made "can hand
+# every permission it holds to any ServiceAccount" a standing property of it. They
+# belong to a Job that lives for one operation now, so the flag is gone and the
+# grant is unconditional. This chart renders four RBAC objects, so upgrading the
+# panel needs them.
+if grep -q '^apiextensions\.k8s\.io/' <<<"$helm_pairs"; then
+  printf 'The Helm deploy grant must not reach CustomResourceDefinitions\n' >&2
   exit 1
 fi
 
-# admin.api.helm.selfDeploy is the one way to reach RBAC, and it is opt-in
-# because it lets the panel hand every permission it holds to any ServiceAccount.
-# Two things are asserted: that it grants exactly the four resources the admin
-# chart needs, and that it does NOT grant escalate or bind -- without those,
-# Kubernetes refuses a role holding more than the panel already holds, which is
-# the difference between a wide grant and an unbounded one.
-self_deploy_pairs=$(render --set 'admin.api.helm.namespaces[0]=apps' \
-  --set admin.api.helm.selfDeploy=true \
-  --show-only templates/api/rbac-deploy.yaml | extract_pairs)
+# What must never appear, flag or no flag. Without escalate and bind, Kubernetes
+# refuses to let this create a role holding more than the Job already holds --
+# which is the difference between a wide grant and an unbounded one, and the only
+# bound left on it.
+if grep -qE ' (escalate|bind)$' <<<"$helm_pairs"; then
+  printf 'The Helm deploy grant must never hold escalate or bind: that removes the\n' >&2
+  printf 'only thing stopping it granting more than it holds.\n' >&2
+  exit 1
+fi
 
-expected_self_deploy=$(LC_ALL=C sort <<'SELFPAIRS'
-rbac.authorization.k8s.io/clusterrolebindings create
-rbac.authorization.k8s.io/clusterrolebindings delete
-rbac.authorization.k8s.io/clusterrolebindings get
-rbac.authorization.k8s.io/clusterrolebindings list
-rbac.authorization.k8s.io/clusterrolebindings patch
-rbac.authorization.k8s.io/clusterrolebindings update
-rbac.authorization.k8s.io/clusterrolebindings watch
-rbac.authorization.k8s.io/clusterroles create
-rbac.authorization.k8s.io/clusterroles delete
-rbac.authorization.k8s.io/clusterroles get
-rbac.authorization.k8s.io/clusterroles list
-rbac.authorization.k8s.io/clusterroles patch
-rbac.authorization.k8s.io/clusterroles update
-rbac.authorization.k8s.io/clusterroles watch
-rbac.authorization.k8s.io/rolebindings create
-rbac.authorization.k8s.io/rolebindings delete
-rbac.authorization.k8s.io/rolebindings get
-rbac.authorization.k8s.io/rolebindings list
-rbac.authorization.k8s.io/rolebindings patch
-rbac.authorization.k8s.io/rolebindings update
-rbac.authorization.k8s.io/rolebindings watch
-rbac.authorization.k8s.io/roles create
-rbac.authorization.k8s.io/roles delete
-rbac.authorization.k8s.io/roles get
-rbac.authorization.k8s.io/roles list
-rbac.authorization.k8s.io/roles patch
-rbac.authorization.k8s.io/roles update
-rbac.authorization.k8s.io/roles watch
-SELFPAIRS
+# The flag that used to gate the RBAC verbs is gone, not defaulted. Asserted by
+# rendering with it, because a values file still setting it must fail loudly
+# rather than be quietly ignored -- values.schema.json is additionalProperties:
+# false, and that is what makes this a clear message instead of a silent no-op.
+if render --set admin.api.helm.selfDeploy=true >/dev/null 2>&1; then
+  printf 'admin.api.helm.selfDeploy is gone; setting it must fail the render rather\n' >&2
+  printf 'than being ignored.\n' >&2
+  exit 1
+fi
+
+# The API's own write grant, which is the whole of what its long-lived credential
+# may change on the cluster.
+#
+# Read the warning at the top of rbac-jobs.yaml before reading this as small:
+# `create` on a Job here is, in reach, equivalent to holding the deploy grant
+# above, because Kubernetes does not check whether a Job's creator may run as the
+# Job's ServiceAccount. What these assert is the shape, not a bound.
+jobs_rbac=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+  --show-only templates/api/rbac-jobs.yaml)
+helm_deploy_env=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+  --show-only templates/api/deployment.yaml)
+
+# Namespaced, and to the release namespace. A ClusterRole here would let the panel
+# start a privileged pod in any namespace on the cluster.
+if grep -q '^kind: ClusterRole' <<<"$jobs_rbac"; then
+  printf 'The API Jobs grant must be a namespaced Role, never a ClusterRole\n' >&2
+  exit 1
+fi
+if ! grep -A4 '^kind: Role$' <<<"$jobs_rbac" | grep -q '  namespace: admin'; then
+  printf "The API Jobs grant must live in the release namespace\n" >&2
+  exit 1
+fi
+
+jobs_pairs=$(printf '%s\n' "$jobs_rbac" | extract_pairs)
+expected_jobs_pairs=$(LC_ALL=C sort <<'JOBPAIRS'
+batch/jobs create
+batch/jobs get
+batch/jobs list
+batch/jobs watch
+JOBPAIRS
 )
-added=$(comm -13 <(printf '%s\n' "$expected_helm_pairs") <(printf '%s\n' "$self_deploy_pairs"))
-if [[ $added != "$expected_self_deploy" ]]; then
-  printf 'selfDeploy must add exactly the RBAC resources this chart renders, and nothing else.\n' >&2
-  diff <(printf '%s\n' "$expected_self_deploy") <(printf '%s\n' "$added") >&2 || true
+if [[ $jobs_pairs != "$expected_jobs_pairs" ]]; then
+  printf 'The API Jobs grant must be exactly create/get/list/watch on jobs.\n' >&2
+  printf 'No delete, update, or patch: the API never edits a Job, the TTL reaps them,\n' >&2
+  printf 'and delete would be a way to cancel an operation mid-apply and wedge a release.\n' >&2
+  diff <(printf '%s\n' "$expected_jobs_pairs") <(printf '%s\n' "$jobs_pairs") >&2 || true
   exit 1
 fi
-if grep -qE ' (escalate|bind)$' <<<"$self_deploy_pairs"; then
-  printf 'selfDeploy must never grant escalate or bind: that removes the only bound left\n' >&2
+
+# The account the Job runs as exists wherever the grant that names it does.
+if ! render --set 'admin.api.helm.namespaces[0]=apps' \
+    --show-only templates/api/serviceaccount.yaml | grep -q 'name: admin-helm-job'; then
+  printf 'A managed namespace must render the admin-helm-job ServiceAccount\n' >&2
   exit 1
 fi
-if grep -q '^apiextensions\.k8s\.io/' <<<"$self_deploy_pairs"; then
-  printf 'selfDeploy must not reach CustomResourceDefinitions\n' >&2
+
+# Which account a Helm Job runs as is read from the API's own environment and is
+# never influenced by a request -- see buildJob. Asserted here because the chart
+# is where the value comes from.
+if ! grep -A1 'name: ADMIN_HELM_JOB_SERVICE_ACCOUNT' <<<"$helm_deploy_env" |
+    grep -q 'value: "\?admin-helm-job'; then
+  printf 'ADMIN_HELM_JOB_SERVICE_ACCOUNT must name admin-helm-job\n' >&2
+  exit 1
+fi
+
+# The Job runs the same image as the API. The design rests on it being the same
+# binary, so a values key that could point it elsewhere does not exist.
+if ! grep -A1 'name: ADMIN_HELM_JOB_IMAGE$' <<<"$helm_deploy_env" | grep -q 'admin-api:'; then
+  printf "ADMIN_HELM_JOB_IMAGE must be the API's own image\n" >&2
+  exit 1
+fi
+
+# The self-upgrade special case is gone, and so is the identity it needed.
+if grep -q 'ADMIN_RELEASE_NAME' "$output_file"; then
+  printf 'ADMIN_RELEASE_NAME is gone: nothing recognises its own release any more,\n' >&2
+  printf 'because a Job is not replaced by the chart it applies.\n' >&2
   exit 1
 fi
 
@@ -558,19 +684,19 @@ fi
 helm_all=$(render --set admin.api.helm.allNamespaces=true \
   --show-only templates/api/rbac-deploy.yaml)
 
-if [[ $(grep -c '^kind: ClusterRole$' <<<"$helm_all") != 1 ]] ||
-   [[ $(grep -c '^kind: ClusterRoleBinding$' <<<"$helm_all") != 1 ]]; then
-  printf 'allNamespaces must render exactly one ClusterRole and one ClusterRoleBinding\n' >&2
+if [[ $(grep -c '^kind: ClusterRole$' <<<"$helm_all") != 2 ]] ||
+   [[ $(grep -c '^kind: ClusterRoleBinding$' <<<"$helm_all") != 2 ]]; then
+  printf 'allNamespaces must render exactly two ClusterRoles and two ClusterRoleBindings\n' >&2
   exit 1
 fi
 if grep -qE '^kind: Role$|^kind: RoleBinding$' <<<"$helm_all"; then
   printf 'allNamespaces must render no per-namespace Roles\n' >&2
   exit 1
 fi
-if [[ $(printf '%s\n' "$helm_all" | extract_pairs) != "$expected_helm_pairs" ]]; then
+if [[ $(printf '%s\n' "$helm_all" | doc_named home-lab-admin-helm | extract_pairs) != "$expected_helm_pairs" ]]; then
   printf 'The cluster-wide Helm grant must hold exactly the same verbs as the bounded one.\n' >&2
   diff <(printf '%s\n' "$expected_helm_pairs") \
-    <(printf '%s\n' "$helm_all" | extract_pairs) >&2 || true
+    <(printf '%s\n' "$helm_all" | doc_named home-lab-admin-helm | extract_pairs) >&2 || true
   exit 1
 fi
 
@@ -616,6 +742,14 @@ helm_dsn=$(render --set admin.api.helm.postgres.enabled=true \
   --show-only templates/api/deployment.yaml)
 if ! grep -A3 'name: ADMIN_HELM_DSN' <<<"$helm_dsn" | grep -q 'secretKeyRef'; then
   printf 'ADMIN_HELM_DSN must be read from a Secret\n' >&2
+  exit 1
+fi
+# The Job gets the same credential as a name and a key rather than a value, so
+# the API can write a secretKeyRef without ever handling the connection string. A
+# Job is not a Secret: anything able to list Jobs can read every literal in one.
+if ! grep -q 'name: ADMIN_HELM_DSN_SECRET_NAME' <<<"$helm_dsn" ||
+   ! grep -q 'name: ADMIN_HELM_DSN_SECRET_KEY' <<<"$helm_dsn"; then
+  printf 'The API needs the DSN Secret name and key so a Job can reference it\n' >&2
   exit 1
 fi
 if grep -A3 'name: ADMIN_HELM_DSN' <<<"$helm_dsn" | grep -qE '(postgres://|postgresql://)'; then

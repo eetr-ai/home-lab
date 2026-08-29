@@ -124,6 +124,12 @@ var helmCacheSize = resource.MustParse("256Mi")
 // is a legible terminal state where a pod running forever is not.
 const deadlineSlack = 2 * time.Minute
 
+// nonRootUser is the uid and gid a Job's pod runs as.
+//
+// The same one the API pod uses, which is distroless' `nonroot`. The image is the
+// same, so the user has to be.
+const nonRootUser int64 = 65532
+
 // maxGeneratedNameBase leaves room for the suffix the API server appends.
 //
 // A generated name is the base plus five characters, and the whole must still be
@@ -203,7 +209,7 @@ func jobPodSpec(spec JobSpec, config JobConfig) corev1.PodSpec {
 	nonRoot := true
 	noEscalation := false
 	readOnlyRoot := true
-	user := int64(65532)
+	user := nonRootUser
 
 	pod := corev1.PodSpec{
 		RestartPolicy:      corev1.RestartPolicyNever,

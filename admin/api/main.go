@@ -272,16 +272,31 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		deployments = store
 	}
 
-	jobConfig, err := helmJobConfig(timeout)
-	if err != nil {
-		return err
-	}
-	runner, err := helm.NewJobRepository(jobConfig)
-	if err != nil {
-		return err
+	// Only when this lab has actually named somewhere to deploy. With no managed
+	// namespace every mutation answers 501 before it reaches a Job, so requiring
+	// the Job's configuration would fail a panel that was only ever meant to read
+	// releases — and the read routes work without any of it.
+	var runner *helm.JobRepository
+	if policy.ManagesEverything() || len(policy.ManagedNamespaces()) > 0 {
+		jobConfig, err := helmJobConfig(timeout)
+		if err != nil {
+			return err
+		}
+		if runner, err = helm.NewJobRepository(jobConfig); err != nil {
+			return err
+		}
 	}
 
-	helm.NewHandler(helm.NewService(repo, deployments, runner, policy, timeout, logger)).
+	// Declared as the interface and assigned only when there is one, for the same
+	// reason the store is: a nil *helm.JobRepository handed to an interface
+	// parameter is an interface that is not nil, and the service would call
+	// through it instead of answering 501.
+	var operations helm.Jobs
+	if runner != nil {
+		operations = runner
+	}
+
+	helm.NewHandler(helm.NewService(repo, deployments, operations, policy, timeout, logger)).
 		Register(mux)
 	logger.Info("serving the Helm endpoints",
 		slog.Any("namespaces", policy.ManagedNamespaces()),

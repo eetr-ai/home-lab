@@ -98,29 +98,23 @@ func (s *Service) StreamJob(ctx context.Context, name string, tail int64,
 	}
 
 	// The log is followed on its own goroutine, because the watch and the log are
-	// two blocking reads and this has to interleave them. Both write through the
-	// same channel so the sequence the browser sees is one order.
-	events := make(chan struct {
-		event   string
-		payload JobEvent
-	}, 64)
-
+	// two blocking reads and this has to interleave them. Both reach the client
+	// through the loop below, so the sequence it sees is one order.
 	logCtx, stopLog := context.WithCancel(ctx)
 	defer stopLog()
 
+	events := make(chan logEvent, eventBuffer)
+
 	// Captured before the goroutine starts, and never read from `job` again. The
-	// loop below tracks the pod in its own variable: sharing one struct across
-	// the two would be a data race, and the race detector finds it.
+	// loop tracks the pod in its own variable: sharing one struct across the two
+	// would be a data race, and the race detector finds it.
 	startingPod := job.Pod
 
 	go func() {
 		defer close(events)
 		s.follow(logCtx, name, startingPod, tail, func(event string, payload JobEvent) error {
 			select {
-			case events <- struct {
-				event   string
-				payload JobEvent
-			}{event, payload}:
+			case events <- logEvent{event, payload}:
 				return nil
 			case <-logCtx.Done():
 				return logCtx.Err()
@@ -128,6 +122,80 @@ func (s *Service) StreamJob(ctx context.Context, name string, tail int64,
 		})
 	}()
 
+	return s.watch(ctx, job, updates, events, stopLog, send)
+}
+
+// onUpdate handles one watch event, and reports whether the stream is over.
+func (s *Service) onUpdate(update Job, open bool, phase, pod *string,
+	events chan logEvent, stopLog context.CancelFunc,
+	send func(string, JobEvent) error,
+) (done bool, err error) {
+	if !open {
+		// The watch ended without the job reaching a terminal phase. That is the
+		// stream failing, not the operation — say so, and let the client
+		// reconnect and re-derive.
+		return true, send(EventError, JobEvent{
+			Phase: *phase,
+			Error: "the connection to the cluster ended before the operation did",
+		})
+	}
+
+	if !announce(update, phase, pod, send) {
+		return true, nil
+	}
+	if !update.Active() {
+		return true, s.finish(update, events, stopLog, send)
+	}
+	return false, nil
+}
+
+// announce reports a change in phase or pod, and says whether the client is still
+// listening.
+//
+// Only on an actual change: a watch re-lists on reconnect and re-delivers what it
+// already sent, and a browser told "running" four times would render four entries
+// for one transition.
+func announce(update Job, phase, pod *string, send func(string, JobEvent) error) bool {
+	changed := update.Phase != *phase || update.Pod != *pod
+	*phase, *pod = update.Phase, update.Pod
+	if !changed {
+		return true
+	}
+	return send(EventPhase, JobEvent{
+		Phase: update.Phase, Reason: update.Reason, Pod: update.Pod,
+	}) == nil
+}
+
+// finish closes a stream whose job has reached a terminal phase.
+//
+// The log drains before the terminal event, so the reason a deploy failed is
+// above the word "failed" rather than below it. Not by cancelling the follower
+// first: that races, and it loses the race exactly when it matters — a job that
+// fails fast reaches its terminal status before its own error message has been
+// read, and cancelling then discards the one thing worth showing.
+//
+// The pod has exited by now, so its log ends on its own and this is normally
+// instant. The grace period is for the case where it does not, because a stream
+// that never says "done" is worse than one missing its last few lines.
+func (s *Service) finish(job Job, events chan logEvent, stopLog context.CancelFunc,
+	send func(string, JobEvent) error,
+) error {
+	s.drain(events, send, logDrainGrace)
+	stopLog()
+	return send(EventDone, JobEvent{Phase: job.Phase, Reason: job.Reason})
+}
+
+// logEvent is one thing the log follower produced, on its way to the client.
+type logEvent struct {
+	event   string
+	payload JobEvent
+}
+
+// watch interleaves the job's status changes with its log until it ends.
+func (s *Service) watch(ctx context.Context, job Job, updates <-chan Job,
+	events chan logEvent, stopLog context.CancelFunc,
+	send func(string, JobEvent) error,
+) error {
 	ticker := time.NewTicker(heartbeat)
 	defer ticker.Stop()
 
@@ -140,55 +208,25 @@ func (s *Service) StreamJob(ctx context.Context, name string, tail int64,
 		case <-ticker.C:
 			// A comment, not an event. The client skips it, and every proxy in
 			// between sees traffic.
-			if err := send("", JobEvent{}); err != nil {
+			if send("", JobEvent{}) != nil {
 				return nil
 			}
 
 		case entry, open := <-events:
 			if !open {
+				// The follower is done. Nil the channel so this case stops being
+				// ready — a closed one is always ready, and leaving it would spin.
 				events = nil
 				continue
 			}
-			if err := send(entry.event, entry.payload); err != nil {
+			if send(entry.event, entry.payload) != nil {
 				return nil
 			}
 
 		case update, open := <-updates:
-			if !open {
-				// The watch ended without the job reaching a terminal phase. That
-				// is the stream failing, not the operation — say so, and let the
-				// client reconnect and re-derive.
-				return send(EventError, JobEvent{
-					Phase: phase,
-					Error: "the connection to the cluster ended before the operation did",
-				})
-			}
-
-			if update.Phase != phase || update.Pod != pod {
-				phase, pod = update.Phase, update.Pod
-				if err := send(EventPhase, JobEvent{
-					Phase: update.Phase, Reason: update.Reason, Pod: update.Pod,
-				}); err != nil {
-					return nil
-				}
-			}
-
-			if !update.Active() {
-				// Let the log drain before the terminal event, so the reason a
-				// deploy failed is above the word "failed" rather than below it.
-				//
-				// Not by cancelling the follower first: that races, and the race
-				// is lost exactly when it matters — a job that fails fast reaches
-				// its terminal status before its own error message has been read,
-				// and cancelling then discards the one thing worth showing.
-				//
-				// The pod has exited by now, so its log ends on its own and this
-				// is normally instant. The grace period is for the case where it
-				// does not, because a stream that never says "done" is worse than
-				// one missing its last few lines.
-				s.drain(events, send, logDrainGrace)
-				stopLog()
-				return send(EventDone, JobEvent{Phase: update.Phase, Reason: update.Reason})
+			done, err := s.onUpdate(update, open, &phase, &pod, events, stopLog, send)
+			if done {
+				return err
 			}
 		}
 	}
@@ -197,11 +235,20 @@ func (s *Service) StreamJob(ctx context.Context, name string, tail int64,
 // logDrainGrace bounds the wait for the log to finish after the job has.
 const logDrainGrace = 5 * time.Second
 
+// The log scanner's buffer. Helm renders a whole manifest into an error message,
+// so a single line can be very long, and a scanner that overflows stops reading —
+// which would silently truncate the log exactly when something went wrong.
+const (
+	logLineBuffer  = 64 * 1024
+	logLineMaximum = 1024 * 1024
+)
+
+// eventBuffer is how many log lines may be in flight to the writer.
+const eventBuffer = 64
+
 // drain forwards what the log goroutine still has, and gives up after grace.
-func (s *Service) drain(events chan struct {
-	event   string
-	payload JobEvent
-}, send func(string, JobEvent) error, grace time.Duration,
+func (s *Service) drain(events chan logEvent, send func(string, JobEvent) error,
+	grace time.Duration,
 ) {
 	deadline := time.NewTimer(grace)
 	defer deadline.Stop()
@@ -266,7 +313,7 @@ func (s *Service) streamLog(ctx context.Context, job Job, tail int64,
 
 	scanner := bufio.NewScanner(stream)
 	// Helm renders a whole manifest into an error message, so a line can be long.
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, logLineBuffer), logLineMaximum)
 
 	for scanner.Scan() {
 		if err := send(EventLog, JobEvent{Line: scanner.Text()}); err != nil {

@@ -12,6 +12,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// testJobConfig is the configuration the chart supplies at runtime.
+//
+// key. That the value never reaches this process is the property
+// TestBuildJobCarriesTheDSNAsAReferenceNotAValue exists to assert.
+//
+//nolint:gosec // DSNSecretKey holds the NAME of a key inside a Secret, never a
 func testJobConfig() JobConfig {
 	return JobConfig{
 		Namespace:      "admin",

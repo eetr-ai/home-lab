@@ -44,7 +44,7 @@ func (s *streamingJobs) PodLogs(_ context.Context, _ string, _ bool, _ int64) (i
 }
 
 // collect runs a stream and returns the events in the order they were sent.
-func collect(t *testing.T, runner jobs) []string {
+func collect(t *testing.T, runner Jobs) []string {
 	t.Helper()
 	service := newDeploymentServiceWithJobs(newFakeRepo(), newFakeStore(), runner)
 

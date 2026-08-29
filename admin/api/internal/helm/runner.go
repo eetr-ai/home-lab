@@ -84,23 +84,7 @@ func runRollout(ctx context.Context, repo *Repository, spec JobSpec, logger *slo
 	}
 	defer store.Close()
 
-	deployment, err := store.ReadDeployment(ctx, spec.DeploymentID)
-	if err != nil {
-		return err
-	}
-	version, err := store.ReadVersion(ctx, spec.DeploymentID, spec.Version)
-	if err != nil {
-		return err
-	}
-
-	source, err := ParseChartRef(deployment.ChartRef)
-	if err != nil {
-		return err
-	}
-	if err := validateVersion(version.ChartVersion); err != nil {
-		return err
-	}
-	values, err := parseValues(version.ValuesYAML)
+	deployment, version, source, values, err := readDeclared(ctx, store, spec)
 	if err != nil {
 		return err
 	}
@@ -114,30 +98,15 @@ func runRollout(ctx context.Context, repo *Repository, spec JobSpec, logger *slo
 		return err
 	}
 
-	var release Release
-	if installing {
-		logger.Info("installing", slog.String("chart", deployment.ChartRef),
-			slog.String("chartVersion", version.ChartVersion))
-		release, err = repo.Install(ctx, installSpec{
-			Namespace:         deployment.Namespace,
-			Name:              deployment.ReleaseName,
-			Source:            source,
-			Version:           version.ChartVersion,
-			Values:            values,
-			RollbackOnFailure: spec.RollbackOnFailure,
-		})
-	} else {
-		logger.Info("upgrading", slog.String("chart", deployment.ChartRef),
-			slog.String("chartVersion", version.ChartVersion))
-		release, err = repo.Upgrade(ctx, upgradeSpec{
-			Namespace:         deployment.Namespace,
-			Name:              deployment.ReleaseName,
-			Source:            source,
-			Version:           version.ChartVersion,
-			Values:            values,
-			RollbackOnFailure: spec.RollbackOnFailure,
-		})
-	}
+	release, err := applyChart(ctx, repo, applyArgs{
+		deployment:        deployment,
+		source:            source,
+		chartVersion:      version.ChartVersion,
+		values:            values,
+		installing:        installing,
+		rollbackOnFailure: spec.RollbackOnFailure,
+		logger:            logger,
+	})
 	if err != nil {
 		return err
 	}
@@ -205,4 +174,74 @@ func Timeout() (time.Duration, error) {
 		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT must be positive, and is %s", timeout)
 	}
 	return timeout, nil
+}
+
+// applyArgs is what runRollout worked out and applyChart carries out.
+type applyArgs struct {
+	deployment        Deployment
+	source            ChartSource
+	chartVersion      string
+	values            map[string]any
+	installing        bool
+	rollbackOnFailure bool
+	logger            *slog.Logger
+}
+
+// applyChart installs or upgrades, and blocks until the workloads are ready.
+func applyChart(ctx context.Context, repo *Repository, args applyArgs) (Release, error) {
+	if args.installing {
+		args.logger.Info("installing", slog.String("chart", args.deployment.ChartRef),
+			slog.String("chartVersion", args.chartVersion))
+		return repo.Install(ctx, installSpec{
+			Namespace:         args.deployment.Namespace,
+			Name:              args.deployment.ReleaseName,
+			Source:            args.source,
+			Version:           args.chartVersion,
+			Values:            args.values,
+			RollbackOnFailure: args.rollbackOnFailure,
+		})
+	}
+
+	args.logger.Info("upgrading", slog.String("chart", args.deployment.ChartRef),
+		slog.String("chartVersion", args.chartVersion))
+	return repo.Upgrade(ctx, upgradeSpec{
+		Namespace:         args.deployment.Namespace,
+		Name:              args.deployment.ReleaseName,
+		Source:            args.source,
+		Version:           args.chartVersion,
+		Values:            args.values,
+		RollbackOnFailure: args.rollbackOnFailure,
+	})
+}
+
+// readDeclared resolves what the record says should be running.
+//
+// The values come from here rather than from the Job's own arguments, which is
+// why the database credential is injected: an operator's values never travel
+// through a Job object, and because the version is numbered, one appended between
+// the 202 and this running cannot change what gets applied.
+func readDeclared(ctx context.Context, store *Store, spec JobSpec) (
+	Deployment, DeploymentVersion, ChartSource, map[string]any, error,
+) {
+	deployment, err := store.ReadDeployment(ctx, spec.DeploymentID)
+	if err != nil {
+		return Deployment{}, DeploymentVersion{}, ChartSource{}, nil, err
+	}
+	version, err := store.ReadVersion(ctx, spec.DeploymentID, spec.Version)
+	if err != nil {
+		return Deployment{}, DeploymentVersion{}, ChartSource{}, nil, err
+	}
+
+	source, err := ParseChartRef(deployment.ChartRef)
+	if err != nil {
+		return Deployment{}, DeploymentVersion{}, ChartSource{}, nil, err
+	}
+	if err := validateVersion(version.ChartVersion); err != nil {
+		return Deployment{}, DeploymentVersion{}, ChartSource{}, nil, err
+	}
+	values, err := parseValues(version.ValuesYAML)
+	if err != nil {
+		return Deployment{}, DeploymentVersion{}, ChartSource{}, nil, err
+	}
+	return deployment, version, source, values, nil
 }

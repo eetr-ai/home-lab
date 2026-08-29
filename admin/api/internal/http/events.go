@@ -65,7 +65,7 @@ func (s *EventStream) Send(event string, payload any) error {
 	}
 
 	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, body); err != nil {
-		return err
+		return fmt.Errorf("write the %s event: %w", event, err)
 	}
 	_ = s.controller.Flush()
 	return nil
@@ -78,7 +78,7 @@ func (s *EventStream) Send(event string, payload any) error {
 // is a connection closed after sixty seconds of a five-minute deploy.
 func (s *EventStream) Comment(text string) error {
 	if _, err := fmt.Fprintf(s.w, ": %s\n\n", text); err != nil {
-		return err
+		return fmt.Errorf("write a heartbeat: %w", err)
 	}
 	_ = s.controller.Flush()
 	return nil

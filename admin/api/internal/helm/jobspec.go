@@ -116,30 +116,35 @@ func parseJobArgs(args []string) (JobSpec, error) {
 		if i == len(rest) {
 			return JobSpec{}, fmt.Errorf("%w: %s needs a value", ErrInvalidName, flag)
 		}
-		value := rest[i]
-
-		var err error
-		switch flag {
-		case "--deployment":
-			spec.DeploymentID = value
-		case "--namespace":
-			spec.Namespace = value
-		case "--release":
-			spec.Release = value
-		case "--version":
-			spec.Version, err = strconv.Atoi(value)
-		case "--revision":
-			spec.Revision, err = strconv.Atoi(value)
-		default:
-			return JobSpec{}, fmt.Errorf("%w: %q is not a known argument", ErrInvalidName, flag)
-		}
-		if err != nil {
-			return JobSpec{}, fmt.Errorf("%w: %s must be a number, and is %q",
-				ErrInvalidName, flag, value)
+		if err := spec.set(flag, rest[i]); err != nil {
+			return JobSpec{}, err
 		}
 	}
 
 	return spec, spec.validate()
+}
+
+// set assigns one argument, refusing a flag this binary does not know.
+func (s *JobSpec) set(flag, value string) error {
+	var err error
+	switch flag {
+	case "--deployment":
+		s.DeploymentID = value
+	case "--namespace":
+		s.Namespace = value
+	case "--release":
+		s.Release = value
+	case "--version":
+		s.Version, err = strconv.Atoi(value)
+	case "--revision":
+		s.Revision, err = strconv.Atoi(value)
+	default:
+		return fmt.Errorf("%w: %q is not a known argument", ErrInvalidName, flag)
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %s must be a number, and is %q", ErrInvalidName, flag, value)
+	}
+	return nil
 }
 
 // validate refuses a spec that names an operation it cannot perform.
@@ -150,36 +155,43 @@ func parseJobArgs(args []string) (JobSpec, error) {
 // shape produces a Job that does something adjacent to what was asked, which is
 // far harder to see than a pod that refuses to start.
 func (s JobSpec) validate() error {
-	switch s.Operation {
-	case OpRollout:
-		if s.DeploymentID == "" {
-			return fmt.Errorf("%w: a rollout needs a deployment", ErrInvalidName)
-		}
-		if s.Version < 1 {
-			return fmt.Errorf("%w: a rollout needs a declared version, and %d is not one",
-				ErrInvalidName, s.Version)
-		}
-		if s.Namespace != "" || s.Release != "" || s.Revision != 0 {
-			return fmt.Errorf("%w: a rollout is addressed by deployment, not by release",
-				ErrInvalidName)
-		}
-	case OpRollback, OpUninstall:
-		if err := validateNamespace(s.Namespace); err != nil {
-			return err
-		}
-		if err := validateReleaseName(s.Release); err != nil {
-			return err
-		}
-		if s.DeploymentID != "" || s.Version != 0 || s.RollbackOnFailure {
-			return fmt.Errorf("%w: a %s is addressed by release, not by deployment",
-				ErrInvalidName, s.Operation)
-		}
-		if s.Operation == OpRollback && s.Revision < 1 {
-			return fmt.Errorf("%w: a rollback needs a revision to return to", ErrInvalidName)
-		}
-		if s.Operation == OpUninstall && s.Revision != 0 {
-			return fmt.Errorf("%w: an uninstall takes no revision", ErrInvalidName)
-		}
+	if s.Operation == OpRollout {
+		return s.validateRollout()
+	}
+	return s.validateRelease()
+}
+
+func (s JobSpec) validateRollout() error {
+	if s.DeploymentID == "" {
+		return fmt.Errorf("%w: a rollout needs a deployment", ErrInvalidName)
+	}
+	if s.Version < 1 {
+		return fmt.Errorf("%w: a rollout needs a declared version, and %d is not one",
+			ErrInvalidName, s.Version)
+	}
+	if s.Namespace != "" || s.Release != "" || s.Revision != 0 {
+		return fmt.Errorf("%w: a rollout is addressed by deployment, not by release",
+			ErrInvalidName)
+	}
+	return nil
+}
+
+func (s JobSpec) validateRelease() error {
+	if err := validateNamespace(s.Namespace); err != nil {
+		return err
+	}
+	if err := validateReleaseName(s.Release); err != nil {
+		return err
+	}
+	if s.DeploymentID != "" || s.Version != 0 || s.RollbackOnFailure {
+		return fmt.Errorf("%w: a %s is addressed by release, not by deployment",
+			ErrInvalidName, s.Operation)
+	}
+	if s.Operation == OpRollback && s.Revision < 1 {
+		return fmt.Errorf("%w: a rollback needs a revision to return to", ErrInvalidName)
+	}
+	if s.Operation == OpUninstall && s.Revision != 0 {
+		return fmt.Errorf("%w: an uninstall takes no revision", ErrInvalidName)
 	}
 	return nil
 }

@@ -175,7 +175,7 @@ func newDeploymentService(repo repository, deployments DeploymentStore) *Service
 }
 
 func newDeploymentServiceWithJobs(repo repository, deployments DeploymentStore,
-	runner jobs,
+	runner Jobs,
 ) *Service {
 	return NewService(repo, deployments, runner, testPolicy(), time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
