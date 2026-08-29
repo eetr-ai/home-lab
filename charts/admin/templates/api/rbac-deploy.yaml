@@ -98,6 +98,22 @@ rules:
       - statefulsets
       - daemonsets
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read-only, and not because a chart creates one -- the Deployment controller
+  # does. Helm waits for a release to become ready, and it computes a Deployment's
+  # readiness by walking down to the ReplicaSets it owns. Without this the wait
+  # never resolves: the chart applies, the pods come up healthy, and the release
+  # sits in pending-install until the timeout gives up and marks it failed.
+  #
+  # That failure is worth describing because it looks like nothing is wrong. The
+  # workload is running; only the release record disagrees. And it defeats the
+  # completion check a pipeline makes, which waits for exactly that record.
+  #
+  # No write verbs: nothing here creates or deletes a ReplicaSet, and the rule
+  # this file follows is that a grant arrives in the change that needs it.
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+    verbs: ["get", "list", "watch"]
   # Chart hooks are Jobs, so a chart with a migration or an install hook needs
   # these even when it runs nothing on a schedule.
   - apiGroups: ["batch"]

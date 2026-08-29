@@ -391,6 +391,9 @@ apps/statefulsets list
 apps/statefulsets patch
 apps/statefulsets update
 apps/statefulsets watch
+apps/replicasets get
+apps/replicasets list
+apps/replicasets watch
 batch/cronjobs create
 batch/cronjobs delete
 batch/cronjobs get
