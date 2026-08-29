@@ -13,8 +13,10 @@
 		"test:watch": "vitest"
 	},
 	"dependencies": {
+		"@codemirror/lang-yaml": "^6.1.2",
 		"@eetr/react-reducer-utils": "0.1.1",
 		"@eetr/ts-rest-utils": "0.1.0",
+		"codemirror": "^6.0.2",
 		"geist": "^1.7.2",
 		"ioredis": "6.0.0",
 		"lucide-react": "1.34.0",
