@@ -34,6 +34,7 @@ export { EmptyState, type EmptyStateProps } from "./empty-state";
 // implementation details of these two and are intentionally not exported.
 export { SidePanel, type SidePanelProps, type SidePanelWidth } from "./side-panel";
 export { ConfirmDialog, type ConfirmDialogProps } from "./confirm-dialog";
+export { Popover, type PopoverProps, type PopoverWidth } from "./popover";
 export {
 	Table,
 	THead,

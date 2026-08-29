@@ -71,6 +71,10 @@ export function listReleases(): Promise<ActionResult<HelmRelease[]>> {
 	return call<HelmRelease[]>("GET", "/api/helm/releases");
 }
 
+export function listNamespaceReleases(namespace: string): Promise<ActionResult<HelmRelease[]>> {
+	return call<HelmRelease[]>("GET", `/api/helm/namespaces/${seg(namespace)}/releases`);
+}
+
 export function readRelease(
 	namespace: string,
 	release: string,

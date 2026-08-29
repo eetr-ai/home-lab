@@ -3,8 +3,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionTabs } from "../_components/section-tabs";
 
 const tabs = [
+	{ href: "/helm/dashboard", label: "Dashboard" },
 	{ href: "/helm/deployments", label: "Deployments" },
-	{ href: "/helm/releases", label: "Releases" },
 ];
 
 export default function HelmLayout({ children }: { children: React.ReactNode }) {
@@ -13,7 +13,7 @@ export default function HelmLayout({ children }: { children: React.ReactNode }) 
 			<PageHeader
 				icon={ShipWheel}
 				title="Helm"
-				description="Deployments are the charts this lab declared — their values live here and are edited here. Releases are what Helm actually has, including anything installed by hand."
+				description="The dashboard is what Helm actually has, including anything installed by hand. Deployments are the charts this lab declared — their values live there and are edited there."
 			/>
 			<SectionTabs tabs={tabs} />
 			{children}
