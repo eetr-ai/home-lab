@@ -41,11 +41,19 @@ admin:
       # looked like — the panel's own client is issued one, and requiring scopes
       # before the provider emits them would lock the panel out of its own API.
       #
-      # So while this is false, scopes bound only the callers that declare
-      # themselves — which today means a pipeline's client-credentials token, and
-      # that is the credential worth bounding. Turn it on once the provider issues
-      # the panel's client `admin:read admin:write`, and not before.
-      requireScopes: false
+      # It is true here, which means eetr-auth issues the panel's own client
+      # `admin:read admin:write`. It could not be turned on before that: the panel
+      # would present a token naming no scopes, every scoped route would refuse
+      # it, and the panel would be locked out of its own API.
+      #
+      # This one line is what turns the convention into a control. Before it, the
+      # API refused only callers that declared themselves — which meant a
+      # pipeline's token and nothing else. After it, a token with no scopes gets
+      # nothing.
+      #
+      # If the panel starts answering 403 after an identity provider change, this
+      # is the first thing to revert.
+      requireScopes: true
 
     # The managed services. Each is served only when configured, so a panel with
     # no MongoDB answers 404 for those routes rather than pretending.
