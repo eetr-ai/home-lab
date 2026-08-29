@@ -21,6 +21,7 @@ import (
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
+	"github.com/eetr-ai/home-lab/admin/api/internal/helm"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 	"github.com/eetr-ai/home-lab/admin/api/internal/kube"
 	"github.com/eetr-ai/home-lab/admin/api/internal/mongo"
@@ -31,6 +32,11 @@ import (
 
 const (
 	defaultPort = "8090"
+
+	// How a boolean is spelled in this process's environment. One spelling, so a
+	// switch cannot be on in one place and off in another because someone wrote
+	// "TRUE".
+	envTrue = "true"
 
 	// Discovery is one HTTP call to the identity provider at startup. Bounded so
 	// an unreachable provider fails the process quickly and visibly, rather than
@@ -80,7 +86,13 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeMongo(ctx)
 
-	if err := registerKubernetes(api, logger); err != nil {
+	policy := namespacePolicy(logger)
+
+	if err := registerKubernetes(api, policy, logger); err != nil {
+		return err
+	}
+
+	if err := registerHelm(api, policy, logger); err != nil {
 		return err
 	}
 
@@ -147,8 +159,10 @@ func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Con
 // own ServiceAccount is the credential, and off-cluster a kubeconfig is. It is on
 // by default for that reason, and ADMIN_KUBERNETES_DISABLED exists for running the
 // API somewhere with neither.
-func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
-	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == "true" {
+func registerKubernetes(mux *stdhttp.ServeMux, policy nspolicy.Policy,
+	logger *slog.Logger,
+) error {
+	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == envTrue {
 		logger.Warn("ADMIN_KUBERNETES_DISABLED is set; the cluster endpoints are not served")
 		return nil
 	}
@@ -185,13 +199,42 @@ func registerKubernetes(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 	}
 
 	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
-	service, err := kube.NewService(repo, namespacePolicy(logger),
-		os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"))
+	service, err := kube.NewService(repo, policy, os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"))
 	if err != nil {
 		return err
 	}
 	kube.NewHandler(service).Register(mux)
 	logger.Info("serving the Kubernetes endpoints")
+	return nil
+}
+
+// registerHelm wires the Helm slice unless it is switched off.
+//
+// Like the cluster slice this needs no connection string: Helm reads its releases
+// through the same in-cluster credential, out of Secrets in the namespaces this
+// lab named. It is off unless a namespace was named — with none, every route
+// answers 501, which is the honest reply for a capability that was built and not
+// switched on.
+//
+// Switching it on is not free, and the chart says so at length: reading a release
+// means reading Secrets in that namespace, and RBAC cannot narrow that to Helm's
+// own.
+func registerHelm(mux *stdhttp.ServeMux, policy nspolicy.Policy,
+	logger *slog.Logger,
+) error {
+	if os.Getenv("ADMIN_HELM_DISABLED") == envTrue {
+		logger.Warn("ADMIN_HELM_DISABLED is set; the Helm endpoints are not served")
+		return nil
+	}
+
+	repo, err := helm.NewRepository(logger)
+	if err != nil {
+		return err
+	}
+
+	helm.NewHandler(helm.NewService(repo, policy)).Register(mux)
+	logger.Info("serving the Helm endpoints",
+		slog.Any("namespaces", policy.ManagedNamespaces()))
 	return nil
 }
 
