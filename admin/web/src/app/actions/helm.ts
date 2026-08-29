@@ -86,6 +86,12 @@ export async function listReleases(): Promise<ActionResult<HelmRelease[]>> {
 	return withRead(() => helm.listReleases());
 }
 
+export async function listNamespaceReleases(
+	namespace: string,
+): Promise<ActionResult<HelmRelease[]>> {
+	return withRead(() => helm.listNamespaceReleases(namespace));
+}
+
 export async function readRelease(
 	namespace: string,
 	release: string,

@@ -187,6 +187,17 @@ contract to review a change against:
     back button. A scope named in the URL that no longer exists falls back to the
     first available one rather than erroring: the link is stale, not wrong.
 
+    Pass `allLabel` only where the unfiltered view is meaningful — the Helm
+    dashboard is, a collections list is not, and there being made to choose is
+    the point. Selecting it removes the parameter rather than setting it empty,
+    so the unfiltered view has one address instead of two.
+
+11. **A detail page opens with a `BackLink` to the list it came from**, carrying
+    the scope it was viewed under. The browser's back button only helps somebody
+    who arrived by clicking: a detail page reached from a bookmark, a link
+    somebody pasted, or the assistant's `navigate_to` is otherwise a dead end
+    with no way to see what else there is.
+
 A new directory surface should need no new layout class strings. If it does, the
 primitive is wrong — fix the primitive.
 
@@ -279,6 +290,26 @@ something the cluster then refused.
 
 ## Overlays
 
+There are three overlays and the line between them is worth stating, because the
+next one has to land somewhere.
+
+| | For | Modal? |
+| --- | --- | --- |
+| `SidePanel` | filling in a multi-field form | yes — scrim, scroll lock |
+| `ConfirmDialog` | stopping to answer one question | yes |
+| `Popover` | *looking something up* without leaving the page | no |
+
+`Popover` is anchored to the control that opened it and is deliberately not
+modal: no scrim, no scroll lock, closes on Escape or a click outside. Use it for
+secondary detail that would push the primary content below the fold if it lived
+inline, and that you dismiss the moment you have read it — a deployment's version
+history is the case it was built for. If the thing behind it stops being the
+subject while it is open, it wanted to be a `SidePanel`.
+
+It portals to the body and positions itself with fixed coordinates measured from
+its anchor, so it escapes the `overflow: hidden` of any card it opens from. That
+costs a reposition on scroll and resize, which it does for you.
+
 `SidePanel` is for **multi-field** create and edit forms. A single-field entity
 keeps a compact inline add-row; a full-screen overlay to capture one text input
 costs more screen than it saves.
@@ -350,7 +381,7 @@ this pattern — and the reducer, being a pure function, is exactly the kind of 
 - `window.confirm`, `window.alert`, `window.prompt`.
 - Toast libraries, and third-party dialog, drawer, or overlay libraries (Radix,
   Headless UI, framer-motion). Status messaging is inline banners; overlays are
-  the first-party `SidePanel` and `ConfirmDialog`.
+  the first-party `SidePanel`, `ConfirmDialog` and `Popover`.
 - New third-party UI component libraries. Tailwind plus `lucide-react` is the
   stack. There are exactly two exceptions, each argued where it is used:
   `react-markdown` and `remark-gfm` in the [assistant

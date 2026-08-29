@@ -1,7 +1,7 @@
 import { Boxes } from "lucide-react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readWorkload } from "@/app/actions/kube";
+import { BackLink } from "../../../../_components/back-link";
 import { Banner } from "@/components/ui/banner";
 import { SectionCard } from "@/components/ui/card";
 import { formatAge } from "@/lib/format/age";
@@ -39,7 +39,7 @@ export default async function WorkloadPage({
 	if (!detail.ok) {
 		return (
 			<>
-				<Back namespace={namespace} />
+				<BackLink href={`/kubernetes/workloads?namespace=${encodeURIComponent(namespace)}`} label="All workloads" />
 				<Banner variant="error" message={detail.error} />
 			</>
 		);
@@ -47,24 +47,13 @@ export default async function WorkloadPage({
 
 	return (
 		<div className="flex flex-col gap-6">
-			<Back namespace={namespace} />
+			<BackLink href={`/kubernetes/workloads?namespace=${encodeURIComponent(namespace)}`} label="All workloads" />
 			<Summary detail={detail.data} namespace={namespace} kind={kind} name={name} />
 			<Pods detail={detail.data} />
 			<Networking detail={detail.data} />
 			<Storage detail={detail.data} />
 			<Events detail={detail.data} />
 		</div>
-	);
-}
-
-function Back({ namespace }: { namespace: string }) {
-	return (
-		<Link
-			href={`/kubernetes/workloads?namespace=${encodeURIComponent(namespace)}`}
-			className="text-sm text-muted-foreground hover:text-foreground"
-		>
-			← All workloads
-		</Link>
 	);
 }
 

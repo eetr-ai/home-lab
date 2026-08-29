@@ -2,27 +2,59 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Td } from "@/components/ui";
+import { ShipWheel } from "lucide-react";
+import { Td, Th } from "@/components/ui";
+import { Directory } from "../../../_components/directory";
 import { InteractiveRow } from "../../../_components/interactive-row";
 import { StatusBadge } from "../../_components/status-badge";
 import { formatAge } from "@/lib/format/age";
 import type { HelmRelease } from "@/lib/api/types";
 
 /**
- * The release rows, as a client component so the whole row can be clicked.
+ * The releases table, as a client component so the whole row can be clicked.
  *
  * The page above stays a Server Component and does the fetching; only the part
  * that needs a router is down here. The name keeps a real Link: that is what a
  * keyboard tabs to and what opens in a new tab on a middle click, and the row
  * click is a convenience layered over it rather than a replacement for it.
  */
-export function ReleaseRows({ releases, now }: { releases: HelmRelease[]; now: Date }) {
+export function ReleaseTable({
+	releases,
+	loadError,
+	scoped,
+	now,
+}: {
+	releases: HelmRelease[];
+	loadError: string | null;
+	/** Whether a namespace filter is applied, which changes what "empty" means. */
+	scoped: boolean;
+	now: Date;
+}) {
 	const router = useRouter();
 
 	return (
-		<>
-			{releases.map((release) => {
-				const href = `/helm/releases/${encodeURIComponent(release.namespace)}/${encodeURIComponent(release.name)}`;
+		<Directory
+			error={loadError}
+			isEmpty={releases.length === 0}
+			minWidth="min-w-[760px]"
+			empty={{
+				icon: ShipWheel,
+				title: scoped ? "Nothing in this namespace" : "No releases",
+				description: scoped
+					? "Helm has no releases here. Another namespace may."
+					: "Helm has nothing recorded in the namespaces this panel can reach.",
+			}}
+			columns={
+				<>
+					<Th>Release</Th>
+					<Th>Namespace</Th>
+					<Th>Chart</Th>
+					<Th>Status</Th>
+					<Th className="w-px whitespace-nowrap text-right">Updated</Th>
+				</>
+			}
+			rows={releases.map((release) => {
+				const href = `/helm/dashboard/${encodeURIComponent(release.namespace)}/${encodeURIComponent(release.name)}`;
 
 				return (
 					<InteractiveRow
@@ -44,12 +76,12 @@ export function ReleaseRows({ releases, now }: { releases: HelmRelease[]; now: D
 						<Td>
 							<StatusBadge status={release.status} />
 						</Td>
-						<Td className="text-right text-muted-foreground">
+						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
 							{formatAge(release.updatedAt, now)}
 						</Td>
 					</InteractiveRow>
 				);
 			})}
-		</>
+		/>
 	);
 }

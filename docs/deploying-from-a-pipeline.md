@@ -203,8 +203,8 @@ automatically, deliberately: two API replicas plus a guess about whether somebod
 else's operation is still alive is how a release gets corrupted.
 
 Clear it by rolling back to a revision from the release's history, which Helm
-permits from a pending state. The panel shows this on the Releases tab with the
-history underneath it.
+permits from a pending state. The panel shows this on the Dashboard tab, on the
+release's own page, with the revisions underneath it.
 
 **Unless it was the first install that wedged.** A release stuck on revision 1 has
 no earlier revision to return to, so there is nothing to roll back and the panel
