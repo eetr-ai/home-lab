@@ -57,6 +57,185 @@
                 },
                 "type": "object"
             },
+            "helm.DeclareRequest": {
+                "properties": {
+                    "chartRef": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "valuesYaml": {
+                        "description": "ValuesYAML may be empty, which means the chart's own defaults.",
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.Deployment": {
+                "properties": {
+                    "chartRef": {
+                        "description": "ChartRef is the reference an operator typed, and the thing a new version\nis fetched from. It never carries credentials.",
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "releaseName": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.DeploymentDetail": {
+                "properties": {
+                    "chartRef": {
+                        "description": "ChartRef is the reference an operator typed, and the thing a new version\nis fetched from. It never carries credentials.",
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "current": {
+                        "$ref": "#/components/schemas/helm.DeploymentVersion"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "release": {
+                        "$ref": "#/components/schemas/helm.ReleaseDetail"
+                    },
+                    "releaseError": {
+                        "description": "ReleaseError says why the live release could not be read, when it could\nnot. Reported rather than swallowed: a page that silently shows a record\nwith no release beside it is a page that says \"nothing is deployed\" when\nwhat happened was a refused Secret read.",
+                        "type": "string"
+                    },
+                    "releaseName": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "description": "State is this record measured against the cluster — see the State\nconstants.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is Helm's own word for the live release, empty when there is none.",
+                        "type": "string"
+                    },
+                    "versions": {
+                        "description": "Versions are every declared version, newest first.",
+                        "items": {
+                            "$ref": "#/components/schemas/helm.DeploymentVersion"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "helm.DeploymentSummary": {
+                "properties": {
+                    "chartRef": {
+                        "description": "ChartRef is the reference an operator typed, and the thing a new version\nis fetched from. It never carries credentials.",
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "current": {
+                        "$ref": "#/components/schemas/helm.DeploymentVersion"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "releaseName": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "description": "State is this record measured against the cluster — see the State\nconstants.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is Helm's own word for the live release, empty when there is none.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.DeploymentVersion": {
+                "description": "Current is the newest declared version, which is what a rollout would\napply.",
+                "properties": {
+                    "chartVersion": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "helmRevision": {
+                        "description": "HelmRevision lines this version up against Helm's own history.",
+                        "type": "integer"
+                    },
+                    "rolledOutAt": {
+                        "description": "RolledOutAt is nil until this version reached the cluster.",
+                        "type": "string"
+                    },
+                    "source": {
+                        "description": "Source is SourcePanel or SourceCI.",
+                        "type": "string"
+                    },
+                    "valuesYaml": {
+                        "description": "ValuesYAML is the document as it was written, comments and all.",
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.PipelineRequest": {
+                "properties": {
+                    "rollbackOnFailure": {
+                        "type": "boolean"
+                    },
+                    "values": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "helm.Release": {
                 "properties": {
                     "appVersion": {
@@ -93,6 +272,7 @@
                 "type": "object"
             },
             "helm.ReleaseDetail": {
+                "description": "Release is what Helm has, and nil when the release is not installed or\ncould not be read.",
                 "properties": {
                     "appVersion": {
                         "type": "string"
@@ -164,6 +344,30 @@
                     "revision": {
                         "description": "Revision is required. Helm defaults a missing one to \"the previous\nrevision\", which is a different operation from the one an operator clicked\nin a table of revisions, and defaulting to it would sometimes do the right\nthing quietly and sometimes the wrong thing quietly.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.RolloutRequest": {
+                "properties": {
+                    "rollbackOnFailure": {
+                        "description": "RollbackOnFailure is off by default, and this is the one default worth\narguing about. With it on, a failed rollout is undone and the release ends\nup deployed on a *new* revision — so a pipeline polling for a terminal\nstatus reads success for a deploy that did not deploy.",
+                        "type": "boolean"
+                    },
+                    "version": {
+                        "description": "Version is the declared version to apply, and zero means the newest. Naming\none is how \"restore what we had on Tuesday\" works without editing anything.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "helm.VersionRequest": {
+                "properties": {
+                    "valuesYaml": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1167,6 +1371,808 @@
                     }
                 ],
                 "summary": "List the versions a chart reference offers",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/deployments": {
+            "get": {
+                "description": "Each carries the newest declared version and how it stands against the\ncluster: in-sync, pending, drifted, not-installed, or unknown when the\nlive release could not be read.",
+                "parameters": [
+                    {
+                        "description": "Only this namespace",
+                        "in": "query",
+                        "name": "namespace",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.DeploymentSummary"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List declared Helm deployments",
+                "tags": [
+                    "helm"
+                ]
+            },
+            "post": {
+                "description": "Writes the record and its first version. Nothing reaches the cluster until\na rollout, so a half-written values file is a saved draft rather than a\nfailed install.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.DeclareRequest",
+                                        "summary": "request",
+                                        "description": "The chart, namespace and first values"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The chart, namespace and first values",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Deployment"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Declare a Helm deployment",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/deployments/{id}": {
+            "delete": {
+                "description": "Removes this lab's record and every version of it. The release on the\ncluster is untouched — uninstalling it is a separate request.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "forgotten"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Forget a declared Helm deployment",
+                "tags": [
+                    "helm"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.DeploymentDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a declared Helm deployment",
+                "tags": [
+                    "helm"
+                ]
+            },
+            "put": {
+                "description": "Takes a chart version and optional values overrides, merges the overrides\nover the newest declared values, stores the result as a new version, and\nrolls it out. Omitting values carries the previous ones forward unchanged,\ncomments included, so a pipeline that owns only a chart tag cannot erase an\noperator's configuration.\n\nAccepted, not performed. Poll the deployment until its status is no longer\npending, then assert BOTH that the status is deployed AND that the chart\nversion equals what was asked for: with rollbackOnFailure set, a failed\ndeploy is undone and lands \"deployed\" on the previous version.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.PipelineRequest",
+                                        "summary": "request",
+                                        "description": "Chart version and value overrides"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Chart version and value overrides",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Accepted"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Deploy a new chart version from a pipeline",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/deployments/{id}/rollout": {
+            "post": {
+                "description": "Accepted, not performed: Helm waits for pods, which outlasts this request.\nWhether this installs or upgrades is decided by what Helm already has.\nRead the deployment to see whether it succeeded — it is done when the\nstatus is no longer pending AND the chart version matches what was asked for.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.RolloutRequest",
+                                        "summary": "request",
+                                        "description": "Which version, and how to fail"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Which version, and how to fail"
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.Accepted"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Roll a declared version out to the cluster",
+                "tags": [
+                    "helm"
+                ]
+            }
+        },
+        "/api/helm/deployments/{id}/versions": {
+            "get": {
+                "description": "Append-only: editing values writes a new version rather than changing one,\nso this doubles as the record of who changed what and when.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/helm.DeploymentVersion"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a deployment's declared versions",
+                "tags": [
+                    "helm"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/helm.VersionRequest",
+                                        "summary": "request",
+                                        "description": "Chart version and values"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Chart version and values",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/helm.DeploymentVersion"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Add a version to a Helm deployment",
                 "tags": [
                     "helm"
                 ]
