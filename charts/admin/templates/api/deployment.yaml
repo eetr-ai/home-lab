@@ -75,6 +75,23 @@ spec:
               value: {{ .Values.admin.api.kubernetes.namespaces.podSecurity | quote }}
             - name: ADMIN_HELM_MANAGED_NAMESPACES
               value: {{ join "," .Values.admin.api.helm.namespaces | quote }}
+            {{- if .Values.admin.api.helm.allNamespaces }}
+            # Every unprotected namespace is a Helm target. Meaningless without
+            # the cluster-scoped grant rbac-deploy.yaml renders alongside it: the
+            # API would permit a namespace the ServiceAccount still cannot read.
+            - name: ADMIN_HELM_ALL_NAMESPACES
+              value: "true"
+            {{- end }}
+            {{- end }}
+            {{- if and .Values.admin.api.kubernetes.enabled .Values.admin.api.helm.postgres.enabled }}
+            # Where declared deployments and their values are kept. Absent, the
+            # deployment routes answer 501 and the release routes still read the
+            # cluster.
+            - name: ADMIN_HELM_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.api.helm.postgres.secret.name }}
+                  key: {{ .Values.admin.api.helm.postgres.secret.key }}
             {{- end }}
             {{- if not .Values.admin.api.kubernetes.enabled }}
             # Helm reaches the cluster through the same credential the cluster

@@ -52,7 +52,8 @@
             "oidc",
             "postgres",
             "mongo",
-            "kubernetes"
+            "kubernetes",
+            "helm"
           ],
           "properties": {
             "kubernetes": {
@@ -152,7 +153,15 @@
                     "type": "string",
                     "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                   },
-                  "description": "Namespaces whose Helm releases the panel may read. Each renders a Role granting read on EVERY Secret in that namespace; see templates/api/rbac-deploy.yaml."
+                  "description": "Namespaces the panel may deploy Helm releases into. Each renders a Role granting read on EVERY Secret in that namespace; see templates/api/rbac-deploy.yaml."
+                },
+                "allNamespaces": {
+                  "type": "boolean",
+                  "description": "Deploy into every unprotected namespace instead of the list above. Renders one ClusterRole in place of the per-namespace Roles, which means the panel can read every Secret in every unprotected namespace. Needed for 'create a namespace, then deploy into it', because the per-namespace Roles are rendered at install time."
+                },
+                "postgres": {
+                  "$ref": "#/$defs/managedService",
+                  "description": "Where declared deployments and their versioned values are kept. Its own database and role, not the superuser DSN the panel administers PostgreSQL with. Disabled leaves the deployment routes answering 501."
                 }
               }
             }
