@@ -42,7 +42,15 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	},
 	{ path: "/kubernetes/pods?namespace={namespace}", description: "Pods in one namespace, with phase and restart counts." },
 	{ path: "/kubernetes/events?namespace={namespace}", description: "Recent events in one namespace — where a pod that will not start says why." },
+	{ path: "/kubernetes/namespaces", description: "Every namespace, whether the panel may delete it, and creating one. A protected namespace shows why it is protected instead of a delete action." },
 	{ path: "/kubernetes/storage", description: "PersistentVolumes, claims and storage classes." },
+
+	{ path: "/helm/releases", description: "Every Helm release in the namespaces this lab manages." },
+	{
+		path: "/helm/releases/{namespace}/{name}",
+		description: "One release: its status, the values it was given, its revision history, and where upgrading, rolling back and uninstalling happen.",
+	},
+	{ path: "/helm/catalog", description: "The charts this lab will install, with the versions each one permits. Installing happens here." },
 
 	{ path: "/postgres", description: "The PostgreSQL section." },
 	{ path: "/postgres/databases", description: "The databases. Creating and dropping one happens here." },
