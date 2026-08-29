@@ -4,10 +4,10 @@ import {
 	parseAgentEvent,
 	parseFinalAnswer,
 	parseNavigateEvent,
-	parseSSE,
 	type AgentEvent,
 	type NavigateEvent,
 } from "./events";
+import { parseSSE } from "@/lib/sse";
 import { HANDED_OVER_NOTE } from "./turns";
 
 /**
