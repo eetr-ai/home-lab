@@ -23,6 +23,32 @@ type repository interface {
 	Uninstall(ctx context.Context, namespace, name string) error
 }
 
+// DeploymentStore is the record of what this lab has declared. Declared here,
+// where it is consumed, so the service can be tested without a database.
+//
+// A second interface beside repository rather than one merged with it, because
+// the two answer different questions: repository says what the cluster is doing,
+// DeploymentStore says what was asked for. Keeping them apart is what makes it
+// obvious, at every call site, which of the two a piece of code is trusting.
+//
+// Exported, unlike repository, for one specific reason: it is optional, and the
+// caller has to be able to declare a nil one. Handing a nil *Store to a
+// parameter of interface type produces an interface that is not nil, and the
+// service's "was a store configured?" check would then be wrong in the one
+// direction that matters — it would try to use it.
+type DeploymentStore interface {
+	ListDeployments(ctx context.Context, namespace string) ([]Deployment, error)
+	ReadDeployment(ctx context.Context, id string) (Deployment, error)
+	CreateDeployment(ctx context.Context, deployment Deployment,
+		first DeploymentVersion) (Deployment, error)
+	DeleteDeployment(ctx context.Context, id string) error
+	ListVersions(ctx context.Context, id string) ([]DeploymentVersion, error)
+	ReadVersion(ctx context.Context, id string, number int) (DeploymentVersion, error)
+	AppendVersion(ctx context.Context, id string,
+		version DeploymentVersion) (DeploymentVersion, error)
+	MarkRolledOut(ctx context.Context, id string, number, helmRevision int) error
+}
+
 // Service manages the Helm releases in the namespaces this lab manages.
 //
 // What it will not do is decided here rather than left for each endpoint to
@@ -37,7 +63,11 @@ type repository interface {
 // both API replicas agree without coordinating and what makes a release installed
 // by hand visible here without anything having recorded it.
 type Service struct {
-	repo    repository
+	repo repository
+	// store is nil when this lab configured no database, and every deployment
+	// route then answers 501. The release routes still work: reading the cluster
+	// never needed a record.
+	store   DeploymentStore
 	policy  nspolicy.Policy
 	locks   *locks
 	timeout time.Duration
@@ -45,11 +75,12 @@ type Service struct {
 }
 
 // NewService builds the service.
-func NewService(repo repository, policy nspolicy.Policy, timeout time.Duration,
-	logger *slog.Logger,
+func NewService(repo repository, deployments DeploymentStore, policy nspolicy.Policy,
+	timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		repo:    repo,
+		store:   deployments,
 		policy:  policy,
 		locks:   newLocks(),
 		timeout: timeout,

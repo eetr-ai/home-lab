@@ -363,14 +363,113 @@ fi
 # ClusterRoleBinding, of which this document has none, so it reads the whole thing.
 helm_pairs=$(printf '%s\n' "$helm_rbac" | extract_pairs)
 expected_helm_pairs=$(LC_ALL=C sort <<'HELMPAIRS'
+apps/daemonsets create
+apps/daemonsets delete
+apps/daemonsets get
+apps/daemonsets list
+apps/daemonsets patch
+apps/daemonsets update
+apps/daemonsets watch
+apps/deployments create
+apps/deployments delete
+apps/deployments get
+apps/deployments list
+apps/deployments patch
+apps/deployments update
+apps/deployments watch
+apps/replicasets get
+apps/replicasets list
+apps/replicasets watch
+apps/statefulsets create
+apps/statefulsets delete
+apps/statefulsets get
+apps/statefulsets list
+apps/statefulsets patch
+apps/statefulsets update
+apps/statefulsets watch
+batch/cronjobs create
+batch/cronjobs delete
+batch/cronjobs get
+batch/cronjobs list
+batch/cronjobs patch
+batch/cronjobs update
+batch/cronjobs watch
+batch/jobs create
+batch/jobs delete
+batch/jobs get
+batch/jobs list
+batch/jobs patch
+batch/jobs update
+batch/jobs watch
+core/configmaps create
+core/configmaps delete
+core/configmaps get
+core/configmaps list
+core/configmaps patch
+core/configmaps update
+core/configmaps watch
+core/persistentvolumeclaims create
+core/persistentvolumeclaims delete
+core/persistentvolumeclaims get
+core/persistentvolumeclaims list
+core/persistentvolumeclaims patch
+core/persistentvolumeclaims update
+core/persistentvolumeclaims watch
+core/secrets create
+core/secrets delete
 core/secrets get
 core/secrets list
+core/secrets patch
+core/secrets update
 core/secrets watch
+core/serviceaccounts create
+core/serviceaccounts delete
+core/serviceaccounts get
+core/serviceaccounts list
+core/serviceaccounts patch
+core/serviceaccounts update
+core/serviceaccounts watch
+core/services create
+core/services delete
+core/services get
+core/services list
+core/services patch
+core/services update
+core/services watch
+gateway.networking.k8s.io/httproutes create
+gateway.networking.k8s.io/httproutes delete
+gateway.networking.k8s.io/httproutes get
+gateway.networking.k8s.io/httproutes list
+gateway.networking.k8s.io/httproutes patch
+gateway.networking.k8s.io/httproutes update
+gateway.networking.k8s.io/httproutes watch
+networking.k8s.io/networkpolicies create
+networking.k8s.io/networkpolicies delete
+networking.k8s.io/networkpolicies get
+networking.k8s.io/networkpolicies list
+networking.k8s.io/networkpolicies patch
+networking.k8s.io/networkpolicies update
+networking.k8s.io/networkpolicies watch
+policy/poddisruptionbudgets create
+policy/poddisruptionbudgets delete
+policy/poddisruptionbudgets get
+policy/poddisruptionbudgets list
+policy/poddisruptionbudgets patch
+policy/poddisruptionbudgets update
+policy/poddisruptionbudgets watch
 HELMPAIRS
 )
 if [[ $helm_pairs != "$expected_helm_pairs" ]]; then
-  printf 'The Helm Role must grant read on secrets and nothing else.\n' >&2
+  printf 'The Helm Role grants something other than the reviewed set.\n' >&2
+  printf 'Adding a resource here is a decision, not a fix: read rbac-deploy.yaml.\n' >&2
   diff <(printf '%s\n' "$expected_helm_pairs") <(printf '%s\n' "$helm_pairs") >&2 || true
+  exit 1
+fi
+
+# ReplicaSets are read-only and must stay that way: nothing here creates one, and
+# the grant exists only so Helm's readiness wait can walk down from a Deployment.
+if grep -qE '^apps/replicasets (create|update|patch|delete)$' <<<"$helm_pairs"; then
+  printf 'The Helm Role must not write ReplicaSets\n' >&2
   exit 1
 fi
 
@@ -382,6 +481,78 @@ fi
 # assertion that gets deleted rather than fixed.
 if grep -qE '^(rbac\.authorization\.k8s\.io|apiextensions\.k8s\.io)/' <<<"$helm_pairs"; then
   printf 'The Helm Role must not reach RBAC or CustomResourceDefinitions\n' >&2
+  exit 1
+fi
+
+# admin.api.helm.allNamespaces gives the containment above up on purpose, and what
+# matters is that it is the ONLY thing that does: one ClusterRole, no Roles, and
+# exactly the same verbs as the bounded mode. A wider grant hiding behind this
+# flag would be the worst of both.
+helm_all=$(render --set admin.api.helm.allNamespaces=true \
+  --show-only templates/api/rbac-deploy.yaml)
+
+if [[ $(grep -c '^kind: ClusterRole$' <<<"$helm_all") != 1 ]] ||
+   [[ $(grep -c '^kind: ClusterRoleBinding$' <<<"$helm_all") != 1 ]]; then
+  printf 'allNamespaces must render exactly one ClusterRole and one ClusterRoleBinding\n' >&2
+  exit 1
+fi
+if grep -qE '^kind: Role$|^kind: RoleBinding$' <<<"$helm_all"; then
+  printf 'allNamespaces must render no per-namespace Roles\n' >&2
+  exit 1
+fi
+if [[ $(printf '%s\n' "$helm_all" | extract_pairs) != "$expected_helm_pairs" ]]; then
+  printf 'The cluster-wide Helm grant must hold exactly the same verbs as the bounded one.\n' >&2
+  diff <(printf '%s\n' "$expected_helm_pairs") \
+    <(printf '%s\n' "$helm_all" | extract_pairs) >&2 || true
+  exit 1
+fi
+
+# Helm needs somewhere to write while it works -- it unpacks charts and keeps an
+# OCI layer cache -- and the pod's root filesystem is read-only. This is the
+# assertion that would have caught "mkdir /home/nonroot/.cache: read-only file
+# system", which presents as every install failing for an unrelated-looking reason.
+cache=$(render --show-only templates/api/deployment.yaml)
+if ! grep -q 'name: helm-cache' <<<"$cache"; then
+  printf 'The API needs a writable volume for the Helm cache\n' >&2
+  exit 1
+fi
+if ! grep -A2 'name: helm-cache' <<<"$cache" | grep -q 'emptyDir'; then
+  printf 'The Helm cache must be an emptyDir, not a claim: two replicas would fight over one\n' >&2
+  exit 1
+fi
+if ! grep -A3 'name: helm-cache' <<<"$cache" | grep -q 'sizeLimit'; then
+  printf 'The Helm cache emptyDir must be bounded\n' >&2
+  exit 1
+fi
+# Both variables, and both pointing inside the mount. Helm's registry client
+# reads XDG_CACHE_HOME directly rather than going through HELM_CACHE_HOME, so
+# setting only the Helm one leaves OCI pulls writing to a read-only home.
+for cache_var in HELM_CACHE_HOME XDG_CACHE_HOME; do
+  if ! grep -A1 "name: $cache_var" <<<"$cache" | grep -q 'value: /helm/'; then
+    printf '%s must point inside the writable Helm volume\n' "$cache_var" >&2
+    exit 1
+  fi
+done
+if ! grep -q 'readOnlyRootFilesystem: true' <<<"$cache"; then
+  printf 'The root filesystem must stay read-only with the Helm cache mounted\n' >&2
+  exit 1
+fi
+
+# The record of declared deployments: its credential is read from a Secret, and
+# the DSN is never rendered as a literal. Same rule as every other credential in
+# this chart, and the installer's pre-flight depends on the secretKeyRef shape.
+if render | grep -q 'ADMIN_HELM_DSN'; then
+  printf 'The Helm deployment store must not be configured by default\n' >&2
+  exit 1
+fi
+helm_dsn=$(render --set admin.api.helm.postgres.enabled=true \
+  --show-only templates/api/deployment.yaml)
+if ! grep -A3 'name: ADMIN_HELM_DSN' <<<"$helm_dsn" | grep -q 'secretKeyRef'; then
+  printf 'ADMIN_HELM_DSN must be read from a Secret\n' >&2
+  exit 1
+fi
+if grep -A3 'name: ADMIN_HELM_DSN' <<<"$helm_dsn" | grep -qE '(postgres://|postgresql://)'; then
+  printf 'A connection string must never be rendered as a literal\n' >&2
   exit 1
 fi
 

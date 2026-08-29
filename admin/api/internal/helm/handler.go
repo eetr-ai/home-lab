@@ -41,6 +41,23 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.guard.Require(auth.ScopeDeploy, h.rollbackRelease))
 	mux.HandleFunc("DELETE /api/helm/namespaces/{namespace}/releases/{release}",
 		h.guard.Require(auth.ScopeDeploy, h.uninstallRelease))
+
+	mux.HandleFunc("GET /api/helm/deployments",
+		h.guard.Require(auth.ScopeRead, h.listDeployments))
+	mux.HandleFunc("POST /api/helm/deployments",
+		h.guard.Require(auth.ScopeWrite, h.declareDeployment))
+	mux.HandleFunc("GET /api/helm/deployments/{id}",
+		h.guard.Require(auth.ScopeRead, h.readDeployment))
+	mux.HandleFunc("DELETE /api/helm/deployments/{id}",
+		h.guard.Require(auth.ScopeWrite, h.forgetDeployment))
+	mux.HandleFunc("GET /api/helm/deployments/{id}/versions",
+		h.guard.Require(auth.ScopeRead, h.listDeploymentVersions))
+	mux.HandleFunc("POST /api/helm/deployments/{id}/versions",
+		h.guard.Require(auth.ScopeWrite, h.addDeploymentVersion))
+	mux.HandleFunc("POST /api/helm/deployments/{id}/rollout",
+		h.guard.Require(auth.ScopeDeploy, h.rolloutDeployment))
+	mux.HandleFunc("PUT /api/helm/deployments/{id}",
+		h.guard.Require(auth.ScopeDeploy, h.pipelineRollout))
 }
 
 // listReleases returns every release in every managed namespace.
@@ -260,6 +277,13 @@ func respondError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrForbidden):
 		httpx.Error(w, http.StatusForbidden, "forbidden",
 			"the panel's service account is not permitted to read this namespace's releases")
+	case errors.Is(err, ErrStoreUnavailable):
+		// 503 rather than 500. The request was fine and the code is fine; the
+		// database did not answer, and the caller should try again rather than
+		// go looking for what they did wrong.
+		slog.Error("the helm deployment store did not answer", slog.Any("error", err))
+		httpx.Error(w, http.StatusServiceUnavailable, "store_unavailable",
+			"the record of declared deployments could not be reached")
 	case errors.Is(err, ErrNotConfigured):
 		// 501 rather than 404. The capability is built and served; this lab has
 		// not named a namespace for it to work in. A 404 would read as "no such

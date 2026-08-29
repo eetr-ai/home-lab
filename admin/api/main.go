@@ -108,7 +108,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	if err := registerHelm(api, guard, policy, logger); err != nil {
+	if err := registerHelm(ctx, api, guard, policy, logger); err != nil {
 		return err
 	}
 
@@ -232,8 +232,8 @@ func registerKubernetes(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolic
 // Switching it on is not free, and the chart says so at length: reading a release
 // means reading Secrets in that namespace, and RBAC cannot narrow that to Helm's
 // own.
-func registerHelm(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Policy,
-	logger *slog.Logger,
+func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, guard *auth.Guard,
+	policy nspolicy.Policy, logger *slog.Logger,
 ) error {
 	if os.Getenv("ADMIN_HELM_DISABLED") == envTrue {
 		logger.Warn("ADMIN_HELM_DISABLED is set; the Helm endpoints are not served")
@@ -250,12 +250,53 @@ func registerHelm(mux *stdhttp.ServeMux, guard *auth.Guard, policy nspolicy.Poli
 		return err
 	}
 
-	helm.NewHandler(helm.NewService(repo, policy, timeout, logger), guard).Register(mux)
+	// Declared as the interface and assigned only when there is one, because a
+	// nil *helm.Store handed to an interface parameter is an interface that is
+	// not nil — and the service would then call through it.
+	var deployments helm.DeploymentStore
+	if store := helmStore(ctx, logger); store != nil {
+		deployments = store
+	}
+
+	helm.NewHandler(helm.NewService(repo, deployments, policy, timeout, logger), guard).
+		Register(mux)
 	logger.Info("serving the Helm endpoints",
 		slog.Any("namespaces", policy.ManagedNamespaces()),
 		slog.Bool("everyNamespace", policy.ManagesEverything()),
 		slog.Duration("timeout", timeout))
 	return nil
+}
+
+// helmStore opens the record of what this lab has declared, and returns nil when
+// there is no record to open.
+//
+// Nil is a supported state, not a failure: without a connection string the
+// release endpoints still read the cluster and only the deployment endpoints
+// answer 501. A database that is configured and unreachable is also not fatal —
+// it is logged and the deployment endpoints answer 503 — because an API that
+// refuses to start because PostgreSQL is down takes with it the pages that would
+// have said so.
+//
+// The consequence to be honest about: a store that fails here is not retried, so
+// the deployment endpoints stay down until the pod restarts. Restarting on a
+// schedule is what Kubernetes already does for a pod whose probes fail, and
+// wiring a retry loop in here would be a worse version of it.
+func helmStore(ctx context.Context, logger *slog.Logger) *helm.Store {
+	dsn := os.Getenv("ADMIN_HELM_DSN")
+	if dsn == "" {
+		logger.Warn("ADMIN_HELM_DSN is unset; Helm deployments cannot be declared, " +
+			"and the release endpoints still read the cluster")
+		return nil
+	}
+
+	store, err := helm.NewStore(ctx, dsn, logger)
+	if err != nil {
+		logger.Error("the Helm deployment store is unavailable; those endpoints will fail",
+			slog.Any("error", err))
+		return nil
+	}
+	logger.Info("recording Helm deployments in PostgreSQL")
+	return store
 }
 
 // helmTimeout bounds one install, upgrade, rollback, or uninstall.

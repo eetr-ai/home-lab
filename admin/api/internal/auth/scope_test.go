@@ -178,3 +178,46 @@ func TestSubjectHasScope(t *testing.T) {
 		})
 	}
 }
+
+// A client_credentials token carries no subject and no email on this provider,
+// so the client id is the only identity there is. Without it, everything a
+// pipeline changes is attributed to nobody.
+func TestSubjectCarriesTheClientID(t *testing.T) {
+	cases := map[string]struct {
+		clientID, azp string
+		want          string
+	}{
+		"client_id, as RFC 9068 spells it": {clientID: "home-lab-ci", want: "home-lab-ci"},
+		"azp, as OpenID Connect spells it": {azp: "home-lab-ci", want: "home-lab-ci"},
+		"client_id wins when both are set": {clientID: "first", azp: "second", want: "first"},
+		"neither":                          {want: ""},
+	}
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := stringClaim(rawOrNil(testCase.clientID), rawOrNil(testCase.azp))
+			if got != testCase.want {
+				t.Errorf("want %q, got %q", testCase.want, got)
+			}
+		})
+	}
+}
+
+// A claim of the wrong shape must not stop a sibling being read: that is the
+// same failure that once made a scoped token look scopeless, and unrestricted.
+func TestAClaimOfTheWrongShapeDoesNotHideTheNextOne(t *testing.T) {
+	if got := stringClaim(json.RawMessage(`{"not":"a string"}`), rawOrNil("fallback")); got != "fallback" {
+		t.Errorf("want the readable claim to win, got %q", got)
+	}
+	if got := stringClaim(json.RawMessage(`12345`), json.RawMessage(`[1,2]`)); got != "" {
+		t.Errorf("want no claim, got %q", got)
+	}
+}
+
+func rawOrNil(value string) json.RawMessage {
+	if value == "" {
+		return nil
+	}
+	encoded, _ := json.Marshal(value)
+	return encoded
+}
