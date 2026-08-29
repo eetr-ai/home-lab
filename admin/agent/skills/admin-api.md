@@ -87,6 +87,13 @@ meant something else. Dropping a database is the clearest case — offer the pag
 
 Never narrate a change as done before you have made it and read what came back.
 
+## Helm
+
+`/api/helm/...` is its own map, and it has its own skill — load `helm` before
+answering anything about what installed a workload, what version is running, or
+changing one. The short version: the reads are yours, the writes are not, and the
+answer to a deploy is a page.
+
 ## Who is asking
 
 `/api/whoami` describes the operator whose token you are calling with. Useful
