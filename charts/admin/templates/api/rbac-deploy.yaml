@@ -160,15 +160,17 @@ rules:
     resources:
       - httproutes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  {{- if $.Values.admin.api.helm.selfDeploy }}
-  # Only with admin.api.helm.selfDeploy. Off by default, and the values comment
-  # says at length what turning it on costs: the panel can then hand every
-  # permission it holds to any ServiceAccount. It is here because this chart
-  # renders four of these objects, so upgrading the panel from a pipeline fails
-  # without it.
+  # Unconditional, and it used to be behind admin.api.helm.selfDeploy. That flag
+  # existed because these verbs were held by the API's own long-lived credential,
+  # which made "the panel can hand every permission it holds to any
+  # ServiceAccount" a standing property of it. They belong to a Job that lives for
+  # one operation now, so the flag was deleted rather than defaulted.
+  #
+  # This chart renders a ClusterRole, a ClusterRoleBinding, a Role and a
+  # RoleBinding, so upgrading the panel needs all four.
   #
   # No escalate and no bind verb, deliberately. Without them Kubernetes refuses
-  # to let this create a role holding more than the panel already holds, which is
+  # to let this create a role holding more than the Job already holds, which is
   # the difference between a wide grant and an unbounded one.
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources:
@@ -177,7 +179,48 @@ rules:
       - clusterroles
       - clusterrolebindings
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-helm-read
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+rules:
+  # Reading a release, and the whole of what the API needs to answer every read
+  # endpoint: Helm keeps a release in a Secret in the namespace it was installed
+  # into -- the chart, the values, the rendered manifests, every revision.
+  #
+  # Read-only, and note what that changes. This used to be the same grant that
+  # wrote. The API can no longer create, update or delete a Secret anywhere, in
+  # any namespace, because nothing in its process writes to the cluster at all.
+  #
+  # The warning at the top still applies to the `get` half unchanged:
+  #
+  #   A Helm-managed namespace is a namespace whose every Secret this panel can
+  #   read.
+  #
+  # RBAC has no way to narrow that to Helm's own. There is no label selector in a
+  # Role, and `owner=helm` would buy nothing if there were.
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-helm-read
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-helm-read
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -191,7 +234,7 @@ roleRef:
   name: {{ .Release.Name }}-helm
 subjects:
   - kind: ServiceAccount
-    name: admin-api
+    name: admin-helm-job
     namespace: {{ .Release.Namespace }}
 {{- else }}
 {{- range $namespace := .Values.admin.api.helm.namespaces }}
@@ -266,15 +309,17 @@ rules:
     resources:
       - httproutes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  {{- if $.Values.admin.api.helm.selfDeploy }}
-  # Only with admin.api.helm.selfDeploy. Off by default, and the values comment
-  # says at length what turning it on costs: the panel can then hand every
-  # permission it holds to any ServiceAccount. It is here because this chart
-  # renders four of these objects, so upgrading the panel from a pipeline fails
-  # without it.
+  # Unconditional, and it used to be behind admin.api.helm.selfDeploy. That flag
+  # existed because these verbs were held by the API's own long-lived credential,
+  # which made "the panel can hand every permission it holds to any
+  # ServiceAccount" a standing property of it. They belong to a Job that lives for
+  # one operation now, so the flag was deleted rather than defaulted.
+  #
+  # This chart renders a ClusterRole, a ClusterRoleBinding, a Role and a
+  # RoleBinding, so upgrading the panel needs all four.
   #
   # No escalate and no bind verb, deliberately. Without them Kubernetes refuses
-  # to let this create a role holding more than the panel already holds, which is
+  # to let this create a role holding more than the Job already holds, which is
   # the difference between a wide grant and an unbounded one.
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources:
@@ -283,7 +328,50 @@ rules:
       - clusterroles
       - clusterrolebindings
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Release.Name }}-helm-read
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" $ | nindent 4 }}
+rules:
+  # Reading a release, and the whole of what the API needs to answer every read
+  # endpoint: Helm keeps a release in a Secret in the namespace it was installed
+  # into -- the chart, the values, the rendered manifests, every revision.
+  #
+  # Read-only, and note what that changes. This used to be the same grant that
+  # wrote. The API can no longer create, update or delete a Secret anywhere, in
+  # any namespace, because nothing in its process writes to the cluster at all.
+  #
+  # The warning at the top still applies to the `get` half unchanged:
+  #
+  #   A Helm-managed namespace is a namespace whose every Secret this panel can
+  #   read.
+  #
+  # RBAC has no way to narrow that to Helm's own. There is no label selector in a
+  # Role, and `owner=helm` would buy nothing if there were.
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Name }}-helm-read
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $.Release.Name }}-helm-read
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ $.Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -298,7 +386,7 @@ roleRef:
   name: {{ $.Release.Name }}-helm
 subjects:
   - kind: ServiceAccount
-    name: admin-api
+    name: admin-helm-job
     namespace: {{ $.Release.Namespace }}
 {{- end }}
 {{- end }}

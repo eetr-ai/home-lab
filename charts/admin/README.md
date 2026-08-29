@@ -39,13 +39,43 @@ the Go code is:
 ```text
 templates/
   _helpers.tpl
-  api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml rbac.yaml pdb.yaml
+  api/    deployment.yaml service.yaml httproute.yaml serviceaccount.yaml pdb.yaml
+          rbac.yaml rbac-deploy.yaml rbac-jobs.yaml
   web/    deployment.yaml service.yaml httproute.yaml pdb.yaml
   agent/  deployment.yaml service.yaml pvc.yaml
 ```
 
 Helm walks the directory, so nesting costs nothing and everything one half of the
 panel needs is in one place.
+
+## The three RBAC files, and which identity holds what
+
+Worth knowing before reading any of them, because the split is the whole security
+story of the Helm feature.
+
+| File | Identity | Reach |
+| --- | --- | --- |
+| `rbac.yaml` | `admin-api` | Cluster-wide, almost entirely read-only. Reading the cluster; two write verbs for restart and scale. |
+| `rbac-deploy.yaml` | `admin-api` **and** `admin-helm-job` | Split in two. The API gets `secrets` `get`/`list`/`watch` in each managed namespace, which is all a *read* of a Helm release needs. The Job gets everything a deploy needs. |
+| `rbac-jobs.yaml` | `admin-api` | `batch/jobs` `get`/`list`/`watch`/`create`, in the release namespace only. |
+
+Every Helm mutation runs as a Kubernetes Job in the panel's own namespace, so the
+deploy grant belongs to `admin-helm-job` and exists for the lifetime of one
+operation. Nothing in the API's process writes to the cluster; it can no longer
+create, update, or delete a Secret in any namespace.
+
+**Read the warning at the top of `rbac-jobs.yaml` before treating that as
+containment.** Kubernetes does not check whether the creator of a Job may run as
+the Job's ServiceAccount, so `create` on a Job here is, in reach, equivalent to
+holding the deploy grant. What changed is that the API's long-lived pods no longer
+carry it — a leaked token now buys one audited API call that leaves an object
+behind, rather than silent write access to every Secret in every managed
+namespace. That is worth having, and it is not a smaller grant.
+
+`admin.api.helm.selfDeploy` is gone. It existed because the RBAC-write verbs were
+held by the API's own credential, which made "the panel can hand every permission
+it holds to any ServiceAccount" a standing property of it. They belong to a
+short-lived Job now, so the flag was deleted rather than defaulted.
 
 ## How many of each, and why they differ
 

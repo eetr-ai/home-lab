@@ -159,9 +159,21 @@
                   "$ref": "#/$defs/managedService",
                   "description": "Where declared deployments and their versioned values are kept. Its own database and role, not the superuser DSN the panel administers PostgreSQL with. Disabled leaves the deployment routes answering 501."
                 },
-                "selfDeploy": {
-                  "type": "boolean",
-                  "description": "Let the deploy grant write Roles and bindings, so the panel can install charts that create them - including its own chart, which renders four such objects. Needed to deploy the panel from a pipeline. It lets the panel hand its own permissions to any ServiceAccount; see the comment in values.yaml."
+                "job": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "The Job that performs one Helm operation. It runs the API's own image under a subcommand, so there is deliberately no image or serviceAccount override: the design rests on it being the same binary, and which identity it runs as is a security property of this chart rather than a preference.",
+                  "properties": {
+                    "ttlSecondsAfterFinished": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "How long a finished Helm Job and its log are kept. The log is a view, not the record - what survives is Helm's release history and the rollout stamp in PostgreSQL."
+                    },
+                    "resources": {
+                      "type": "object",
+                      "description": "Resource requests and limits for the Helm Job's pod."
+                    }
+                  }
                 }
               }
             }

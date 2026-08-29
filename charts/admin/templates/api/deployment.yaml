@@ -71,13 +71,29 @@ spec:
               value: {{ join "," .Values.admin.api.kubernetes.namespaces.protected | quote }}
             - name: ADMIN_NAMESPACE_POD_SECURITY
               value: {{ .Values.admin.api.kubernetes.namespaces.podSecurity | quote }}
-            # Which release this pod is running from, so an upgrade of it can be
-            # recognised. Helm marks a release deployed only after it finishes
-            # waiting, and applying this chart terminates the pod doing the
-            # waiting — so a self-upgrade must not wait, or the release is left
-            # pending forever and every later deploy is refused.
-            - name: ADMIN_RELEASE_NAME
-              value: {{ .Release.Name | quote }}
+            # The Job that performs one Helm operation. It runs this same image,
+            # templated from the same helper the container above uses so the two
+            # cannot drift — and note the consequence: a self-upgrade is carried
+            # out by the binary running now, not by the one being installed. That
+            # is the right way round. The code doing the upgrading is the code
+            # that was reviewed and is known to work.
+            - name: ADMIN_HELM_JOB_IMAGE
+              value: {{ include "home-lab-admin.apiImage" . | quote }}
+            - name: ADMIN_HELM_JOB_IMAGE_PULL_POLICY
+              value: {{ .Values.admin.api.image.pullPolicy }}
+            # Named here rather than chosen per request. Nothing a caller sends
+            # decides which identity a Helm Job runs as — see the warning in
+            # rbac-jobs.yaml for why that is the only thing bounding this today.
+            - name: ADMIN_HELM_JOB_SERVICE_ACCOUNT
+              value: admin-helm-job
+            - name: ADMIN_HELM_JOB_TTL_SECONDS
+              value: {{ .Values.admin.api.helm.job.ttlSecondsAfterFinished | quote }}
+            - name: ADMIN_HELM_JOB_RESOURCES
+              value: {{ .Values.admin.api.helm.job.resources | toJson | quote }}
+            {{- with .Values.admin.imagePullSecrets }}
+            - name: ADMIN_HELM_JOB_PULL_SECRETS
+              value: {{ pluck "name" . | join "," | quote }}
+            {{- end }}
             - name: ADMIN_HELM_MANAGED_NAMESPACES
               value: {{ join "," .Values.admin.api.helm.namespaces | quote }}
             {{- if .Values.admin.api.helm.allNamespaces }}
@@ -97,6 +113,15 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.admin.api.helm.postgres.secret.name }}
                   key: {{ .Values.admin.api.helm.postgres.secret.key }}
+            # The same credential, as a name and a key rather than a value, so
+            # the API can put a secretKeyRef in the Job it creates without ever
+            # handling the connection string itself. A Job is not a Secret:
+            # anything able to list Jobs in this namespace can read every literal
+            # in one, so copying the DSN across would be publishing it.
+            - name: ADMIN_HELM_DSN_SECRET_NAME
+              value: {{ .Values.admin.api.helm.postgres.secret.name | quote }}
+            - name: ADMIN_HELM_DSN_SECRET_KEY
+              value: {{ .Values.admin.api.helm.postgres.secret.key | quote }}
             {{- end }}
             {{- if not .Values.admin.api.kubernetes.enabled }}
             # Helm reaches the cluster through the same credential the cluster
@@ -110,6 +135,11 @@ spec:
             # is pointed at an emptyDir instead. XDG_CACHE_HOME is here too
             # because Helm's registry client reaches for it directly rather than
             # going through HELM_CACHE_HOME.
+            #
+            # Still needed here even though installs happen in a Job: listing a
+            # chart's versions fetches a repository index or an OCI tag list on
+            # the request path, and that writes to the cache. The Job carries its
+            # own equivalent, built in Go.
             - name: HELM_CACHE_HOME
               value: /helm/cache
             - name: HELM_CONFIG_HOME
