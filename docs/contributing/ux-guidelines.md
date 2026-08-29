@@ -147,10 +147,19 @@ contract to review a change against:
    separated by `divide-y`; `thead` on `--surface-sunken`.
 4. **Row actions** — `IconButton` only, in a fixed order: surface-specific icons
    first, then `Pencil`, then `Trash2`. No pills, no "View" link.
-5. **Clicking a row opens its edit panel — where there is one.** The actions
-   cell calls `stopPropagation`, so a row action never also opens the panel. Keep
-   the `Pencil` anyway: a `<tr>` cannot carry button semantics cleanly, so the
-   icon button stays the keyboard-reachable, labelled affordance.
+5. **Clicking a row opens its edit panel, or navigates — where the row leads
+   anywhere at all.** The whole row, not the one cell that happens to hold a
+   link: an underline on a single word is invisible until the pointer is already
+   on it, so the row reads as inert and the way in gets missed. Use
+   `InteractiveRow`, which supplies the pointer cursor, the hover background, and
+   the `group` class that lets the naming cell underline itself on
+   `group-hover`.
+
+   The actions cell calls `stopPropagation` — `stopRowActivation` beside the
+   component — so a row action never also opens the panel or navigates. Keep the
+   `Pencil`, or the `<Link>` on the name: a `<tr>` cannot carry button semantics
+   cleanly, so that stays the keyboard-reachable, labelled affordance and the row
+   click is a convenience layered over it.
 
    Several surfaces here have no edit at all, because the thing behind them has
    no update operation: a PostgreSQL database is created and dropped, never
@@ -241,6 +250,33 @@ nothing reaches `dangerouslySetInnerHTML`. That last part is the point rather
 than a bonus, because the agent's answers are generated partly from text other
 people wrote: pod logs, event messages, whatever `curl` fetched.
 
+## The values editor
+
+`src/components/editor/yaml-editor.tsx` wraps CodeMirror 6, and **`codemirror`
+plus `@codemirror/lang-yaml` are the second deliberate exception** to the rule
+below about third-party libraries.
+
+The reason is specific and does not generalise. A chart's values file is a
+document an operator writes, and YAML is indentation-sensitive: in a bare
+textarea a misplaced space is invisible until the API rejects the whole file,
+and the operator is left comparing two columns of whitespace by eye. Line
+numbers, folding, bracket matching and a tab key that indents instead of moving
+focus are what make it an editor rather than a box. It is also, unlike a
+component library, invisible: every colour comes from `theme.css` role tokens via
+`yaml-editor-theme.ts`, so it follows light and dark with the rest of the panel
+and no palette lives in TypeScript.
+
+What it is *not* is a general licence to reach for an editor. It renders one
+kind of document on two surfaces, and anything else that wants rich text should
+be a `textarea` until there is an argument this specific.
+
+There is no JavaScript YAML parser anywhere in the panel, and there should not
+be. The editor sends the document as a string; the API parses it with
+`sigs.k8s.io/yaml`, which is the same parser Helm will use, and a syntax error
+comes back as a 400 naming the line. A second parser here would eventually
+disagree with that one, and the disagreement would be the panel accepting
+something the cluster then refused.
+
 ## Overlays
 
 `SidePanel` is for **multi-field** create and edit forms. A single-field entity
@@ -316,8 +352,11 @@ this pattern — and the reducer, being a pure function, is exactly the kind of 
   Headless UI, framer-motion). Status messaging is inline banners; overlays are
   the first-party `SidePanel` and `ConfirmDialog`.
 - New third-party UI component libraries. Tailwind plus `lucide-react` is the
-  stack. (`react-markdown` and `remark-gfm` are the one exception, and the
-  [assistant drawer](#the-assistant-drawer) says why.)
+  stack. There are exactly two exceptions, each argued where it is used:
+  `react-markdown` and `remark-gfm` in the [assistant
+  drawer](#the-assistant-drawer), and CodeMirror 6 in [the values
+  editor](#the-values-editor). Both are renderers rather than component
+  libraries, and neither contributes anything to how the panel looks.
 - Raw Tailwind color ramps, `rounded-xl`, and `border-brand-muted` as a default
   border — all three fail lint.
 - Emojis in UI copy.
