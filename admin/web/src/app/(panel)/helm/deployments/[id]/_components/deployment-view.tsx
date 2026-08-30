@@ -10,7 +10,7 @@ import { isPending, stuckForMinutes } from "@/lib/helm/status";
 import { useReleasePolling } from "../../../_components/use-release-polling";
 import type { HelmDeploymentDetail, HelmJob } from "@/lib/api/types";
 import { JobPanel } from "../../../_components/job-panel";
-import { PipelineCard } from "./pipeline-card";
+import { PipelinePopover } from "./pipeline-popover";
 import { ValuesCard } from "./values-card";
 import { VersionHistory } from "./version-history";
 
@@ -39,7 +39,7 @@ export function DeploymentView({
 
 	return (
 		<div className="flex flex-col gap-6">
-			{/* The way back, what you are looking at, and the one action that is
+			{/* The way back, what you are looking at, and the two controls that are
 			    reference rather than change. Everything that alters something lives
 			    on the values card, so this row cannot be mistaken for a toolbar. */}
 			<div className="flex flex-wrap items-center justify-between gap-3">
@@ -50,16 +50,29 @@ export function DeploymentView({
 						{deployment.releaseName}
 					</h1>
 				</div>
-				{/* One control. It reports which version is loaded and is also how
-				    you change it — the list it opens is the way back to the latest,
-				    so a second button for that would be a third thing saying the
-				    same thing. */}
-				<VersionHistory
-					versions={deployment.versions}
-					selected={editing}
-					now={now}
-					onOpenVersion={setEditing}
-				/>
+				{/* Two controls, both of which only open something to read. The
+				    version button reports which version is loaded and is also how you
+				    change it — the list it opens is the way back to the latest, so a
+				    second button for that would be a third thing saying the same
+				    thing. The pipeline snippet sits beside it because it is the same
+				    kind of thing: reference material, absent from the page until
+				    asked for. Absent entirely without an origin to build an address
+				    from — a snippet pointing at nowhere is worse than no snippet. */}
+				<div className="flex items-center gap-2">
+					{origin ? (
+						<PipelinePopover
+							origin={origin}
+							chartId={deployment.id}
+							chartVersion={deployment.current.chartVersion}
+						/>
+					) : null}
+					<VersionHistory
+						versions={deployment.versions}
+						selected={editing}
+						now={now}
+						onOpenVersion={setEditing}
+					/>
+				</div>
 			</div>
 
 			{/* A failed read of the live release, said out loud. Showing the record
@@ -115,18 +128,6 @@ export function DeploymentView({
 			</Card>
 
 			<ValuesCard deployment={deployment} editing={editing} onEditingChange={setEditing} />
-
-			{/* Last, and deliberately below the editor: this is reference material for
-			    somebody wiring up CI, not a control for what is on screen. Absent
-			    without an origin to build an address from — a snippet pointing at
-			    nowhere is worse than no snippet. */}
-			{origin ? (
-				<PipelineCard
-					origin={origin}
-					chartId={deployment.id}
-					chartVersion={deployment.current.chartVersion}
-				/>
-			) : null}
 		</div>
 	);
 }
