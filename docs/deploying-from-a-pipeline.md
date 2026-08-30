@@ -3,11 +3,15 @@
 How GitHub Actions or Cloud Build rolls a Helm deployment forward in this lab
 without anybody at a terminal.
 
-The short version: an operator declares the deployment once in the panel, the
-pipeline sends one `PUT` carrying a chart version and any overrides it owns, and
-then polls until it stops being pending. This page is mostly about the three
-things that are easy to get wrong — what the token has to carry, what the
-overrides do to the values somebody wrote, and what counts as success.
+The short version: an operator declares the deployment once in the panel, and the
+pipeline sends one `PATCH` **to the panel** carrying a chart version and any
+overrides it owns. The panel exchanges the pipeline's API key for a token and
+calls its own API with it. This page is mostly about the three things that are
+easy to get wrong — what the credential is and what it can do, what the overrides
+do to the values somebody wrote, and what counts as success.
+
+The deployment's own page in the panel shows the exact request for it, ready to
+paste, which is a better starting point than retyping the id out of the URL bar.
 
 Every mutation runs as a Kubernetes Job rather than inside the API's own pods.
 That is mostly invisible from a pipeline, and it changes two things that are not:
@@ -34,29 +38,49 @@ narrows a token today.
 Read the comment at the top of `charts/admin/templates/api/rbac-deploy.yaml`
 before changing either; neither is a free choice.
 
-**The API has to be reachable from outside the cluster.** `admin.api.route.enabled`
-is off by default and the chart validation asserts that it stays off by default,
-because an administrative endpoint should not be publicly routable before it has a
-reason to be. Turning it on is a real change in this lab's exposure, not a values
-flip in passing:
+**The admin API does not have to be reachable, and should not be.** The pipeline
+talks to the panel, which is already routable and is already the only thing that
+calls that API. `admin.api.route.enabled` stays off — the chart validation asserts
+it is off by default, because an administrative endpoint should not be publicly
+routable before it has a reason to be, and this is one fewer reason.
 
-- Put **Cloudflare Access** in front of the hostname first.
-- Give the pipeline an **Access service token**, and send its headers on every
-  request. Without one, Access answers the pipeline with an interactive login
-  challenge and the deploy fails in a way that looks like an API problem.
+If **Cloudflare Access** fronts the panel's own hostname, the pipeline needs an
+Access **service token** and must send its headers on every request. Without one,
+Access answers with an interactive login challenge and the deploy fails in a way
+that looks like a panel problem.
 
 ## The credential
 
-Register a confidential client in eetr-auth:
+An **API key**, issued by eetr-auth against the client the panel signs people in
+with, and bound to a user:
 
-- grant type `client_credentials` — a pipeline is not a person and has no browser
-  to redirect
-- audience: the value in `admin.api.oidc.audience`
+```bash
+curl -X POST "$ISSUER/api/admin/clients/$CLIENT_ID/api-keys" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":"ci-bot","name":"home-lab deploy pipeline"}'
+```
 
-That is the whole list. **No scopes**, because this API reads none.
+The answer carries `apiKey` — `eak_<keyId>_<secret>` — **once**. It cannot be
+recovered afterwards; a lost key is revoked and replaced, not looked up.
 
-Store the client id and secret as pipeline secrets. Rotate them the way you
-rotate anything else.
+Store it as one pipeline secret. That is the whole credential: no client id, no
+client secret, no token endpoint in the pipeline's configuration. The panel
+exchanges it for a token on every request and never caches one, so **revoking a
+key takes effect on the next deploy** rather than whenever an issued token would
+have expired.
+
+Two things about *which* client the key belongs to:
+
+- Issued against the **panel's own client**, its token already names the audience
+  the API checks — eetr-auth puts the client id in `aud` by default — and nothing
+  else needs configuring.
+- Issued against a **separate CI client**, the panel has to ask for the audience
+  explicitly. Set `OIDC_AUDIENCE` on the panel (from `admin.api.oidc.audience`,
+  which the chart wires up for you) to whatever the API is checking.
+
+**No scopes**, because this API reads none. A key with scopes is not wrong, it is
+just not consulted.
 
 > If eetr-auth ever supports RFC 8693 token exchange, prefer it: GitHub's own
 > workload identity token could be exchanged for one of these and the pipeline
@@ -87,27 +111,39 @@ per action, asked fresh on each request — which keeps both of those changeable
 and lets a suspicious request be made to sign in again rather than being trusted
 because it was signed before anyone was worried.
 
-Until it lands, treat the pipeline's client secret with the seriousness of a
-credential that can do anything to this cluster's managed namespaces, because
-that is what it is. If that is not acceptable yet, the alternative at the bottom
-of this page — letting the pipeline run `helm upgrade` with its own kubeconfig —
-does not depend on this API at all.
+Until it lands, treat the pipeline's API key with the seriousness of a credential
+that can do anything to this cluster's managed namespaces, because that is what it
+is. If that is not acceptable yet, the alternative at the bottom of this page —
+letting the pipeline run `helm upgrade` with its own kubeconfig — does not depend
+on this API at all.
+
+**The endpoint narrows what a pipeline can say; it does not narrow the key.**
+`PATCH /api/v1/charts/{chartId}` accepts one deployment id, a chart version, and
+overrides, and there is no way to spell "uninstall" or "delete this namespace"
+through it. But the token the panel mints from that key is an ordinary token, and
+the same key exchanged by hand reaches every route this API has. The endpoint is a
+narrow *door*, not a narrow *credential*.
+
+One more thing changes with an API key rather than a client credential:
+**attribution now names a person.** A key is bound to a user, that user is the
+token's `sub`, and that is what lands in the version's `createdBy` and on the
+Job's actor annotation. The version is still recorded with `source: "ci"`, so the
+history distinguishes a pipeline's change from an operator's — but the name beside
+it is whoever the key was issued for. Issue keys against a purpose-made account if
+that would otherwise read as somebody deploying by hand at 03:14.
 
 ## The deploy
 
-```bash
-token=$(curl -sS -X POST "$ISSUER/token" \
-  -d grant_type=client_credentials \
-  -u "$CLIENT_ID:$CLIENT_SECRET" | jq -r .access_token)
+One request, to the panel. There is no token step: the key goes on the wire and
+the panel does the exchange.
 
+```bash
 # Capture the status as well as the body. A 409 or a 503 also returns JSON, and
 # feeding it to jq further down yields a null job and a request to /jobs/null.
-response=$(curl -sS -w '\n%{http_code}' -X PUT "$API/api/helm/deployments/$DEPLOYMENT_ID" \
-  -H "Authorization: Bearer $token" \
-  -H "CF-Access-Client-Id: $CF_ID" \
-  -H "CF-Access-Client-Secret: $CF_SECRET" \
+response=$(curl -sS -w '\n%{http_code}' -X PATCH "$PANEL/api/v1/charts/$CHART_ID" \
+  -H "Authorization: Bearer $EETR_API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"version":"6.9.4","values":{"image":{"tag":"sha-abc123"}}}')
+  -d '{"chartVersion":"6.9.4","valueOverrides":{"image":{"tag":"sha-abc123"}}}')
 
 status=${response##*$'\n'}
 accepted=${response%$'\n'*}
@@ -134,9 +170,15 @@ So the example above changes `image.tag` and leaves `image.repository`,
 pipeline that owns an image tag does not have to know the rest of the
 configuration, and cannot erase it by sending an incomplete copy.
 
-**Omitting `values` entirely** carries the previous document forward byte for
-byte, comments included, and only the chart version changes. That is the right
-body for a pipeline that tracks chart releases rather than images.
+**Omitting `valueOverrides` entirely** carries the previous document forward byte
+for byte, comments included, and only the chart version changes. That is the right
+body for a pipeline that tracks chart releases rather than images — and it is what
+this repository's own Cloud Build deploy sends.
+
+An empty `"valueOverrides": {}` means the same thing — the API asks whether there
+are any overrides, not whether the field was there — so a pipeline that builds its
+body programmatically does not have to decide between omitting a key and sending
+an empty one.
 
 A version written by a pipeline is recorded with `source: "ci"` and the client id
 that sent it, and appears in the deployment's history beside the operator's own.
@@ -167,6 +209,14 @@ opinion about something the cluster is about to be asked again.
 `job` is a Kubernetes Job in the panel's namespace, and it is what does the work.
 
 ## Knowing whether it worked
+
+> **The panel serves the deploy and nothing else.** `PATCH /api/v1/charts/{id}` is
+> the whole of its pipeline surface: there is no read-back through it, so a
+> pipeline that only has an API key is fire-and-forget and the panel is where
+> somebody looks. Everything in this section reads the **admin API directly**, and
+> therefore applies only to a lab that has chosen to route it — the one reason
+> left to. Adding `GET /api/v1/charts/{id}` is the obvious answer if that starts
+> to hurt; it does not exist today.
 
 **Read the deployment back.** There is a job to poll now, and it is still not the
 success criterion — see the box below.
@@ -318,6 +368,27 @@ all of them.
 on: the RBAC verbs the admin chart needs belong to the Job's ServiceAccount and
 are always there. And `deployed` means the same thing for this release as for any
 other — the pods came up.
+
+### This repository's own build does it
+
+[cloudbuild.yaml](../cloudbuild.yaml) publishes the images and the chart, and then
+optionally rolls this lab's panel onto them. It is **off unless `_DEPLOY=true`**,
+and that gate is not a convenience: the deploy calls an endpoint the panel serves,
+so the panel already running has to be a version that has one. The build that
+first introduces the endpoint cannot use it. Publish, upgrade once by hand, then
+turn it on.
+
+It needs three more substitutions — `_PANEL_URL`, `_CHART_ID` (the deployment id
+from the panel's URL), and `_API_KEY_SECRET`, a Secret Manager secret holding the
+`eak_…` key. The deploy step reads that secret itself rather than declaring it in
+`availableSecrets`, so a build with `_DEPLOY` unset never needs the secret to
+exist at all — which is what keeps a fork of this repository able to publish.
+
+One ordering detail that is easy to undo if this is ever rearranged: each build
+step pushes its own image, and there is no top-level `images:` list. That list is
+pushed only *after* every step finishes, so reinstating it would leave the deploy
+step asking the cluster to pull tags that do not exist yet. The deploy waits on
+all three builds and on the chart publish for the same reason.
 
 ### What happens, and what you will see
 

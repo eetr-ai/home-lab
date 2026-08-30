@@ -1,4 +1,9 @@
-# Publishes the admin panel to Artifact Registry.
+# Publishes the admin panel to Artifact Registry, and optionally rolls this lab's
+# own panel onto what it published.
+#
+# Publishing is what this file is for; deploying is opt-in behind _DEPLOY and off
+# by default. See the substitution's comment for why it has to be, and
+# docs/deploying-from-a-pipeline.md for the credential the deploy uses.
 #
 # Provisioned and fired by terraform/gcp: the trigger watches tags matching
 # ^admin-v.*$ and supplies _IMAGE_BASE, _REGION, and _TAG (the tag that fired it).
@@ -28,6 +33,25 @@ substitutions:
   _IMAGE_BASE: ''
   _REGION: us-west1
   _TAG: dev-local
+
+  # Roll the lab's own panel onto what this build just published.
+  #
+  # Off unless set to "true", and that gate is not a convenience. This deploys by
+  # calling an endpoint the panel serves, so the panel already running has to be a
+  # version that has one — which the build introducing it, by definition, is not.
+  # Publish first, upgrade by hand once, then turn this on.
+  #
+  # It is also the honest default for a public repository: a fork that cuts a tag
+  # should publish artifacts and touch nobody's cluster.
+  _DEPLOY: ''
+  # The panel that gets upgraded, and the deployment inside it. The id is in the
+  # URL of the deployment's page, and the panel's own page shows the whole request.
+  _PANEL_URL: 'https://eetr01.eetr.app'
+  _CHART_ID: ''
+  # A Secret Manager secret holding one eetr-auth API key (eak_…). Read by the
+  # deploy step itself rather than declared in availableSecrets, so a build that
+  # is not deploying never needs the secret to exist or the builder to reach it.
+  _API_KEY_SECRET: admin-pipeline-api-key
 
 options:
   machineType: E2_HIGHCPU_8
@@ -165,7 +189,76 @@ steps:
         helm package charts/admin           --version "$${version}"           --app-version "$${version}"           --destination dist
         helm push "dist/home-lab-admin-$${version}.tgz" "oci://${_IMAGE_BASE}"
 
+  # Roll the lab's own panel onto this build, through the panel itself.
+  #
+  # The credential is an eetr-auth API key, and the panel exchanges it for a token
+  # before calling its API — so this build holds one opaque secret and the admin
+  # API stays unroutable. docs/deploying-from-a-pipeline.md is the long version.
+  #
+  # Accepted, not done: the answer names a Kubernetes Job that then runs Helm,
+  # which waits for pods far longer than any build should hold a connection open.
+  # This step asserts the request was accepted and stops there; whether the
+  # release came up is read from the panel.
+  - id: deploy-panel
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    # Every one of them, because this asks the cluster to pull what they pushed:
+    # each build step pushes its own image, and the chart references all three.
+    waitFor:
+      - 'build-admin-api'
+      - 'build-admin-web'
+      - 'build-admin-agent'
+      - 'publish-chart'
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        if [ "${_DEPLOY}" != "true" ]; then
+          echo "_DEPLOY is not true — published only, nothing was upgraded."
+          exit 0
+        fi
+
+        if [ -z "${_CHART_ID}" ]; then
+          echo "_DEPLOY is set but _CHART_ID is empty. It is the deployment id in the panel's URL." >&2
+          exit 1
+        fi
+
+        # The same answer check-substitutions wrote, so the version deployed is the
+        # version published rather than a second reading of the tag.
+        version=$$(cat /workspace/version)
+
+        # Read here rather than through availableSecrets so a build with _DEPLOY
+        # unset never touches Secret Manager at all. Never echoed.
+        api_key="$(gcloud secrets versions access latest --secret="${_API_KEY_SECRET}")"
+
+        echo "Rolling ${_CHART_ID} onto $${version} at ${_PANEL_URL}"
+
+        # Status and body both, because every refusal here answers with JSON too
+        # and the body alone cannot tell an accepted deploy from a rejected one.
+        # The body goes to a file rather than being split off the end of stdout:
+        # it keeps the status a single clean value and this script free of the
+        # dollar-quoting that Cloud Build's own substitution pass would eat.
+        status="$$(curl -sS -o /tmp/deploy-body -w '%{http_code}' -X PATCH \
+          "${_PANEL_URL}/api/v1/charts/${_CHART_ID}" \
+          -H "Authorization: Bearer $${api_key}" \
+          -H 'Content-Type: application/json' \
+          -d "{\"chartVersion\":\"$${version}\"}")"
+        body="$$(cat /tmp/deploy-body)"
+
+        case "$${status}" in
+          202) echo "accepted: $${body}" ;;
+          # Somebody or something else is mid-deploy. Distinct from a refusal
+          # because retrying this later is right, where retrying a 400 never is.
+          409) echo "another operation holds this release: $${body}" >&2; exit 75 ;;
+          *)   echo "the deploy was refused ($${status}): $${body}" >&2; exit 1 ;;
+        esac
+
 # There is deliberately no `images:` block. It names images literally, and these
 # are tagged with a version computed at build time, which it cannot express. Each
 # build step pushes its own image instead. The cost is that the build's result no
 # longer lists them as artifacts; the registry is the record either way.
+#
+# It also happens to be what makes the deploy step above possible: that list is
+# pushed only after every step finishes, so a deploy gated behind it would ask the
+# cluster to pull tags that did not exist yet.

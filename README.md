@@ -384,10 +384,12 @@ credential, so there is no per-namespace pull secret to create first — see the
 [Ansible guide](ansible/README.md).
 
 Once the panel manages Helm deployments, a pipeline can roll one forward without
-anybody at a terminal — GitHub Actions and Cloud Build both do it with one `PUT`
-and a poll. What the token has to carry, what value overrides do to the values an
-operator wrote, and why a terminal status is not the same as a successful deploy
-are in the [pipeline guide](docs/deploying-from-a-pipeline.md).
+anybody at a terminal — GitHub Actions and Cloud Build both do it with one `PATCH`
+to the panel, holding nothing but an eetr-auth API key. The admin API stays
+unrouted; the panel exchanges the key for a token and calls it. What that key can
+do, what value overrides do to the values an operator wrote, and why a terminal
+status is not the same as a successful deploy are in the
+[pipeline guide](docs/deploying-from-a-pipeline.md).
 
 ## Rebuild and recovery boundaries
 
