@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.4.0...admin-v1.5.0) (2026-08-30)
+
+
+### Features
+
+* deploy from a pipeline with an eetr-auth API key ([#70](https://github.com/eetr-ai/home-lab/issues/70)) ([d1cbb1b](https://github.com/eetr-ai/home-lab/commit/d1cbb1b45666b944ec7141f145ec3d78bdb40a73))
+
 ## [1.4.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.3.0...admin-v1.4.0) (2026-08-30)
 
 
