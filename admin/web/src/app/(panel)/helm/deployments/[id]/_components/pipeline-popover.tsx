@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { Check, Copy, Terminal } from "lucide-react";
-import { IconButton, SectionCard } from "@/components/ui";
+import { Button, IconButton, Popover } from "@/components/ui";
 import { pipelineCurl, pipelineUrl } from "./pipeline-snippet";
 
 /**
@@ -14,11 +14,16 @@ import { pipelineCurl, pipelineUrl } from "./pipeline-snippet";
  * release. Handing over the whole request instead of the id makes that harder to
  * do than to do correctly.
  *
+ * Behind a button rather than a card down the page, for the same reason the
+ * version history is: this is reference material somebody reads once while
+ * wiring up CI, and inline it pushed the thing you came for — the values — that
+ * much further from the top on every other visit.
+ *
  * It shows the request and never the credential: the key is created in eetr-auth
  * and shown once there, and a panel offering to fill one in would be a panel that
  * held one.
  */
-export function PipelineCard({
+export function PipelinePopover({
 	origin,
 	chartId,
 	chartVersion,
@@ -29,20 +34,48 @@ export function PipelineCard({
 	/** The declared version, so the snippet is a request that would work. */
 	chartVersion: string;
 }) {
+	const [open, setOpen] = useState(false);
+	const trigger = useRef<HTMLButtonElement>(null);
+
 	const url = pipelineUrl(origin, chartId);
 	const curl = pipelineCurl(origin, chartId, chartVersion);
 
 	return (
-		<SectionCard title="Deploy from a pipeline" icon={Terminal}>
-			<p className="mb-4 text-sm text-muted-foreground">
-				A CI job rolls this deployment forward by sending its chart version to the
-				address below, authenticated with an eetr-auth API key. The key is created
-				in eetr-auth and shown once; see <Code>docs/deploying-from-a-pipeline.md</Code>.
-			</p>
+		<>
+			{/* Icon-only, and a pill rather than an `IconButton`, so it sits at the
+			    same height as the version control it shares the row with. */}
+			<Button
+				ref={trigger}
+				variant="secondary"
+				icon={Terminal}
+				aria-label="Deploy from a pipeline"
+				aria-expanded={open}
+				aria-haspopup="dialog"
+				onClick={() => setOpen((wasOpen) => !wasOpen)}
+			/>
 
-			<Field label="Endpoint" text={url} />
-			<Field label="Example request" text={curl} multiline />
-		</SectionCard>
+			<Popover
+				open={open}
+				onRequestClose={() => setOpen(false)}
+				anchor={trigger}
+				title="Deploy from a pipeline"
+				width="lg"
+			>
+				<div className="border-b border-border px-4 py-3">
+					<h3 className="text-sm font-medium">Deploy from a pipeline</h3>
+					<p className="mt-0.5 text-xs text-muted-foreground">
+						A CI job rolls this deployment forward by sending its chart version to the
+						address below, authenticated with an eetr-auth API key. The key is created
+						in eetr-auth and shown once; see <Code>docs/deploying-from-a-pipeline.md</Code>.
+					</p>
+				</div>
+
+				<div className="p-4">
+					<Field label="Endpoint" text={url} />
+					<Field label="Example request" text={curl} multiline />
+				</div>
+			</Popover>
+		</>
 	);
 }
 
