@@ -3,9 +3,16 @@ name: home-lab-admin
 description: The in-cluster administration panel for the eetr home lab
 type: application
 
-# Placeholders for local work only. The published chart's version and appVersion
-# both come from the release tag, applied by `helm package` in cloudbuild.yaml — a
-# chart and the images it references have to carry the same version, and deriving
-# both from the tag makes that true by construction rather than by remembering.
-version: 0.1.0
-appVersion: "0.0.0"
+# Both are maintained by release-please, through the extra-files entry in
+# release-please-config.json. They are not placeholders any more, and that is
+# load-bearing: appVersion is what admin.image.tag defaults to, so a checkout
+# whose appVersion had drifted would install the wrong images rather than fail.
+#
+# version and appVersion are deliberately the same number. For most charts they
+# differ -- one versions the packaging, the other the thing packaged -- but here
+# one pipeline builds the images and packages the chart from one commit, so there
+# is only one thing to version. cloudbuild.yaml passes the same value to both
+# again at publish time, which makes a released artifact right even if these were
+# somehow stale.
+version: 1.4.0 # x-release-please-version
+appVersion: "1.4.0" # x-release-please-version

@@ -9,6 +9,7 @@
       "type": "object",
       "required": [
         "imagePullSecrets",
+        "image",
         "gateway",
         "api",
         "web",
@@ -27,6 +28,19 @@
                 "type": "string",
                 "minLength": 1
               }
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tag": {
+              "type": "string",
+              "not": {
+                "const": "latest"
+              },
+              "description": "An immutable tag for all three images. Empty means the chart's own appVersion, which is the version the images were published under. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
             }
           }
         },
@@ -402,21 +416,12 @@
       "type": "object",
       "required": [
         "repository",
-        "tag",
         "pullPolicy"
       ],
       "properties": {
         "repository": {
           "type": "string",
           "minLength": 1
-        },
-        "tag": {
-          "type": "string",
-          "minLength": 1,
-          "not": {
-            "const": "latest"
-          },
-          "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
         },
         "pullPolicy": {
           "enum": [
@@ -425,7 +430,8 @@
             "Never"
           ]
         }
-      }
+      },
+      "additionalProperties": false
     }
   }
 }

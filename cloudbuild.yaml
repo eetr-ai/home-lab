@@ -2,8 +2,9 @@
 #
 # Provisioned and fired by terraform/gcp: the trigger watches tags matching
 # ^admin-v.*$ and supplies _IMAGE_BASE, _REGION, and _TAG (the tag that fired it).
-# Everything is addressed by that immutable tag — nothing here writes `latest`,
-# because a chart that pulls a moving name cannot say which build is running.
+# Everything is addressed by an immutable version derived from that tag — nothing
+# here writes `latest`, because a chart that pulls a moving name cannot say which
+# build is running.
 #
 # To exercise the pipeline without cutting a release, naming the same service
 # account the trigger uses so the manual path exercises the real one:
@@ -12,8 +13,13 @@
 #     --substitutions=_IMAGE_BASE=REGION-docker.pkg.dev/PROJECT/home-lab,_TAG=dev-local \
 #     --service-account=projects/PROJECT/serviceAccounts/home-lab-build@PROJECT.iam.gserviceaccount.com .
 #
-# It publishes the images under the tag given and the chart as 0.0.0-<tag>, which
-# sorts below every real release.
+# It publishes the images and the chart as 0.0.0-<tag>, which sorts below every
+# real release.
+#
+# Images and chart carry ONE version, which is the release tag with the admin-v
+# prefix stripped -- admin-v1.4.0 publishes 1.4.0 everywhere. That is what lets
+# the chart default admin.image.tag to its own appVersion instead of a values
+# file repeating the number three times.
 
 substitutions:
   # Registry prefix, e.g. us-west1-docker.pkg.dev/PROJECT/home-lab. Supplied by
@@ -41,69 +47,99 @@ steps:
           echo "_IMAGE_BASE is empty. Pass it, or let the trigger supply it." >&2
           exit 1
         fi
-        echo "Publishing admin-api, admin-web and admin-agent at ${_IMAGE_BASE}:${_TAG}"
+
+        # The one place the release tag becomes a version, written to the shared
+        # workspace so every step below reads the same answer. It used to be
+        # computed inside publish-chart, which was fine while only the chart used
+        # it; the images carry it now too, and three copies of a case statement is
+        # three chances for the chart and the images it references to disagree
+        # about what a release is called.
+        tag="${_TAG}"
+        case "$${tag}" in
+          admin-v*) version="$${tag#admin-v}" ;;
+          # A manual submit passes something like dev-local, which is not a
+          # version. Publish it as a prerelease of 0.0.0 so it sorts below every
+          # real release and can never be mistaken for one.
+          *)        version="0.0.0-$${tag}" ;;
+        esac
+
+        printf '%s' "$${version}" > /workspace/version
+        echo "Publishing admin-api, admin-web, admin-agent and the chart at $${version}"
 
   - id: build-admin-api
     name: gcr.io/cloud-builders/docker
     waitFor: ['check-substitutions']
+    entrypoint: bash
     env:
       # The Dockerfile uses RUN --mount=type=cache, which the classic builder
       # does not understand.
       - DOCKER_BUILDKIT=1
     args:
-      - build
-      - --tag
-      - ${_IMAGE_BASE}/admin-api:${_TAG}
-      - --file
-      - admin/api/Dockerfile
-      # The module directory is the context: it is self-contained, and a
-      # repository-root context would ship every chart and playbook to the daemon.
-      - admin/api
+      - -c
+      - |
+        set -euo pipefail
+        version=$$(cat /workspace/version)
+        # The module directory is the context: it is self-contained, and a
+        # repository-root context would ship every chart and playbook to the daemon.
+        docker build \
+          --tag "${_IMAGE_BASE}/admin-api:$${version}" \
+          --file admin/api/Dockerfile \
+          admin/api
+        docker push "${_IMAGE_BASE}/admin-api:$${version}"
 
   # Built in parallel with the API rather than after it: neither reads the other's
   # output, and the panel's npm install is the long pole of the two.
   - id: build-admin-web
     name: gcr.io/cloud-builders/docker
     waitFor: ['check-substitutions']
+    entrypoint: bash
     env:
       # The Dockerfile uses RUN --mount=type=cache, which the classic builder
       # does not understand.
       - DOCKER_BUILDKIT=1
     args:
-      - build
-      - --tag
-      - ${_IMAGE_BASE}/admin-web:${_TAG}
-      - --file
-      - admin/web/Dockerfile
-      - admin/web
+      - -c
+      - |
+        set -euo pipefail
+        version=$$(cat /workspace/version)
+        docker build \
+          --tag "${_IMAGE_BASE}/admin-web:$${version}" \
+          --file admin/web/Dockerfile \
+          admin/web
+        docker push "${_IMAGE_BASE}/admin-web:$${version}"
 
   # Also in parallel. It compiles nothing — its Go binary is copied out of a
   # published Octo image — so it is the quickest of the three and waits on nobody.
   - id: build-admin-agent
     name: gcr.io/cloud-builders/docker
     waitFor: ['check-substitutions']
+    entrypoint: bash
     env:
       # The Dockerfile opens with a `# syntax=` directive, which pins a frontend
       # the classic builder does not read at all.
       - DOCKER_BUILDKIT=1
     args:
-      - build
-      - --tag
-      - ${_IMAGE_BASE}/admin-agent:${_TAG}
-      - --file
-      - admin/agent/Dockerfile
-      # The module directory is the context. It holds the definition and the
-      # skills, which are copied into the image beside the runtime binary — so the
-      # image tag names the prompt and the tool set as well as the runtime.
-      - admin/agent
+      - -c
+      - |
+        set -euo pipefail
+        version=$$(cat /workspace/version)
+        # The module directory is the context. It holds the definition and the
+        # skills, which are copied into the image beside the runtime binary — so the
+        # image tag names the prompt and the tool set as well as the runtime.
+        docker build \
+          --tag "${_IMAGE_BASE}/admin-agent:$${version}" \
+          --file admin/agent/Dockerfile \
+          admin/agent
+        docker push "${_IMAGE_BASE}/admin-agent:$${version}"
 
   # The chart is published as an OCI artifact into the same repository as the
   # images, which is what lets one `helm upgrade` reference one place.
   #
-  # Its version comes from the release tag rather than from Chart.yaml. The
-  # tracked Chart.yaml version is a placeholder for local work; a published chart
-  # and the images it references have to carry the same version, and deriving both
-  # from the tag is what makes that true by construction rather than by remembering.
+  # Its version comes from the release tag rather than from Chart.yaml, even
+  # though release-please now keeps Chart.yaml in step with the release too. The
+  # two agree on a release commit, and passing it here as well means a manual
+  # submit -- which is not a release and has no matching Chart.yaml -- still
+  # publishes a chart whose appVersion names the images this build pushed.
   - id: publish-chart
     name: gcr.io/cloud-builders/gcloud
     entrypoint: bash
@@ -121,22 +157,15 @@ steps:
         install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
         helm version --short
 
-        tag="${_TAG}"
-        case "$${tag}" in
-          admin-v*) version="$${tag#admin-v}" ;;
-          # A manual submit passes something like dev-local, which is not a
-          # version. Publish it as a prerelease of 0.0.0 so it sorts below every
-          # real release and can never be mistaken for one.
-          *)        version="0.0.0-$${tag}" ;;
-        esac
+        version=$$(cat /workspace/version)
 
-        helm registry login           --username oauth2accesstoken           --password "$(gcloud auth print-access-token)"           "${_REGION}-docker.pkg.dev"
+        helm registry login         --username oauth2accesstoken           --password "$(gcloud auth print-access-token)"           "${_REGION}-docker.pkg.dev"
 
         mkdir -p dist
         helm package charts/admin           --version "$${version}"           --app-version "$${version}"           --destination dist
         helm push "dist/home-lab-admin-$${version}.tgz" "oci://${_IMAGE_BASE}"
 
-images:
-  - ${_IMAGE_BASE}/admin-api:${_TAG}
-  - ${_IMAGE_BASE}/admin-web:${_TAG}
-  - ${_IMAGE_BASE}/admin-agent:${_TAG}
+# There is deliberately no `images:` block. It names images literally, and these
+# are tagged with a version computed at build time, which it cannot express. Each
+# build step pushes its own image instead. The cost is that the build's result no
+# longer lists them as artifacts; the registry is the record either way.

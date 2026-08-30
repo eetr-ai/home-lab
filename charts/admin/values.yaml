@@ -12,6 +12,33 @@ admin:
   # in the release namespace, and the installer checks before Helm runs.
   imagePullSecrets: []
 
+  # One tag for all three images, and normally not set at all.
+  #
+  # The API, the panel and the agent are built from one commit by one pipeline
+  # and pushed under one tag, so a per-component tag could only ever express a
+  # mistake: three keys where the build produces one value is three chances to
+  # deploy a mismatched set and no way to express anything the pipeline can
+  # actually produce.
+  #
+  # Empty means "the chart's appVersion", which is the same version the images
+  # were published under -- release admin-v1.4.0 publishes chart 1.4.0 and images
+  # 1.4.0. So installing chart 1.5.0 installs the 1.5.0 images by construction,
+  # and a values file that pins a tag is overriding that rather than supplying
+  # something missing. release-please keeps Chart.yaml in step with the release,
+  # so this holds for a checkout too.
+  #
+  # Set it to run an image the chart was not released with -- a build from a
+  # branch, or a pipeline naming an immutable digest-like tag of its own.
+  #
+  # Only the tag is shared. Each component keeps its own `repository`, because
+  # those genuinely differ, and its own `pullPolicy`.
+  #
+  # No "latest": a pod pulling a moving name cannot say which build it is
+  # running. Refused in values.schema.json and again in _helpers.tpl, because the
+  # schema never sees a tag that arrives through appVersion.
+  image:
+    tag: ""
+
   # The Gateway the platform chart owns. A route only attaches when this
   # namespace carries the gateway-access label; the installer applies it.
   gateway:
@@ -108,7 +135,6 @@ admin:
 
     image:
       repository: registry.example.invalid/home-lab/admin-api
-      tag: "0.0.0"
       pullPolicy: IfNotPresent
 
     # Two, because this is the one service here that can actually take it.
@@ -308,7 +334,6 @@ admin:
 
     image:
       repository: registry.example.invalid/home-lab/admin-web
-      tag: "0.0.0"
       pullPolicy: IfNotPresent
 
     # Two, now that the token refresh is coordinated.
@@ -406,7 +431,6 @@ admin:
 
     image:
       repository: registry.example.invalid/home-lab/admin-agent
-      tag: "0.0.0"
       pullPolicy: IfNotPresent
 
     # Sized for one operator asking questions. The memory ceiling is what a long

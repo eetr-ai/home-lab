@@ -5,6 +5,20 @@ on:
     branches:
       - main
 
+  # The recovery path. Publishing the chart happens once, on the push that cut the
+  # release, because `release_created` is true exactly that once — so a publish
+  # that failed after the release was already tagged could not be retried by
+  # re-running this workflow, and the only way back would be the `helm push` by
+  # hand that this automation exists to remove.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Chart version to publish, e.g. 1.5.0. Use this to finish a release whose
+          chart publish failed. The chart is packaged from that release's tag, not
+          from main.
+        required: true
+
 permissions:
   contents: write
   pull-requests: write
@@ -13,17 +27,122 @@ jobs:
   release-please:
     name: Release please
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      # Pushing the chart to GHCR. On the job rather than on the workflow so a
+      # second job added here later does not inherit the ability to write
+      # packages without somebody deciding that it should.
+      packages: write
     steps:
       # Opens and maintains a release pull request from the Conventional Commit
       # history. Merging it tags admin-vX.Y.Z, and that tag is what the Cloud Build
       # trigger watches.
       #
       # The tag is created with GITHUB_TOKEN, which by design does not start other
-      # GitHub Actions workflows. That does not matter here: publishing runs in
-      # Cloud Build through its GitHub App, which sees the tag either way. It would
-      # matter if a release ever needed to run a workflow in this repository.
+      # GitHub Actions workflows. Cloud Build is unaffected — it sees the tag
+      # through its GitHub App rather than through Actions.
+      #
+      # THE CHART PUBLISH BELOW IS AFFECTED, AND THAT IS WHY IT LIVES HERE. A
+      # workflow triggered `on: release` or `on: push: tags` would never run: the
+      # tag that would start it was written by GITHUB_TOKEN. Nothing would fail —
+      # there would simply be no run, and the chart would quietly stop being
+      # published. Steps in this job are part of the run that release-please
+      # already started, so the restriction does not reach them.
       - name: Run release-please
+        id: release
+        if: github.event_name == 'push'
         uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # One place decides whether there is a chart to publish and which version it
+      # is, so the steps below share one condition rather than each repeating the
+      # difference between the two triggers.
+      - name: Decide what to publish
+        id: chart
+        env:
+          RELEASED: ${{ steps.release.outputs['admin--release_created'] }}
+          RELEASE_VERSION: ${{ steps.release.outputs['admin--version'] }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = 'workflow_dispatch' ]; then
+            version="$MANUAL_VERSION"
+            # Packaged from the release's own tag rather than from main, which has
+            # moved on. Republishing a version means republishing that version.
+            ref="admin-v${version}"
+          elif [ "$RELEASED" = 'true' ]; then
+            version="$RELEASE_VERSION"
+            # Empty checks out the commit that triggered the run, which is the one
+            # release-please just released.
+            ref=''
+          else
+            echo 'No release was cut; nothing to publish.'
+            exit 0
+          fi
+
+          # A version that is not one would otherwise surface as a confusing
+          # `helm package` error, or as a checkout of a tag that does not exist.
+          if ! printf '%s' "$version" |
+            grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Not a version: $version" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "ref=$ref"
+          } >>"$GITHUB_OUTPUT"
+          echo "Publishing chart $version"
+
+      - name: Check out the released commit
+        if: steps.chart.outputs.version != ''
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.chart.outputs.ref }}
+
+      - name: Install Helm
+        if: steps.chart.outputs.version != ''
+        uses: azure/setup-helm@v5
+        with:
+          # Pinned for the same reason cloudbuild.yaml pins its own copy: how Helm
+          # packages a chart is exactly what this relies on.
+          version: v4.1.1
+
+      # The chart is published to GHCR as well as to Artifact Registry, and the
+      # difference is who can read it. Artifact Registry is private, and a Helm
+      # client running inside a pod has no credential for it — the node's registry
+      # key belongs to the kubelet and covers image pulls, not a chart fetch made
+      # in-process. GHCR is public, so the panel can install its own chart with no
+      # credential at all.
+      #
+      # The version passed here is the release's, not Chart.yaml's. They agree on
+      # a release commit — release-please maintains Chart.yaml — but stating it
+      # keeps a manual republish from depending on that agreement, and keeps this
+      # copy and Cloud Build's deriving one number from one decision.
+      - name: Publish the admin chart to GHCR
+        if: steps.chart.outputs.version != ''
+        env:
+          VERSION: ${{ steps.chart.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          # Through the environment rather than interpolated into the script, so
+          # the token is never part of the command line a failing step echoes.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          helm registry login ghcr.io \
+            --username "$ACTOR" \
+            --password-stdin <<<"$GHCR_TOKEN"
+
+          mkdir -p dist
+          helm package charts/admin \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination dist
+          helm push "dist/home-lab-admin-${VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts"
