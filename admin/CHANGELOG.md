@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.0...admin-v1.5.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **admin-api:** apply as "helm" so the panel is not a second writer ([#72](https://github.com/eetr-ai/home-lab/issues/72)) ([d7fc8f1](https://github.com/eetr-ai/home-lab/commit/d7fc8f17c6b49c8a35bf71ea7e5184cf64ea9142))
+
 ## [1.5.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.4.0...admin-v1.5.0) (2026-08-30)
 
 
