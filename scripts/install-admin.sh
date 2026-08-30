@@ -125,9 +125,35 @@ while read -r secret_spec; do
   fi
 done <<<"$value_secrets"
 
+# --force-conflicts because this chart is the source of truth for what it declares.
+#
+# Helm 4 applies server-side, so a field claimed by another manager makes the
+# whole upgrade fail rather than the one field. That other manager is usually a
+# person: scaling a Deployment in k9s claims .spec.replicas through the scale
+# subresource, and from then on every deploy fails with a conflict until somebody
+# works out what a field manager is. Editing an image tag by hand claims that too.
+#
+# Forcing is the right answer for exactly the fields this chart declares: it takes
+# them back, which is what "the chart says how many replicas there are" means. It
+# does not touch fields the chart does not declare.
+#
+# What it WOULD fight is a controller that legitimately owns one of these -- an
+# HPA owning replicas is the obvious one. There is none here, and adding one would
+# mean removing replicas from this chart rather than dropping this flag.
+#
+# --server-side=true is stated rather than left to the default, and the default is
+# the reason. It is "auto", which means "whatever the previous revision of this
+# release used" -- so a release that was last applied client-side keeps being
+# applied client-side, and --force-conflicts above silently does nothing, because
+# there are no field managers to force against. Both of this lab's releases are
+# already on server-side apply, so this changes no behaviour today; what it does is
+# stop the flag above from depending on a property of the last install rather than
+# on this file.
 helm upgrade --install "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file" \
+  --server-side=true \
+  --force-conflicts \
   --rollback-on-failure \
   --wait \
   --timeout 5m

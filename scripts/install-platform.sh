@@ -102,12 +102,24 @@ for secret_spec in "$issuer_secret_spec" "$cloudflared_secret_spec" "$redis_secr
   fi
 done
 
+# --force-conflicts for the reason install-admin.sh gives at length: Helm 4 applies
+# server-side, and a field claimed by another manager -- usually a person scaling a
+# Deployment in k9s -- fails the whole upgrade rather than the one field. This
+# chart is the source of truth for what it declares.
+#
+# --server-side=true because its default is "auto", which inherits the method from
+# the release's previous revision -- and a release applied client-side has no field
+# managers for --force-conflicts to force against, so the flag above would quietly
+# do nothing. Both upgrades below state it, because the second one inherits from
+# the first.
 helm upgrade --install "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file" \
   --set platform.issuers.enabled=false \
   --set platform.whoami.enabled=false \
   --skip-crds \
+  --server-side=true \
+  --force-conflicts \
   --rollback-on-failure \
   --wait \
   --timeout 10m
@@ -121,6 +133,8 @@ helm upgrade "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file" \
   --skip-crds \
+  --server-side=true \
+  --force-conflicts \
   --rollback-on-failure \
   --wait \
   --timeout 10m
