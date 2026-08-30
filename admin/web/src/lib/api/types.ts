@@ -201,4 +201,6 @@ export type {
 	AddDeploymentVersion,
 	RolloutDeployment,
 	HelmAccepted,
+	HelmJob,
+	HelmJobPhase,
 } from "./helm-types";

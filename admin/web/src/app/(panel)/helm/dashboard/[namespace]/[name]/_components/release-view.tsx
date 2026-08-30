@@ -12,7 +12,8 @@ import { useRowDelete } from "../../../../../_components/use-row-delete";
 import { StatusBadge } from "../../../../_components/status-badge";
 import { formatAge } from "@/lib/format/age";
 import { describeOutcome, isPending, stuckForMinutes } from "@/lib/helm/status";
-import type { HelmReleaseDetail, HelmRevision } from "@/lib/api/types";
+import { JobPanel } from "../../../../_components/job-panel";
+import type { HelmJob, HelmReleaseDetail, HelmRevision } from "@/lib/api/types";
 import { RevisionRow } from "./revision-row";
 import { useReleasePolling } from "../../../../_components/use-release-polling";
 
@@ -22,6 +23,7 @@ export function ReleaseView({
 	historyError,
 	deploymentId,
 	deploymentsError,
+	job,
 	backHref,
 	now,
 }: {
@@ -37,6 +39,8 @@ export function ReleaseView({
 	deploymentId: string | null;
 	/** Why the deployment lookup failed, when it did. */
 	deploymentsError: string | null;
+	/** The operation running against this release, when there is one. */
+	job: HelmJob | null;
 	/** Back to the dashboard, keeping the namespace that was being looked at. */
 	backHref: string;
 	now: Date;
@@ -51,8 +55,9 @@ export function ReleaseView({
 	const router = useRouter();
 	const error = actionError ?? historyError ?? deploymentsError;
 
-	// The 202 design makes this page the progress indicator: nothing else reports
-	// what an install or upgrade did, because there is no job to poll.
+	// Still polled, and for a narrower reason than before. The job panel reports
+	// the operation; this reports the release, which can be left pending by an
+	// operation nothing here started — or by one that was interrupted.
 	useReleasePolling(isPending(release.status));
 
 	const outcome = describeOutcome(release);
@@ -68,6 +73,9 @@ export function ReleaseView({
 			</div>
 
 			<Banner variant="error" message={error} />
+
+			{/* What the last operation is doing, and Helm's own account of it. */}
+			<JobPanel job={job} />
 
 			{stuck !== null ? (
 				<Banner

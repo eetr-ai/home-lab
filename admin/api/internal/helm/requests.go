@@ -26,9 +26,6 @@ type installSpec struct {
 	Version           string
 	Values            map[string]any
 	RollbackOnFailure bool
-	// SkipWait stops Helm waiting for the workloads it applied. Set only for an
-	// operation on the release this process is running from — see waitStrategy.
-	SkipWait bool
 }
 
 // upgradeSpec is the same for moving a release to another version.
@@ -39,9 +36,6 @@ type upgradeSpec struct {
 	Version           string
 	Values            map[string]any
 	RollbackOnFailure bool
-	// SkipWait stops Helm waiting for the workloads it applied. Set only for an
-	// operation on the release this process is running from — see waitStrategy.
-	SkipWait bool
 }
 
 // RollbackRequest is a request to return a release to an earlier revision.
@@ -56,13 +50,18 @@ type RollbackRequest struct {
 // Accepted is what a mutation answers with.
 //
 // The operation was accepted, not performed: Helm waits for pods and that
-// outlasts any HTTP request this API is willing to hold open. The outcome is read
-// back from Helm's storage, which is the same place both replicas read it from.
+// outlasts any HTTP request this API is willing to hold open.
 type Accepted struct {
 	Namespace string `json:"namespace"`
 	Release   string `json:"release"`
-	// Operation is install, upgrade, rollback, or uninstall.
+	// Operation is rollout, rollback, or uninstall. Not install or upgrade:
+	// which of those a rollout turns out to be is decided by the Job, from what
+	// Helm has when the work starts.
 	Operation string `json:"operation"`
+	// Job is the Kubernetes Job doing the work, in the panel's own namespace. It
+	// has a status and a log, which is what makes "did it work" a question with a
+	// direct answer rather than one inferred by reading the release back.
+	Job string `json:"job"`
 	// Message says how to find out what happened, because the record of what was
 	// asked for and the record of what happened are two different systems.
 	Message string `json:"message"`

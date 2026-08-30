@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 )
@@ -20,13 +19,6 @@ type Handler struct {
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
-
-// maxStreamDuration caps a single log stream.
-//
-// A forgotten browser tab holds a goroutine here and a connection to the API
-// server for as long as it is open, and neither side has any reason to notice.
-// This is what ends it.
-const maxStreamDuration = 30 * time.Minute
 
 // Register adds the Kubernetes routes to a mux that already requires a verified
 // caller.
@@ -424,11 +416,11 @@ func (h *Handler) scaleWorkload(w http.ResponseWriter, r *http.Request) {
 //	@Failure		404			{object}	http.ErrorBody
 //	@Router			/api/kubernetes/namespaces/{namespace}/pods/{pod}/logs [get]
 func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
-	if !clearWriteDeadline(w) {
+	if !httpx.ClearWriteDeadline(w, "pod log stream") {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), maxStreamDuration)
+	ctx, cancel := context.WithTimeout(r.Context(), httpx.MaxStreamDuration)
 	defer cancel()
 
 	stream, err := h.service.PodLogs(ctx, r.PathValue("namespace"), r.PathValue("pod"), LogOptions{
@@ -446,32 +438,6 @@ func (h *Handler) podLogs(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = stream.Close() }()
 
 	httpx.StreamText(w, r.WithContext(ctx), stream, "pod log stream")
-}
-
-// clearWriteDeadline lifts the server's write timeout for this one response, and
-// reports whether streaming may proceed.
-//
-// The server gives every response thirty seconds to be written, which is right
-// for JSON and wrong for a tail. Clearing it is scoped to this request: net/http
-// sets the deadline per request and reinstalls it before reading the next one off
-// the same connection, so nothing else is weakened.
-//
-// The read deadline needs no such treatment, but only because this route is a
-// bodyless GET — net/http clears that one itself before dispatching such a
-// handler. Making this a POST later would put the deadline back in play with
-// nothing to catch it.
-//
-// A failure here is only reachable if something has begun wrapping the
-// ResponseWriter, in which case the stream would die at thirty seconds with no
-// explanation. Better to refuse than to serve that.
-func clearWriteDeadline(w http.ResponseWriter) bool {
-	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
-		slog.Error("cannot clear the write deadline for a log stream", slog.Any("error", err))
-		httpx.Error(w, http.StatusInternalServerError, "internal_error",
-			"log streaming is not available on this server")
-		return false
-	}
-	return true
 }
 
 // tailLines reads the tail parameter, leaving the service to apply the default.

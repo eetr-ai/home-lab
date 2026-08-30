@@ -9,10 +9,14 @@ const INTERVAL_MS = 2_000;
 /**
  * Refreshes the page while an operation on this release is still running.
  *
- * This exists because every Helm mutation answers 202. There is no job to poll
- * and no id to poll it with: the outcome is written into Helm's own storage, so
- * re-reading the release is the only way to find out what happened — and that
- * makes this page the progress indicator.
+ * There IS a job to poll now, and JobPanel follows it. This is the other half:
+ * the job reports the operation, and this reports the release.
+ *
+ * The two are not the same question. A release can be left pending by an
+ * operation nothing on this page started, by one whose Job was evicted, or by one
+ * that ran before this tab was open — and none of those has a stream to attach
+ * to. The outcome is written into Helm's own storage either way, so re-reading
+ * the release is what actually says where things landed.
  *
  * It stops when the release reaches a terminal status, which is what `pending`
  * going false means. It also stops while the tab is hidden: a forgotten tab

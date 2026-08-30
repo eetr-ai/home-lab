@@ -12,12 +12,6 @@
  * distrust of it — and because the reducer imports these and nothing else.
  */
 
-/** One parsed server-sent event: its `event:` name and its `data:` payload. */
-export interface SSEFrame {
-	event: string;
-	data: string;
-}
-
 /**
  * What every frame carries besides its own fields.
  *

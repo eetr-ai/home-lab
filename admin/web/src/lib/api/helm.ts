@@ -9,6 +9,7 @@ import type {
 	HelmDeploymentDetail,
 	HelmDeploymentSummary,
 	HelmDeploymentVersion,
+	HelmJob,
 	HelmRelease,
 	HelmReleaseDetail,
 	HelmRevision,
@@ -115,4 +116,29 @@ export function uninstallRelease(
 		"DELETE",
 		`/api/helm/namespaces/${seg(namespace)}/releases/${seg(release)}`,
 	);
+}
+
+/**
+ * The Helm jobs this panel is running or has run.
+ *
+ * Not a convenience: this is how a page that never saw the acceptance finds the
+ * operation in progress. A second operator's browser, a pipeline's deploy, or —
+ * most often — this panel loading again after its own pods were replaced by the
+ * upgrade it was watching.
+ */
+export function listJobs(filter: {
+	namespace?: string;
+	release?: string;
+	deployment?: string;
+}): Promise<ActionResult<HelmJob[]>> {
+	const query = new URLSearchParams();
+	for (const [key, value] of Object.entries(filter)) {
+		if (value) query.set(key, value);
+	}
+	const suffix = query.size > 0 ? `?${query}` : "";
+	return call<HelmJob[]>("GET", `/api/helm/jobs${suffix}`);
+}
+
+export function readJob(name: string): Promise<ActionResult<HelmJob>> {
+	return call<HelmJob>("GET", `/api/helm/jobs/${seg(name)}`);
 }

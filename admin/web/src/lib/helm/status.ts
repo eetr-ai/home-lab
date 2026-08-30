@@ -1,4 +1,4 @@
-import type { HelmRelease } from "@/lib/api/types";
+import type { HelmJobPhase, HelmRelease } from "@/lib/api/types";
 
 /**
  * Reading a Helm release's status.
@@ -91,4 +91,41 @@ export function stuckForMinutes(release: HelmRelease, now: Date, threshold = 15)
 
 	const minutes = Math.floor((now.getTime() - since) / 60_000);
 	return minutes >= threshold ? minutes : null;
+}
+
+/** How a job's phase should read at a glance. */
+export function jobTone(phase: HelmJobPhase): Tone {
+	switch (phase) {
+		case "succeeded":
+			return "success";
+		case "failed":
+			return "danger";
+		case "running":
+			return "warning";
+		// Pending is a pod waiting to be scheduled, which is neither progress nor
+		// trouble. Colouring it warning would make every operation start alarming.
+		default:
+			return "muted";
+	}
+}
+
+/**
+ * What a job is doing, in words.
+ *
+ * The reason is worth surfacing where Kubernetes gave one, because "failed" alone
+ * sends an operator to the log for something the status already knows —
+ * DeadlineExceeded in particular means the operation ran out of time rather than
+ * that the chart was wrong, and those lead to different next steps.
+ */
+export function describeJob(phase: HelmJobPhase, reason?: string): string {
+	switch (phase) {
+		case "pending":
+			return "waiting for a pod";
+		case "running":
+			return "running";
+		case "succeeded":
+			return "finished";
+		case "failed":
+			return reason ? `failed: ${reason}` : "failed";
+	}
 }

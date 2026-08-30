@@ -1,5 +1,5 @@
 import { Banner } from "@/components/ui/banner";
-import { listDeployments, readHistory, readRelease } from "@/app/actions/helm";
+import { listDeployments, listHelmJobs, readHistory, readRelease } from "@/app/actions/helm";
 import { ReleaseView } from "./_components/release-view";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +12,14 @@ export const dynamic = "force-dynamic";
  * its deployment page, which has the values editor; the link across is what the
  * `deploymentId` is for.
  *
- * Three round trips, made in parallel rather than in sequence. Each failure is
+ * Four round trips, made in parallel rather than in sequence. Each failure is
  * reported as itself: a read that fails is not the same as a release that is
  * absent, and collapsing either into the other states something false with more
  * confidence than a bare failure would.
+ *
+ * The fourth is the job operating on this release, if one is. Looked up rather
+ * than remembered, so this page shows a rollback somebody else started as readily
+ * as one started here.
  */
 export default async function HelmReleasePage({
 	params,
@@ -23,10 +27,11 @@ export default async function HelmReleasePage({
 	params: Promise<{ namespace: string; name: string }>;
 }) {
 	const { namespace, name } = await params;
-	const [release, history, deployments] = await Promise.all([
+	const [release, history, deployments, jobs] = await Promise.all([
 		readRelease(namespace, name),
 		readHistory(namespace, name),
 		listDeployments(namespace),
+		listHelmJobs({ namespace, release: name }),
 	]);
 
 	// Not notFound(): the result carries a message and not a status, so a
@@ -53,6 +58,7 @@ export default async function HelmReleasePage({
 			historyError={history.ok ? null : history.error}
 			deploymentId={declared?.id ?? null}
 			deploymentsError={deployments.ok ? null : deployments.error}
+			job={jobs.ok ? (jobs.data[0] ?? null) : null}
 			now={new Date()}
 		/>
 	);

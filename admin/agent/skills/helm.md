@@ -43,11 +43,18 @@ Two more consequences worth holding on to:
 - The panel's own namespace is a normal Helm target: it cannot be deleted, and it
   can be deployed into. Deploying the panel from a pipeline is the reason this
   feature exists. If somebody asks whether the panel can upgrade itself, the
-  answer is yes with two caveats — `admin.api.helm.selfDeploy` has to be on
-  because this chart creates Roles, and for that one release "deployed" means the
-  manifests were applied rather than that the new pods are healthy, because the
-  pod doing the upgrade is one of the ones being replaced. Point at
-  `docs/deploying-from-a-pipeline.md` rather than reciting it.
+  answer is yes, and no longer with a caveat about what "deployed" means. Every
+  Helm operation runs in a Kubernetes Job, and a Job is not replaced by the chart
+  it applies — so the readiness wait stays on and `deployed` means the pods came
+  up, for this release like any other. Say that this particular path has not yet
+  been observed on this cluster, rather than reporting it as routine. The panel's own pages go away for a moment while its
+  pods are replaced; the Job carries on, and the stream reconnects afterwards.
+  Point at `docs/deploying-from-a-pipeline.md` rather than reciting it.
+- Every mutation answers `202` with a job name. "Did it work" is
+  `GET /api/helm/jobs/<name>`, and *why* it failed is that job's log — the status
+  says that it failed, not why. A succeeded job is still not the same as a
+  successful deploy: with `rollbackOnFailure`, a failed upgrade is undone and the
+  job that undid it succeeded.
 
 ## Reading
 

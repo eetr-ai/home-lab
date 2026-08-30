@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeOutcome, isPending, stuckForMinutes, tone } from "./status";
+import { describeOutcome, isPending, stuckForMinutes, tone, jobTone, describeJob } from "./status";
 import type { HelmRelease } from "@/lib/api/types";
 
 function release(overrides: Partial<HelmRelease> = {}): HelmRelease {
@@ -116,5 +116,34 @@ describe("stuckForMinutes", () => {
 
 	it("reports nothing for an unparseable timestamp rather than a negative age", () => {
 		expect(stuckForMinutes(release({ status: "pending-upgrade", updatedAt: "soon" }), now)).toBeNull();
+	});
+});
+
+describe("jobTone", () => {
+	// Pending is a pod waiting to be scheduled — the first second of every
+	// operation. Colouring it warning would make every deploy start alarming.
+	it("reads pending as neither progress nor trouble", () => {
+		expect(jobTone("pending")).toBe("muted");
+	});
+
+	it("colours the outcomes", () => {
+		expect(jobTone("running")).toBe("warning");
+		expect(jobTone("succeeded")).toBe("success");
+		expect(jobTone("failed")).toBe("danger");
+	});
+});
+
+describe("describeJob", () => {
+	// "failed" alone sends an operator to the log for something the status already
+	// knows, and DeadlineExceeded means something different from a bad chart.
+	it("carries the reason when Kubernetes named one", () => {
+		expect(describeJob("failed", "DeadlineExceeded")).toBe("failed: DeadlineExceeded");
+		expect(describeJob("failed")).toBe("failed");
+	});
+
+	it("says what the other phases mean", () => {
+		expect(describeJob("pending")).toBe("waiting for a pod");
+		expect(describeJob("running")).toBe("running");
+		expect(describeJob("succeeded")).toBe("finished");
 	});
 });

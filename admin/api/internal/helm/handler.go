@@ -42,6 +42,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/helm/namespaces/{namespace}/releases/{release}",
 		h.uninstallRelease)
 
+	mux.HandleFunc("GET /api/helm/jobs", h.listJobs)
+	mux.HandleFunc("GET /api/helm/jobs/{job}", h.readJob)
+	mux.HandleFunc("GET /api/helm/jobs/{job}/logs", h.jobLogs)
+	mux.HandleFunc("GET /api/helm/jobs/{job}/events", h.jobEvents)
+
 	mux.HandleFunc("GET /api/helm/deployments", h.listDeployments)
 	mux.HandleFunc("POST /api/helm/deployments", h.declareDeployment)
 	mux.HandleFunc("GET /api/helm/deployments/{id}", h.readDeployment)
@@ -203,7 +208,7 @@ func (h *Handler) rollbackRelease(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accepted, err := h.service.Rollback(r.Context(),
-		r.PathValue("namespace"), r.PathValue("release"), request.Revision)
+		r.PathValue("namespace"), r.PathValue("release"), request.Revision, actorFrom(r))
 	if err != nil {
 		respondError(w, err)
 		return
@@ -231,7 +236,7 @@ func (h *Handler) rollbackRelease(w http.ResponseWriter, r *http.Request) {
 //	@Router			/api/helm/namespaces/{namespace}/releases/{release} [delete]
 func (h *Handler) uninstallRelease(w http.ResponseWriter, r *http.Request) {
 	accepted, err := h.service.Uninstall(r.Context(),
-		r.PathValue("namespace"), r.PathValue("release"))
+		r.PathValue("namespace"), r.PathValue("release"), actorFrom(r))
 	if err != nil {
 		respondError(w, err)
 		return
@@ -258,6 +263,11 @@ func respondError(w http.ResponseWriter, err error) {
 		// and blaming the caller would send them to check a version number that
 		// was never the problem.
 		httpx.Error(w, http.StatusBadGateway, "repository_unreachable", err.Error())
+	case errors.Is(err, ErrNoPodYet):
+		// 404 with its own code. The pod is coming, and a client following an
+		// operation from the moment it was accepted hits this every time — so it
+		// has to be distinguishable from a job that never existed or was reaped.
+		httpx.Error(w, http.StatusNotFound, "no_pod_yet", err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, ErrProtected), errors.Is(err, ErrUnmanaged):

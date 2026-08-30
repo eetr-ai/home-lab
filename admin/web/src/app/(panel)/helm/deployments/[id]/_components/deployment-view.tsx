@@ -8,22 +8,26 @@ import { StatusBadge } from "../../../_components/status-badge";
 import { StateBadge } from "../../_components/state-badge";
 import { isPending, stuckForMinutes } from "@/lib/helm/status";
 import { useReleasePolling } from "../../../_components/use-release-polling";
-import type { HelmDeploymentDetail } from "@/lib/api/types";
+import type { HelmDeploymentDetail, HelmJob } from "@/lib/api/types";
+import { JobPanel } from "../../../_components/job-panel";
 import { ValuesCard } from "./values-card";
 import { VersionHistory } from "./version-history";
 
 export function DeploymentView({
 	deployment,
+	job,
 	now,
 }: {
 	deployment: HelmDeploymentDetail;
+	job: HelmJob | null;
 	now: Date;
 }) {
 	const [editing, setEditing] = useState(deployment.current.version);
 
 	const release = deployment.release;
-	// The 202 design makes this page the progress indicator: nothing else reports
-	// what a rollout did, because there is no job to poll.
+	// Still polled, and for a narrower reason than before. The job stream reports
+	// the operation; this reports the release, which can be left pending by an
+	// operation nothing here started — or by one that was interrupted.
 	useReleasePolling(release ? isPending(release.status) : false);
 	const stuck = release ? stuckForMinutes(release, now) : null;
 
@@ -58,6 +62,9 @@ export function DeploymentView({
 			    with nothing beside it would read as "nothing is deployed", which is
 			    a different and much more inviting statement than "I could not look". */}
 			<Banner variant="error" message={deployment.releaseError ?? null} />
+
+			{/* What the last operation is doing, and Helm's own account of it. */}
+			<JobPanel job={job} />
 
 			{stuck !== null ? (
 				<Banner

@@ -196,7 +196,7 @@ func (h *Handler) rolloutDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accepted, err := h.service.Rollout(r.Context(), r.PathValue("id"), request)
+	accepted, err := h.service.Rollout(r.Context(), r.PathValue("id"), request, actorFrom(r))
 	if err != nil {
 		respondError(w, err)
 		return

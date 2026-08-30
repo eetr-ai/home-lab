@@ -1,0 +1,79 @@
+{{- if .Values.admin.api.kubernetes.enabled }}
+{{- if or .Values.admin.api.helm.namespaces .Values.admin.api.helm.allNamespaces }}
+{{- /*
+Starting a Helm operation, and watching one.
+
+This is the whole of what the API may write to the cluster. Everything the actual
+deploy needs belongs to admin-helm-job instead, and lives for one operation.
+
+READ THIS BEFORE READING IT AS CONTAINMENT.
+
+`create` here is not small. The Job this creates runs as admin-helm-job, which
+holds the whole deploy grant, and Kubernetes does not check whether the creator of
+a Job may run as that account -- there is no `use` verb on a ServiceAccount, and
+escalation prevention covers RBAC objects only. So `create` on a Job in this
+namespace is, in reach, equivalent to holding that grant.
+
+What changed is not how much authority is reachable. It is that the API's two
+long-lived pods no longer *carry* it. A leaked ServiceAccount token used to be
+direct and silent write access to every Secret in every managed namespace; it now
+buys one API call that leaves an object behind with a name, a timestamp, and a
+log. That is worth having. It is not a smaller grant, and describing it as one
+here would be the comment that gets somebody hurt.
+
+What actually bounds it today is in the Go code, not in RBAC: nothing in the Job's
+pod spec comes off the wire. The ServiceAccount name, the image, the namespace and
+the command are all read from the API's own environment, and only four validated
+scalars are influenced by a caller. See buildJob in internal/helm/jobs.go, which
+has a test asserting exactly that.
+
+The real fix is a ValidatingAdmissionPolicy restricting this ServiceAccount's Job
+creations to that one serviceAccountName and that one image. It is not here yet,
+and it is recorded the same way rbac.yaml records the policy that should bound the
+restart patch.
+
+Namespaced, and to the release namespace only. Jobs are always created here --
+never in the namespace being deployed into -- which keeps this Role one namespace
+wide and keeps the pods somewhere the read ClusterRole can already see.
+
+No pod rules either, and that is not an omission: reading a job's pod and
+streaming its log both go through the cluster-wide read ClusterRole in rbac.yaml,
+which already grants `pods` and `pods/log`. Adding them here would be a second
+grant for something already held. The dependency is noted in that file too,
+because it is not visible from there.
+
+No delete, no update, no patch. The API never edits a Job and never removes one;
+ttlSecondsAfterFinished does the removing. A delete verb would also be a way to
+cancel an operation mid-apply, which is how a release ends up wedged in a
+pending-* state that nothing clears on its own.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-helm-jobs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+    verbs: ["get", "list", "watch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-helm-jobs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-helm-jobs
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

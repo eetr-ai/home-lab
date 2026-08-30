@@ -189,44 +189,54 @@ admin:
       # lab decides otherwise.
       allNamespaces: false
 
-      # Let the panel deploy charts that create Roles and bindings — including
-      # its own.
+      # The Job that performs one Helm operation.
       #
-      # Read this before turning it on. The deploy grant below deliberately holds
-      # nothing in rbac.authorization.k8s.io, because a chart that can create a
-      # Role can hand out permissions, and Kubernetes' escalation prevention
-      # bounds only *which* permissions, not the fact of handing them out.
+      # Every Helm mutation -- install, upgrade, rollback, uninstall -- runs as a
+      # Kubernetes Job rather than inside the API's own pods. Three things follow,
+      # and all three are why:
       #
-      # It exists because this chart renders a ClusterRole, a ClusterRoleBinding,
-      # a Role and a RoleBinding, so `helm upgrade` of the admin release fails on
-      # all four without it. Deploying the panel from a pipeline — the reason
-      # this feature was built — therefore needs this on.
+      #   - The deploy grant belongs to the Job's ServiceAccount and not to the
+      #     long-lived credential two API pods carry a token for. The API keeps
+      #     read-only access. Read the warning in
+      #     templates/api/rbac-deploy.yaml before concluding that is a smaller
+      #     grant than it was; it is a differently shaped one.
+      #   - Upgrading the panel itself is no longer a special case. A Job is not
+      #     replaced by the chart it applies, so the readiness wait stays on and
+      #     "deployed" means the pods came up -- for every release, including this
+      #     one.
+      #   - A failure has somewhere to put its logs, and the 202 names an object
+      #     with a status.
       #
-      # What it costs, stated plainly: the panel can then create and edit Roles
-      # and bindings. Escalation prevention stops it granting more than it
-      # already holds, and neither the escalate nor the bind verb is granted
-      # here, so it cannot make itself cluster-admin. It CAN hand everything it
-      # already holds — which with allNamespaces is read and write across every
-      # unprotected namespace, Secrets included — to any ServiceAccount it likes.
-      # Treat it as making the panel's own credential the most valuable one in
-      # the lab.
-      #
-      # The alternative for now: let the pipeline run `helm upgrade` itself with
-      # its own credential, and use this API for everything except the panel.
-      # That leaves the reach with the pipeline, which needs it anyway, instead
-      # of granting it here permanently.
-      #
-      # THE INTENDED FIX, and the reason this flag should be short-lived: the API
-      # should not run Helm in its own pods at all. It should create a Job with
-      # the database credential injected, and let that do the work. Everything
-      # awkward here follows from the current arrangement rather than from the
-      # problem -- this grant exists because the API pods need it, and the pods
-      # need it because they run Helm. Move the work to a Job and the API keeps
-      # read-only access, the deploy grant belongs to the Job's own
-      # ServiceAccount, and a self-upgrade stops being a special case because
-      # nothing is replacing the process doing the upgrading. See
-      # docs/deploying-from-a-pipeline.md.
-      selfDeploy: false
+      # There is deliberately no image override here: the Job runs the API's own
+      # image under a subcommand, and the whole design rests on it being the same
+      # binary with one copy of the chart-resolution and values-merge logic. Nor a
+      # serviceAccount key -- which identity it runs as is a security property of
+      # this chart, not a preference.
+      job:
+        # How long a finished Job -- and therefore its log -- is kept.
+        #
+        # The log is a view, not the record. What actually survives a deploy is
+        # Helm's release history and the rollout stamp in PostgreSQL; the pod's
+        # log can also vanish earlier than this to kubelet garbage collection,
+        # which nothing here controls. A day is enough for "I deployed this
+        # morning, what happened", and without a TTL these accumulate in the
+        # panel's namespace forever with nothing in this lab to prune them.
+        ttlSecondsAfterFinished: 86400
+
+        # Requests and limits for the Job's pod. It pulls a chart, renders it,
+        # and waits; the waiting is nearly free and the rendering is brief.
+        #
+        # Set rather than empty, like every other workload in this chart. A pod
+        # with no requests is BestEffort, and BestEffort is the first thing the
+        # kubelet evicts under node pressure — which here would mean killing the
+        # pod holding a release half-applied, and leaving it wedged in a
+        # pending-* state that nothing clears on its own.
+        resources:
+          requests:
+            cpu: 25m
+            memory: 96Mi
+          limits:
+            memory: 256Mi
 
       # Where the declared charts and their values are kept.
       #

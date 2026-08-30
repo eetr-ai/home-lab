@@ -1,12 +1,12 @@
 /**
- * Reading the wire: the SSE framing, and a parser per frame that trusts none of it.
+ * Reading the wire: a parser per agent frame that trusts none of it.
  *
  * The shapes themselves live in `frames.ts` and are re-exported here, so nothing
- * that imported this module has to know it was split.
+ * that imported this module has to know it was split. The SSE framing underneath
+ * is in `lib/sse.ts`, shared with the Helm job stream.
  */
 
 export type {
-	SSEFrame,
 	AgentEvent,
 	NavigateEvent,
 	TextEvent,
@@ -22,7 +22,7 @@ export type {
 	GuardrailEvent,
 } from "./frames";
 
-import type { AgentEvent, NavigateEvent, SSEFrame } from "./frames";
+import type { AgentEvent, NavigateEvent } from "./frames";
 
 const str = (v: unknown): v is string => typeof v === "string";
 
@@ -201,73 +201,4 @@ export function parseFinalAnswer(data: string): string | null {
 		}
 	}
 	return null;
-}
-
-/** The default event name a frame carries when it declares none. */
-const DEFAULT_EVENT = "message";
-
-/**
- * Turn a byte stream of server-sent events into frames.
- *
- * Written as a generator over the raw reader rather than using EventSource because
- * the chat request is a POST with a body, which EventSource cannot make. It holds
- * the partial tail between chunks — a frame is split wherever TCP decides, and a
- * token stream splits often — and joins repeated `data:` lines with newlines, as
- * the format requires.
- */
-export async function* parseSSE(
-	stream: ReadableStream<Uint8Array>,
-): AsyncGenerator<SSEFrame> {
-	const reader = stream.getReader();
-	const decoder = new TextDecoder();
-	let buffer = "";
-
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-
-			// Frames are separated by a blank line. \r\n is tolerated because the format
-			// permits it and a proxy may rewrite line endings.
-			let split = buffer.search(/\r?\n\r?\n/);
-			while (split !== -1) {
-				const raw = buffer.slice(0, split);
-				buffer = buffer.slice(split + /\r?\n\r?\n/.exec(buffer.slice(split))![0].length);
-				const frame = parseFrame(raw);
-				if (frame) yield frame;
-				split = buffer.search(/\r?\n\r?\n/);
-			}
-		}
-		// Flush any bytes the decoder is still holding — a multi-byte character split
-		// across the last chunk boundary lives there until asked for.
-		buffer += decoder.decode();
-		// A stream that ends without a trailing blank line still had a frame in it.
-		const frame = parseFrame(buffer);
-		if (frame) yield frame;
-	} finally {
-		reader.releaseLock();
-	}
-}
-
-/** Read one frame's field lines into an event name and its data. */
-function parseFrame(raw: string): SSEFrame | null {
-	let event = "";
-	const data: string[] = [];
-
-	for (const line of raw.split(/\r?\n/)) {
-		// A line beginning with a colon is a comment; heartbeats arrive as those.
-		if (line === "" || line.startsWith(":")) continue;
-		const colon = line.indexOf(":");
-		const field = colon === -1 ? line : line.slice(0, colon);
-		// Exactly one optional leading space after the colon is part of the format.
-		let value = colon === -1 ? "" : line.slice(colon + 1);
-		if (value.startsWith(" ")) value = value.slice(1);
-
-		if (field === "event") event = value;
-		else if (field === "data") data.push(value);
-	}
-
-	if (data.length === 0) return null;
-	return { event: event || DEFAULT_EVENT, data: data.join("\n") };
 }

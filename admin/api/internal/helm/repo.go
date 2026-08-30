@@ -296,9 +296,9 @@ func releaseFrom(item release.Releaser) (Release, error) {
 // All three come from the map, including the name, even though the accessor has
 // a typed Name(). That method dereferences the chart's Metadata without checking
 // it for nil, so a release carrying a chart without one panics the process --
-// and this runs inside a detached goroutine, where a panic is not a failed
-// request but a dead API. MetadataAsMap checks, which is the whole reason to
-// prefer it.
+// and this is reached from the Job runner as well as from a request, where a
+// panic is not a failed read but a deploy that dies without saying why.
+// MetadataAsMap checks, which is the whole reason to prefer it.
 func chartMetadata(charter chartapi.Charter) (name, version, appVersion string) {
 	accessor, err := chartapi.NewAccessor(charter)
 	if err != nil {
@@ -356,6 +356,13 @@ func translate(err error, what string) error {
 	case errors.Is(err, driver.ErrReleaseNotFound), errors.Is(err, driver.ErrNoDeployedReleases),
 		apierrors.IsNotFound(err):
 		return fmt.Errorf("%w: %s", ErrNotFound, what)
+	// A pod whose container has not started yet. Expected for the first moment of
+	// every job, and the caller's answer is to retry rather than to give up — so
+	// it must not present as an internal error.
+	case strings.Contains(err.Error(), "is waiting to start"),
+		strings.Contains(err.Error(), "ContainerCreating"),
+		strings.Contains(err.Error(), "PodInitializing"):
+		return fmt.Errorf("%w: %s", ErrNoPodYet, what)
 	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err),
 		// Helm wraps the API server's refusal in its own message often enough
 		// that the typed check alone misses it, and reading "forbidden" as a 500
@@ -507,7 +514,12 @@ func (r *Repository) Install(ctx context.Context, spec installSpec) (Release, er
 	// Wait, so "deployed" means the pods came up rather than that the manifests
 	// were accepted. Without it a release reports success while its pods are in
 	// ImagePullBackOff, which is the answer a pipeline would act on.
-	install.WaitStrategy = waitStrategy(spec.SkipWait)
+	//
+	// Unconditional. There used to be an exception for the release this process
+	// was running from, because applying it destroyed the pod doing the waiting.
+	// The work runs in a Job now, and a Job is not replaced by the chart it
+	// applies, so there is nothing left to except.
+	install.WaitStrategy = kube.StatusWatcherStrategy
 	install.RollbackOnFailure = spec.RollbackOnFailure
 	// Never. The namespace has to exist and be one this lab manages, and letting
 	// Helm conjure one would route around the whole protection policy.
@@ -541,7 +553,7 @@ func (r *Repository) Upgrade(ctx context.Context, spec upgradeSpec) (Release, er
 	upgrade.Namespace = spec.Namespace
 	upgrade.Version = spec.Version
 	upgrade.Timeout = r.timeout
-	upgrade.WaitStrategy = waitStrategy(spec.SkipWait)
+	upgrade.WaitStrategy = kube.StatusWatcherStrategy
 	upgrade.RollbackOnFailure = spec.RollbackOnFailure
 	upgrade.MaxHistory = maxHistory
 	upgrade.ReuseValues = spec.Values == nil
@@ -632,30 +644,4 @@ func (r *Repository) locate(options *action.ChartPathOptions, source ChartSource
 		return nil, fmt.Errorf("load the chart %s: %w", source.Chart, err)
 	}
 	return chart, nil
-}
-
-// waitStrategy decides whether an operation waits for the workloads it applied.
-//
-// Waiting is what makes "deployed" mean the pods came up rather than that the
-// manifests were accepted, so it is the default and almost always right.
-//
-// The exception is an upgrade of the release this process is itself running
-// from. Applying it rolls the panel's own Deployment, which terminates the pod
-// executing the upgrade — and Helm marks a release deployed only *after* the
-// wait, so the record is never written. The release stays pending-upgrade
-// forever, and Helm then refuses every later operation on it because the
-// previous one was never marked done. One self-upgrade would permanently break
-// self-upgrades.
-//
-// HookOnly still runs the chart's hooks and still applies everything; it just
-// does not wait for readiness, so the release is recorded within milliseconds of
-// the apply and the pod can be replaced immediately afterwards without losing
-// anything. The cost is real and worth stating: for that one release, "deployed"
-// means the manifests were accepted, not that the new pods are healthy. Whatever
-// triggered the deploy has to check that itself.
-func waitStrategy(skipWait bool) kube.WaitStrategy {
-	if skipWait {
-		return kube.HookOnlyStrategy
-	}
-	return kube.StatusWatcherStrategy
 }

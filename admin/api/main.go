@@ -11,14 +11,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
@@ -43,15 +48,31 @@ const (
 	// an unreachable provider fails the process quickly and visibly, rather than
 	// leaving it hanging with no logs and no listener.
 	discoveryTimeout = 15 * time.Second
-
-	// How long one Helm operation may take when ADMIN_HELM_TIMEOUT says nothing.
-	// Long, because it covers pulling a chart, applying it, and waiting for the
-	// pods to become ready.
-	defaultHelmTimeout = 10 * time.Minute
 )
 
+// main serves the API, unless it was asked to perform one Helm operation.
+//
+// The subcommand is not a mode of the server. It is a different program that
+// happens to share this binary, and it shares it deliberately: chart resolution,
+// values merging, and the rollout stamp then have exactly one implementation, and
+// the Job the API creates runs this same image.
+//
+// One switch on one argument rather than a command framework. There are two
+// commands, and cobra — already here indirectly, through Helm — would be a
+// dependency and a worldview in exchange for parsing that.
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	if len(os.Args) > 1 && os.Args[1] == helm.RunCommand {
+		// The exit code is the answer. It becomes the pod's, which becomes the
+		// Job's status, which is what the panel and a pipeline read — so a Helm
+		// failure that exited zero would be reported as a successful deploy.
+		if err := helm.RunJob(context.Background(), os.Args[2:], logger); err != nil {
+			logger.Error("the helm operation failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(logger); err != nil {
 		logger.Error("admin-api stopped", slog.Any("error", err))
@@ -233,7 +254,7 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		return nil
 	}
 
-	timeout, err := helmTimeout()
+	timeout, err := helm.Timeout()
 	if err != nil {
 		return err
 	}
@@ -251,22 +272,100 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		deployments = store
 	}
 
-	// Which release this process is running from, so an upgrade of it can be
-	// recognised and not waited on. Both halves come from the chart; missing
-	// either simply means no operation is ever treated as a self-upgrade.
-	self := helm.Self{
-		Namespace: os.Getenv("POD_NAMESPACE"),
-		Release:   os.Getenv("ADMIN_RELEASE_NAME"),
+	// Only when this lab has actually named somewhere to deploy. With no managed
+	// namespace every mutation answers 501 before it reaches a Job, so requiring
+	// the Job's configuration would fail a panel that was only ever meant to read
+	// releases — and the read routes work without any of it.
+	var runner *helm.JobRepository
+	if policy.ManagesEverything() || len(policy.ManagedNamespaces()) > 0 {
+		jobConfig, err := helmJobConfig(timeout)
+		if err != nil {
+			return err
+		}
+		if runner, err = helm.NewJobRepository(jobConfig); err != nil {
+			return err
+		}
 	}
 
-	helm.NewHandler(helm.NewService(repo, deployments, policy, self, timeout, logger)).
+	// Declared as the interface and assigned only when there is one, for the same
+	// reason the store is: a nil *helm.JobRepository handed to an interface
+	// parameter is an interface that is not nil, and the service would call
+	// through it instead of answering 501.
+	var operations helm.Jobs
+	if runner != nil {
+		operations = runner
+	}
+
+	helm.NewHandler(helm.NewService(repo, deployments, operations, policy, timeout, logger)).
 		Register(mux)
 	logger.Info("serving the Helm endpoints",
 		slog.Any("namespaces", policy.ManagedNamespaces()),
 		slog.Bool("everyNamespace", policy.ManagesEverything()),
-		slog.String("ownRelease", self.Release),
 		slog.Duration("timeout", timeout))
 	return nil
+}
+
+// helmJobConfig describes the Job that performs one Helm operation.
+//
+// Every field is read here, from this process's own environment, and none of it
+// is ever influenced by a request. That is the point rather than a detail: the
+// account these Jobs run as holds the whole deploy grant, so a request able to
+// name one would be a request able to name any account in this namespace.
+//
+// It is read at startup rather than per operation so a malformed value fails the
+// pod immediately. Deferring it would surface a typo in the chart as a 500 on the
+// first deploy, which might be weeks later.
+func helmJobConfig(timeout time.Duration) (helm.JobConfig, error) {
+	config := helm.JobConfig{
+		Namespace:       os.Getenv("POD_NAMESPACE"),
+		Image:           os.Getenv("ADMIN_HELM_JOB_IMAGE"),
+		ImagePullPolicy: corev1.PullPolicy(os.Getenv("ADMIN_HELM_JOB_IMAGE_PULL_POLICY")),
+		PullSecrets:     splitList(os.Getenv("ADMIN_HELM_JOB_PULL_SECRETS")),
+		ServiceAccount:  os.Getenv("ADMIN_HELM_JOB_SERVICE_ACCOUNT"),
+		Timeout:         timeout,
+		// The name and the key, never the value. The API holds its own connection
+		// string in its environment and must not copy it into a Job: a Job is not
+		// a Secret, and anything able to list Jobs here would be able to read it.
+		DSNSecretName: os.Getenv("ADMIN_HELM_DSN_SECRET_NAME"),
+		DSNSecretKey:  os.Getenv("ADMIN_HELM_DSN_SECRET_KEY"),
+	}
+
+	if config.Namespace == "" {
+		return helm.JobConfig{}, errors.New(
+			"POD_NAMESPACE is unset, and it is the namespace Helm jobs are created in")
+	}
+	if config.Image == "" {
+		return helm.JobConfig{}, errors.New(
+			"ADMIN_HELM_JOB_IMAGE is unset, and a Helm job runs this same image")
+	}
+	if config.ServiceAccount == "" {
+		return helm.JobConfig{}, errors.New(
+			"ADMIN_HELM_JOB_SERVICE_ACCOUNT is unset, and a Helm job needs the deploy grant")
+	}
+
+	// Parsed at 32 bits because that is what the field is. Atoi would accept a
+	// value this then silently truncated — a TTL of 2^31+60 becoming 60 seconds
+	// is a job whose log is gone a minute after it finishes, which would look
+	// like the cluster reaping early rather than like a typo in a values file.
+	ttl, err := strconv.ParseInt(os.Getenv("ADMIN_HELM_JOB_TTL_SECONDS"), 10, 32)
+	if err != nil {
+		return helm.JobConfig{}, fmt.Errorf(
+			"ADMIN_HELM_JOB_TTL_SECONDS is not a number of seconds that fits in 32 bits: %w", err)
+	}
+	if ttl < 0 {
+		return helm.JobConfig{}, fmt.Errorf(
+			"ADMIN_HELM_JOB_TTL_SECONDS must not be negative, and is %d", ttl)
+	}
+	config.TTLSeconds = int32(ttl)
+
+	// One JSON object rather than four scalars, so the values file keeps the
+	// normal Kubernetes shape and there is no second vocabulary to learn.
+	if raw := os.Getenv("ADMIN_HELM_JOB_RESOURCES"); raw != "" && raw != "{}" {
+		if err := json.Unmarshal([]byte(raw), &config.Resources); err != nil {
+			return helm.JobConfig{}, fmt.Errorf("ADMIN_HELM_JOB_RESOURCES is not resource requirements: %w", err)
+		}
+	}
+	return config, nil
 }
 
 // helmStore opens the record of what this lab has declared, and returns nil when
@@ -299,27 +398,6 @@ func helmStore(ctx context.Context, logger *slog.Logger) *helm.Store {
 	}
 	logger.Info("recording Helm deployments in PostgreSQL")
 	return store
-}
-
-// helmTimeout bounds one install, upgrade, rollback, or uninstall.
-//
-// Generous by default, because it is off the request path entirely: the caller
-// was answered with a 202 long before. What it protects against is an operation
-// that never finishes holding a release in a pending state forever.
-func helmTimeout() (time.Duration, error) {
-	value := os.Getenv("ADMIN_HELM_TIMEOUT")
-	if value == "" {
-		return defaultHelmTimeout, nil
-	}
-
-	timeout, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT is not a duration: %w", err)
-	}
-	if timeout <= 0 {
-		return 0, fmt.Errorf("ADMIN_HELM_TIMEOUT must be positive, and is %s", timeout)
-	}
-	return timeout, nil
 }
 
 // namespacePolicy reads which namespaces this lab will not let the panel touch.

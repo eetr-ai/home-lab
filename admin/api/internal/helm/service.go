@@ -3,6 +3,7 @@ package helm
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -21,6 +22,22 @@ type repository interface {
 	Upgrade(ctx context.Context, spec upgradeSpec) (Release, error)
 	Rollback(ctx context.Context, namespace, name string, revision int) error
 	Uninstall(ctx context.Context, namespace, name string) error
+}
+
+// Jobs is how one Helm operation is started and followed. Declared here, where it
+// is consumed, so the service can be tested without a cluster.
+//
+// Exported, like DeploymentStore and for the same reason: it is optional, and the
+// caller has to be able to declare a nil one. Handing a nil *JobRepository to a
+// parameter of interface type produces an interface that is not nil, and the
+// service's "can this lab deploy?" check would then be wrong in the one direction
+// that matters — it would try to.
+type Jobs interface {
+	CreateJob(ctx context.Context, spec JobSpec, ref ReleaseRef, actor string) (Job, error)
+	ReadJob(ctx context.Context, name string) (Job, error)
+	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
+	WatchJob(ctx context.Context, name string) (<-chan Job, error)
+	PodLogs(ctx context.Context, pod string, follow bool, tail int64) (io.ReadCloser, error)
 }
 
 // DeploymentStore is the record of what this lab has declared. Declared here,
@@ -49,24 +66,6 @@ type DeploymentStore interface {
 	MarkRolledOut(ctx context.Context, id string, number, helmRevision int) error
 }
 
-// Self identifies the release this process is running from.
-//
-// Read from the downward API and the chart, so it is right whatever the release
-// was named. Empty when either is unset, which simply means no operation is ever
-// recognised as a self-upgrade — the safe direction, because the only thing that
-// recognition does is stop Helm waiting.
-type Self struct {
-	Namespace string
-	Release   string
-}
-
-// Matches reports whether an operation targets the release this process is
-// running from.
-func (s Self) Matches(namespace, release string) bool {
-	return s.Namespace != "" && s.Release != "" &&
-		s.Namespace == namespace && s.Release == release
-}
-
 // Service manages the Helm releases in the namespaces this lab manages.
 //
 // What it will not do is decided here rather than left for each endpoint to
@@ -85,24 +84,24 @@ type Service struct {
 	// store is nil when this lab configured no database, and every deployment
 	// route then answers 501. The release routes still work: reading the cluster
 	// never needed a record.
-	store   DeploymentStore
+	store DeploymentStore
+	// jobs performs every mutation. Nothing writes to the cluster from this
+	// process any more.
+	jobs    Jobs
 	policy  nspolicy.Policy
-	self    Self
-	locks   *locks
 	timeout time.Duration
 	logger  *slog.Logger
 }
 
 // NewService builds the service.
-func NewService(repo repository, deployments DeploymentStore, policy nspolicy.Policy,
-	self Self, timeout time.Duration, logger *slog.Logger,
+func NewService(repo repository, deployments DeploymentStore, runner Jobs,
+	policy nspolicy.Policy, timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		repo:    repo,
 		store:   deployments,
+		jobs:    runner,
 		policy:  policy,
-		self:    self,
-		locks:   newLocks(),
 		timeout: timeout,
 		logger:  logger,
 	}
