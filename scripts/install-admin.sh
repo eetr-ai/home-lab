@@ -78,6 +78,21 @@ rendered_chart=$(helm template "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file")
 
+# Say out loud which images this will run.
+#
+# The tag is normally not in the values file at all now: it defaults to the
+# chart's appVersion, which release-please keeps in step with the release. That is
+# the right default and it removes a number nobody should have to repeat -- but it
+# also means the version being installed is no longer visible in anything the
+# operator typed. A checkout whose Chart.yaml had drifted would install the wrong
+# build with nothing on screen saying so, which is exactly the class of mistake
+# the checks below exist to prevent for Secrets.
+#
+# Printed rather than asserted: this script cannot know which version was
+# intended. A person reading one line can.
+printf 'Images this release will run:\n'
+printf '%s\n' "$rendered_chart" | awk '$1 == "image:" { gsub(/"/, "", $2); print "  " $2 }' | sort -u
+
 # Read the pull secrets out of what the chart actually renders rather than out of
 # the values file. The chart is what the cluster will act on, and a name that
 # reaches a pod without a matching Secret is an ImagePullBackOff several minutes

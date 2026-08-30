@@ -12,7 +12,7 @@ admin:
   # in the release namespace, and the installer checks before Helm runs.
   imagePullSecrets: []
 
-  # One tag for all three images.
+  # One tag for all three images, and normally not set at all.
   #
   # The API, the panel and the agent are built from one commit by one pipeline
   # and pushed under one tag, so a per-component tag could only ever express a
@@ -20,14 +20,24 @@ admin:
   # deploy a mismatched set and no way to express anything the pipeline can
   # actually produce.
   #
+  # Empty means "the chart's appVersion", which is the same version the images
+  # were published under -- release admin-v1.4.0 publishes chart 1.4.0 and images
+  # 1.4.0. So installing chart 1.5.0 installs the 1.5.0 images by construction,
+  # and a values file that pins a tag is overriding that rather than supplying
+  # something missing. release-please keeps Chart.yaml in step with the release,
+  # so this holds for a checkout too.
+  #
+  # Set it to run an image the chart was not released with -- a build from a
+  # branch, or a pipeline naming an immutable digest-like tag of its own.
+  #
   # Only the tag is shared. Each component keeps its own `repository`, because
   # those genuinely differ, and its own `pullPolicy`.
   #
-  # No "latest", enforced by values.schema.json rather than by convention: a pod
-  # pulling a moving name cannot say which build it is running, and the chart's
-  # appVersion is what release-please keeps in step with the images.
+  # No "latest": a pod pulling a moving name cannot say which build it is
+  # running. Refused in values.schema.json and again in _helpers.tpl, because the
+  # schema never sees a tag that arrives through appVersion.
   image:
-    tag: "0.0.0"
+    tag: ""
 
   # The Gateway the platform chart owns. A route only attaches when this
   # namespace carries the gateway-access label; the installer applies it.

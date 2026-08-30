@@ -33,18 +33,14 @@
         },
         "image": {
           "type": "object",
-          "required": [
-            "tag"
-          ],
           "additionalProperties": false,
           "properties": {
             "tag": {
               "type": "string",
-              "minLength": 1,
               "not": {
                 "const": "latest"
               },
-              "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
+              "description": "An immutable tag for all three images. Empty means the chart's own appVersion, which is the version the images were published under. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
             }
           }
         },

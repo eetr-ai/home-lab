@@ -20,15 +20,17 @@ render() {
     "$@"
 }
 
-# The same chart with nothing but its own values.yaml, plus the four settings that
+# The same chart with nothing but its own values.yaml, plus the three settings that
 # are render failures when unset. Everything else keeps the shipped default, which
 # is what makes an assertion about a default an assertion about the default.
+#
+# No image tag among them: it is not a render failure any more, because it
+# defaults to the chart's appVersion.
 render_defaults() {
   helm template home-lab-admin "${repo_root}/charts/admin" \
     --namespace admin \
     --kube-version "$kube_version" \
     --set admin.api.oidc.issuer=https://auth.test.invalid \
-    --set admin.image.tag=0.0.1 \
     --set admin.web.hostname=admin.test.invalid \
     --set admin.web.clientId=test-client
 }
@@ -98,6 +100,61 @@ fi
 if render --set admin.api.image.tag=0.0.2 >/dev/null 2>&1; then
   printf 'admin.api.image.tag is gone; setting it must fail the render rather\n' >&2
   printf 'than being ignored.\n' >&2
+  exit 1
+fi
+
+# The tag defaults to the chart's appVersion, which is what lets a values file name
+# no version at all and still install the images the chart was released with.
+#
+# Asserted against a PACKAGED chart rather than the working tree, because that is
+# the only way to control appVersion -- and packaging is what a release actually
+# does. A chart packaged at 9.9.9 must run 9.9.9 images with nothing in values
+# saying so.
+package_dir=$(mktemp -d)
+trap 'rm -rf "$package_dir"' EXIT
+helm package "${repo_root}/charts/admin" \
+  --version 9.9.9 --app-version 9.9.9 --destination "$package_dir" >/dev/null
+packaged=$(helm template home-lab-admin "${package_dir}/home-lab-admin-9.9.9.tgz" \
+  --namespace admin \
+  --kube-version "$kube_version" \
+  --set admin.api.oidc.issuer=https://auth.test.invalid \
+  --set admin.web.hostname=admin.test.invalid \
+  --set admin.web.clientId=test-client)
+if grep -qE '^ +image: .*:9\.9\.9"?$' <<<"$packaged"; then
+  :
+else
+  printf 'The image tag must default to the chart appVersion\n' >&2
+  exit 1
+fi
+if grep -E '^ +image: ' <<<"$packaged" | grep -qv ':9\.9\.9"'; then
+  printf 'Every image must take the appVersion default, not only some\n' >&2
+  exit 1
+fi
+
+# ...and an explicit tag still wins over it, which is what makes the default a
+# default rather than a hard-coding.
+helm template home-lab-admin "${package_dir}/home-lab-admin-9.9.9.tgz" \
+  --namespace admin \
+  --kube-version "$kube_version" \
+  --set admin.api.oidc.issuer=https://auth.test.invalid \
+  --set admin.web.hostname=admin.test.invalid \
+  --set admin.web.clientId=test-client \
+  --set admin.image.tag=8.8.8 | grep -q ':8\.8\.8"'
+
+# "latest" arriving through appVersion must be refused too.
+#
+# values.schema.json cannot catch this one: it validates values, and this tag
+# never appears in them. Without the check in _helpers.tpl a chart packaged with
+# --app-version latest would render a moving tag past every guard in this file.
+helm package "${repo_root}/charts/admin" \
+  --version 9.9.10 --app-version latest --destination "$package_dir" >/dev/null
+if helm template home-lab-admin "${package_dir}/home-lab-admin-9.9.10.tgz" \
+  --namespace admin \
+  --kube-version "$kube_version" \
+  --set admin.api.oidc.issuer=https://auth.test.invalid \
+  --set admin.web.hostname=admin.test.invalid \
+  --set admin.web.clientId=test-client >/dev/null 2>&1; then
+  printf 'A chart packaged with --app-version latest must not render\n' >&2
   exit 1
 fi
 

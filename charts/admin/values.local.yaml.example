@@ -3,10 +3,10 @@
 # to run.
 
 admin:
-  # One tag for all three images: one release tag builds them all, so there is
-  # one key rather than three that have to be kept saying the same thing.
-  image:
-    tag: "0.1.0"
+  # No image tag here on purpose. It defaults to the chart's appVersion, which is
+  # the version the images were published under, so the chart you install decides
+  # the images you get. Set admin.image.tag only to run something the chart was
+  # not released with.
 
   api:
     image:

@@ -29,16 +29,30 @@ repository has a cohesive set of configurable Kubernetes resources.
 | `Service/admin-agent` | ClusterIP on port 80. No route: the panel proxies to it |
 | `PersistentVolumeClaim/admin-agent-data` | The agent's memory and workspace, on the NFS class |
 
-The images always carry the same version, so there is one key that sets it:
-`admin.image.tag`. One release tag builds all three and publishes the chart, and
-a per-component tag could only ever express a mistake. Each component keeps its
-own `image.repository` and `image.pullPolicy`, which genuinely differ; naming a
+The images always carry the same version, and **a values file normally names no
+version at all**. `admin.image.tag` defaults to the chart's own `appVersion`,
+which is the version the images were published under — one release builds all
+three images and packages the chart, and every one of them gets the release tag
+with the `admin-v` prefix stripped. So installing chart `1.5.0` runs the `1.5.0`
+images by construction rather than because somebody remembered a second number,
+and release-please keeps `Chart.yaml` in step so this holds for a checkout too.
+
+Set `admin.image.tag` only to run something the chart was not released with — a
+branch build, say. There is one key rather than three because a per-component tag
+could only ever express a mistake; each component keeps its own
+`image.repository` and `image.pullPolicy`, which genuinely differ, and naming a
 `tag` beside one of those is refused by the schema rather than ignored.
+
+`latest` is refused twice over: once in `values.schema.json`, and again in
+`_helpers.tpl` because the schema never sees a tag that arrives through
+`appVersion`.
 
 ## Where the chart is published
 
-Each release publishes the chart to two places, both versioned by the release tag
-with the `admin-v` prefix stripped — so `admin-v1.4.0` publishes chart `1.4.0`:
+Each release publishes the chart to two places, and the images to one. All four
+artifacts carry **one version**: the release tag with the `admin-v` prefix
+stripped, so `admin-v1.5.0` publishes chart `1.5.0` and images `1.5.0`. That
+single number is what `admin.image.tag` defaults to.
 
 | Location | Readable by | Published from |
 | --- | --- | --- |
@@ -54,8 +68,9 @@ copy — private — cannot be fetched by the panel, and a deployment declared a
 it fails when it tries to pull the chart. The GHCR copy is public and needs no
 credential, which is what lets the panel upgrade itself.
 
-The images stay in Artifact Registry and are unaffected: those are pulled by the
-kubelet, which does hold the credential.
+The images stay in Artifact Registry and are unaffected by any of this: those are
+pulled by the kubelet, which does hold the credential. Only the chart needed a
+public home.
 
 > **First publish only.** A new GHCR package is private until somebody says
 > otherwise. After the first release that pushes it, open the package under the
