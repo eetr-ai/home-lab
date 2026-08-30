@@ -64,6 +64,12 @@ rules:
     verbs: ["get", "list", "watch"]
   # Streaming a pod's log. Its own subresource, and `get` is the whole of it —
   # a follow stream is a get with follow=true, not a watch.
+  #
+  # Two things depend on this, and only one of them is obvious. The workload log
+  # viewer is the obvious one. The other is the Helm job log: rbac-jobs.yaml
+  # grants the API no pod access at all, deliberately, because this ClusterRole
+  # already covers it cluster-wide — so trimming these lines as "unused reads"
+  # would leave a running deploy showing no output and no reason why.
   - apiGroups: [""]
     resources:
       - pods/log

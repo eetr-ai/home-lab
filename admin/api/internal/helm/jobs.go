@@ -370,8 +370,8 @@ func (s *Service) ReadJob(ctx context.Context, name string) (Job, error) {
 	if s.jobs == nil {
 		return Job{}, ErrNotConfigured
 	}
-	if err := validateNamespace(name); err != nil {
-		return Job{}, fmt.Errorf("%w: %q is not a job name", ErrInvalidName, name)
+	if err := validateJobName(name); err != nil {
+		return Job{}, err
 	}
 	return s.jobs.ReadJob(ctx, name)
 }

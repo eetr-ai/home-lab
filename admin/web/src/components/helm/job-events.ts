@@ -29,8 +29,13 @@ const isPhase = (value: unknown): value is HelmJobPhase =>
 const str = (value: unknown): string | undefined =>
 	typeof value === "string" && value !== "" ? value : undefined;
 
-/** One parsed event from a job's stream. */
+/** One parsed event from a job's stream.
+ *
+ * `reset` is the one the wire never carries: the hook applies it when the job
+ * being followed changes, so the next job does not inherit the last one's log.
+ */
 export type JobEvent =
+	| { type: "reset" }
 	| { type: "snapshot"; job: HelmJob }
 	| { type: "phase"; phase: HelmJobPhase; reason?: string; pod?: string }
 	| { type: "log"; line: string }

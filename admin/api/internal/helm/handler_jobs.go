@@ -8,6 +8,18 @@ import (
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 )
 
+// A note on what the OpenAPI description says about these two routes, because it
+// is wrong in a way that is not worth fixing here.
+//
+// `@Produce` in swag applies to every response, not just the successful one, so
+// the streaming routes below describe their 4xx bodies as text/event-stream and
+// text/plain. They are not: an error goes through respondError, which writes a
+// JSON http.ErrorBody like everywhere else. swag offers no per-response content
+// type, and the Kubernetes slice's pod-log route has described itself the same
+// way since it was written -- so correcting only these two would make the
+// description inconsistent rather than accurate. A client should read a non-2xx
+// body as JSON on every route this API serves.
+
 // defaultLogTail is how much history a log request starts with.
 //
 // Enough to see why something failed without replaying a whole chart's hooks. A

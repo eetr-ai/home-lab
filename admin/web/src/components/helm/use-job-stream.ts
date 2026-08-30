@@ -32,9 +32,25 @@ export function useJobStream(name: string | null, initial: HelmJob | null = null
 	// every log line.
 	const terminal = useRef(false);
 	const [attempt, setAttempt] = useState(0);
+	// Which job the two above describe. Without it they outlive the job that set
+	// them: roll out once, watch it finish, roll out again, and the second stream
+	// never opens because `terminal` is still true from the first.
+	//
+	// Initialised to the first name, so a job handed in by the server is not
+	// cleared on mount before anything has looked at it.
+	const followed = useRef(name);
 
 	useEffect(() => {
-		if (!name || terminal.current) return;
+		if (!name) return;
+
+		// Inside the effect, not during render: mutating a ref while rendering is
+		// how a component ends up not re-rendering when it should.
+		if (followed.current !== name) {
+			followed.current = name;
+			terminal.current = false;
+			apply({ type: "reset" });
+		}
+		if (terminal.current) return;
 
 		const controller = new AbortController();
 		let retry: ReturnType<typeof setTimeout> | undefined;
@@ -48,6 +64,10 @@ export function useJobStream(name: string | null, initial: HelmJob | null = null
 				if (!response.ok || !response.body) throw new Error(`the API answered ${response.status}`);
 
 				const { ended } = await readJobStream(response.body, (event) => {
+					// A snapshot means this connection works. Clearing the backoff
+					// here stops one bad start making every later reconnect wait
+					// the maximum.
+					if (event.type === "snapshot") setAttempt(0);
 					if (event.type === "done") terminal.current = true;
 					apply(event);
 				});

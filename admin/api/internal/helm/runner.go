@@ -117,19 +117,7 @@ func runRollout(ctx context.Context, repo *Repository, spec JobSpec, logger *slo
 		return err
 	}
 
-	// The stamp is written only on success, and a failure to write it is logged
-	// rather than returned. The release is already up: reporting the rollout as
-	// failed because the bookkeeping failed would be a worse lie than a record
-	// that briefly reads "not rolled out", and it is now a worse one than it used
-	// to be, because this process's exit code is what the panel and the pipeline
-	// read as the outcome. The panel shows drift instead, which is true and is
-	// recoverable by rolling out again.
-	if err := store.MarkRolledOut(ctx, deployment.ID, version.Version, release.Revision); err != nil {
-		logger.Error("the rollout succeeded but could not be recorded",
-			slog.String("deployment", deployment.ID),
-			slog.Int("version", version.Version),
-			slog.Any("error", err))
-	}
+	stampRollout(ctx, store, deployment, version, release, logger)
 
 	logger.Info("the release is up",
 		slog.String("release", release.Name),
@@ -255,4 +243,44 @@ func readDeclared(ctx context.Context, store *Store, spec JobSpec) (
 		return Deployment{}, DeploymentVersion{}, ChartSource{}, nil, err
 	}
 	return deployment, version, source, values, nil
+}
+
+// stampWindow is how long the rollout stamp gets, once the release is up.
+//
+// Short: it is one UPDATE against a database this process has an open pool to.
+const stampWindow = 30 * time.Second
+
+// rolloutStamper records that a declared version reached the cluster. Declared
+// here, where it is consumed, so the deadline rule below can be tested.
+type rolloutStamper interface {
+	MarkRolledOut(ctx context.Context, id string, number, helmRevision int) error
+}
+
+// stampRollout records that this version reached the cluster.
+//
+// On a context of its own, detached from the operation's. That is the whole point
+// of this function existing: the operation's context is bounded by the Helm
+// timeout, and a deploy that legitimately used most of it would arrive here with
+// a context already expiring — so the release would be up and the record would
+// say it never rolled out. The panel calls that drift, and it would be drift
+// reported for a deploy that worked, on exactly the slow deploys most worth
+// trusting the record about.
+//
+// The failure is still logged rather than returned. The release is already up,
+// and reporting the rollout as failed because the bookkeeping failed would be a
+// worse lie than a record that briefly reads "not rolled out" — worse now than it
+// used to be, because this process's exit code is what the panel and a pipeline
+// read as the outcome. Drift is true, visible, and fixed by rolling out again.
+func stampRollout(ctx context.Context, store rolloutStamper, deployment Deployment,
+	version DeploymentVersion, release Release, logger *slog.Logger,
+) {
+	stampCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stampWindow)
+	defer cancel()
+
+	if err := store.MarkRolledOut(stampCtx, deployment.ID, version.Version, release.Revision); err != nil {
+		logger.Error("the rollout succeeded but could not be recorded",
+			slog.String("deployment", deployment.ID),
+			slog.Int("version", version.Version),
+			slog.Any("error", err))
+	}
 }

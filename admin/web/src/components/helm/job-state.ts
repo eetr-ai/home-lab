@@ -66,6 +66,12 @@ export function initialJobState(job: HelmJob | null = null): JobState {
  */
 export function foldJobEvent(state: JobState, event: JobEvent): JobState {
 	switch (event.type) {
+		// Following a different job now. Everything the last one left behind goes,
+		// including its terminal phase — otherwise the new stream renders as
+		// already finished before it has said anything.
+		case "reset":
+			return initialJobState();
+
 		case "snapshot":
 			return {
 				job: event.job,
@@ -82,7 +88,13 @@ export function foldJobEvent(state: JobState, event: JobEvent): JobState {
 				...state,
 				phase: event.phase,
 				reason: event.reason ?? state.reason,
-				job: state.job ? { ...state.job, phase: event.phase, pod: event.pod } : null,
+				// `pod` only when the event carries one. A phase event that omits it
+				// is not saying the pod went away — it is saying nothing about the
+				// pod — and overwriting with undefined loses the name the log pane
+				// and the status line are both showing.
+				job: state.job
+					? { ...state.job, phase: event.phase, pod: event.pod ?? state.job.pod }
+					: null,
 				// A phase event never ends the stream on its own; `done` does. The
 				// server sends both, and acting on the first would cut the log off.
 				streamError: undefined,

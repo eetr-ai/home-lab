@@ -112,3 +112,31 @@ describe("foldJobEvent", () => {
 		expect(state.phase).toBe("succeeded");
 	});
 });
+
+// A phase event says nothing about the pod when it omits one. Overwriting with
+// undefined loses the name the log pane and the status line are both showing.
+it("keeps the known pod when a phase event omits it", () => {
+	const state = fold([
+		{ type: "snapshot", job: job({ pod: "helm-rollout-abcde-x7k2q" }) },
+		{ type: "phase", phase: "succeeded" },
+	]);
+
+	expect(state.job?.pod).toBe("helm-rollout-abcde-x7k2q");
+	expect(state.phase).toBe("succeeded");
+});
+
+// Following a different job must not inherit the last one's state — above all
+// its terminal phase, which would render the new stream as already finished.
+it("clears everything when the followed job changes", () => {
+	const first = fold([
+		{ type: "snapshot", job: job({ phase: "running" }) },
+		{ type: "log", line: "the first job" },
+		{ type: "done", phase: "succeeded" },
+	]);
+	expect(first.terminal).toBe(true);
+
+	const second = foldJobEvent(first, { type: "reset" });
+	expect(second.terminal).toBe(false);
+	expect(second.lines).toEqual([]);
+	expect(second.job).toBeNull();
+});

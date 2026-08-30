@@ -36,6 +36,12 @@ Namespaced, and to the release namespace only. Jobs are always created here --
 never in the namespace being deployed into -- which keeps this Role one namespace
 wide and keeps the pods somewhere the read ClusterRole can already see.
 
+No pod rules either, and that is not an omission: reading a job's pod and
+streaming its log both go through the cluster-wide read ClusterRole in rbac.yaml,
+which already grants `pods` and `pods/log`. Adding them here would be a second
+grant for something already held. The dependency is noted in that file too,
+because it is not visible from there.
+
 No delete, no update, no patch. The API never edits a Job and never removes one;
 ttlSecondsAfterFinished does the removing. A delete verb would also be a way to
 cancel an operation mid-apply, which is how a release ends up wedged in a

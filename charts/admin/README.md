@@ -62,9 +62,10 @@ story of the Helm feature.
 Every Helm mutation runs as a Kubernetes Job in the panel's own namespace, so the
 deploy grant belongs to `admin-helm-job` and exists for the lifetime of one
 operation. The API can no longer create, update, or delete a Secret in any
-namespace — or anything else in a Helm-managed one. Its only remaining writes are
-the two in `rbac.yaml`, which restart a workload and change its replica count, and
-this change does not touch them.
+namespace — or anything else in a Helm-managed one. Its only remaining writes are the ones
+in `rbac.yaml` — `patch` on Deployments and StatefulSets, which is how a workload
+is restarted, and `update` on their `scale` subresource, which is how its replica
+count changes. This change does not touch either.
 
 **Read the warning at the top of `rbac-jobs.yaml` before treating that as
 containment.** Kubernetes does not check whether the creator of a Job may run as

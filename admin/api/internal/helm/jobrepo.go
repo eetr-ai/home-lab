@@ -106,8 +106,13 @@ func (r *JobRepository) ListJobs(ctx context.Context, filter JobFilter) ([]Job, 
 	return jobs, nil
 }
 
-// WatchJob reports a Job's status as it changes, until the context ends or the
-// Job reaches a terminal phase.
+// WatchJob reports a Job's status as it changes, until the caller's context ends.
+//
+// It does NOT stop on its own when the Job finishes, and the contract says so
+// because the alternative is worse: deciding a job is over inside the watcher
+// would mean the caller could not see events after the terminal one, and the log
+// drain in StreamJob depends on being able to. Ending it is the caller's job, and
+// StreamJob does it by cancelling the context it passed.
 //
 // The channel is closed when there is nothing more to report. A watch that the
 // API server closes on its own — which it does periodically, and always

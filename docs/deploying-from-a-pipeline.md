@@ -100,13 +100,28 @@ token=$(curl -sS -X POST "$ISSUER/token" \
   -d grant_type=client_credentials \
   -u "$CLIENT_ID:$CLIENT_SECRET" | jq -r .access_token)
 
-accepted=$(curl -sS -X PUT "$API/api/helm/deployments/$DEPLOYMENT_ID" \
+# Capture the status as well as the body. A 409 or a 503 also returns JSON, and
+# feeding it to jq further down yields a null job and a request to /jobs/null.
+response=$(curl -sS -w '\n%{http_code}' -X PUT "$API/api/helm/deployments/$DEPLOYMENT_ID" \
   -H "Authorization: Bearer $token" \
   -H "CF-Access-Client-Id: $CF_ID" \
   -H "CF-Access-Client-Secret: $CF_SECRET" \
   -H 'Content-Type: application/json' \
   -d '{"version":"6.9.4","values":{"image":{"tag":"sha-abc123"}}}')
+
+status=${response##*$'\n'}
+accepted=${response%$'\n'*}
+
+case "$status" in
+  202) ;;
+  409) echo "another operation holds this release: $accepted" >&2; exit 75 ;;
+  *)   echo "the deploy was refused ($status): $accepted" >&2; exit 1 ;;
+esac
 ```
+
+`409` is worth its own exit code rather than a generic failure: it means somebody
+or something else is mid-deploy, and retrying later is right where retrying a
+`400` never will be.
 
 ### What the overrides do
 
@@ -216,6 +231,20 @@ curl -sS "$API/api/helm/jobs/$job" \
 > rule above is unchanged and is still the one to use: `status` is `deployed`
 > **and** `chartVersion` is what you asked for.
 
+One gap in that rule is worth knowing, because it is invisible until it bites: it
+proves the *chart version*, and a deploy that changed only values does not move
+one. For a values-only change, check the version this lab recorded instead —
+`.versions[0].rolledOutAt` is null until that exact declared version reached the
+cluster, and a rollback leaves the newer version unstamped:
+
+```bash
+jq -e '.versions[0].rolledOutAt != null' <<<"$deployment"
+```
+
+That is the stronger check in general, and the reason the weaker one is still
+written above is that most pipelines here move a chart version and the status
+comparison is the one that reads at a glance.
+
 What the job is genuinely better at is saying *why*. Its log is Helm's own output,
 which used to go to the API pod's log where only `kubectl` could reach it:
 
@@ -291,6 +320,13 @@ are always there. And `deployed` means the same thing for this release as for an
 other — the pods came up.
 
 ### What happens, and what you will see
+
+> **Not yet observed on this lab's cluster.** The mechanism below is what the code
+> does and the reasoning is checked — the Job carries no Helm ownership markers,
+> which a test asserts, and every other operation has been run end to end against
+> a real cluster. What has *not* been done is applying the admin chart from the
+> panel and watching this play out. Until somebody has, treat the sequence as the
+> design rather than as a report, and keep `kubectl` to hand the first time.
 
 Every Helm mutation runs as a Kubernetes Job in the panel's namespace. The Job is
 created imperatively by the API, so **it is not part of any Helm release**: Helm
