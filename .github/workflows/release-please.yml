@@ -5,18 +5,35 @@ on:
     branches:
       - main
 
+  # The recovery path. Publishing the chart happens once, on the push that cut the
+  # release, because `release_created` is true exactly that once — so a publish
+  # that failed after the release was already tagged could not be retried by
+  # re-running this workflow, and the only way back would be the `helm push` by
+  # hand that this automation exists to remove.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Chart version to publish, e.g. 1.5.0. Use this to finish a release whose
+          chart publish failed. The chart is packaged from that release's tag, not
+          from main.
+        required: true
+
 permissions:
   contents: write
   pull-requests: write
-  # Publishing the chart to GHCR. Scoped here rather than on the job because this
-  # workflow has one job and splitting the publish into a second one would put it
-  # back on the far side of the trigger problem described below.
-  packages: write
 
 jobs:
   release-please:
     name: Release please
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      # Pushing the chart to GHCR. On the job rather than on the workflow so a
+      # second job added here later does not inherit the ability to write
+      # packages without somebody deciding that it should.
+      packages: write
     steps:
       # Opens and maintains a release pull request from the Conventional Commit
       # history. Merging it tags admin-vX.Y.Z, and that tag is what the Cloud Build
@@ -34,19 +51,62 @@ jobs:
       # already started, so the restriction does not reach them.
       - name: Run release-please
         id: release
+        if: github.event_name == 'push'
         uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Everything below runs only on the push that actually cut a release, which
-      # is a small minority of pushes to main.
+      # One place decides whether there is a chart to publish and which version it
+      # is, so the steps below share one condition rather than each repeating the
+      # difference between the two triggers.
+      - name: Decide what to publish
+        id: chart
+        env:
+          RELEASED: ${{ steps.release.outputs['admin--release_created'] }}
+          RELEASE_VERSION: ${{ steps.release.outputs['admin--version'] }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = 'workflow_dispatch' ]; then
+            version="$MANUAL_VERSION"
+            # Packaged from the release's own tag rather than from main, which has
+            # moved on. Republishing a version means republishing that version.
+            ref="admin-v${version}"
+          elif [ "$RELEASED" = 'true' ]; then
+            version="$RELEASE_VERSION"
+            # Empty checks out the commit that triggered the run, which is the one
+            # release-please just released.
+            ref=''
+          else
+            echo 'No release was cut; nothing to publish.'
+            exit 0
+          fi
+
+          # A version that is not one would otherwise surface as a confusing
+          # `helm package` error, or as a checkout of a tag that does not exist.
+          if ! printf '%s' "$version" |
+            grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Not a version: $version" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "ref=$ref"
+          } >>"$GITHUB_OUTPUT"
+          echo "Publishing chart $version"
+
       - name: Check out the released commit
-        if: steps.release.outputs['admin--release_created'] == 'true'
+        if: steps.chart.outputs.version != ''
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.chart.outputs.ref }}
 
       - name: Install Helm
-        if: steps.release.outputs['admin--release_created'] == 'true'
+        if: steps.chart.outputs.version != ''
         uses: azure/setup-helm@v5
         with:
           # Pinned for the same reason cloudbuild.yaml pins its own copy: how Helm
@@ -60,15 +120,14 @@ jobs:
       # in-process. GHCR is public, so the panel can install its own chart with no
       # credential at all.
       #
-      # Both copies take their version from the release rather than from
-      # Chart.yaml, whose tracked version is a placeholder for local work. Cloud
-      # Build strips the admin-v prefix off the tag; release-please hands the same
-      # number over directly. One release, one number, derived from one decision,
-      # so the two copies cannot drift into disagreeing about what 1.4.0 is.
+      # The version passed here is the release's, not Chart.yaml's. They agree on
+      # a release commit — release-please maintains Chart.yaml — but stating it
+      # keeps a manual republish from depending on that agreement, and keeps this
+      # copy and Cloud Build's deriving one number from one decision.
       - name: Publish the admin chart to GHCR
-        if: steps.release.outputs['admin--release_created'] == 'true'
+        if: steps.chart.outputs.version != ''
         env:
-          VERSION: ${{ steps.release.outputs['admin--version'] }}
+          VERSION: ${{ steps.chart.outputs.version }}
           OWNER: ${{ github.repository_owner }}
           ACTOR: ${{ github.actor }}
           # Through the environment rather than interpolated into the script, so
