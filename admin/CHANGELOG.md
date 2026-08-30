@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.3.0...admin-v1.4.0) (2026-08-30)
+
+
+### Features
+
+* **admin-api:** add the namespace protection policy ([#65](https://github.com/eetr-ai/home-lab/issues/65)) ([d337e8d](https://github.com/eetr-ai/home-lab/commit/d337e8dfe46f3824c6945c5b4c6ecfa31ce55262))
+* **admin-api:** create and delete cluster namespaces ([#43](https://github.com/eetr-ai/home-lab/issues/43)) ([583aa40](https://github.com/eetr-ai/home-lab/commit/583aa4038548a3cac1540d22ee08483a51c4f9f5))
+* **admin-api:** declare, version, and roll out Helm deployments ([#54](https://github.com/eetr-ai/home-lab/issues/54)) ([7459d54](https://github.com/eetr-ai/home-lab/commit/7459d549247f69e76a5869a7eb803cf6bbb0b03a))
+* **admin-api:** install charts by reference, and take values as YAML ([#53](https://github.com/eetr-ai/home-lab/issues/53)) ([17d1aa4](https://github.com/eetr-ai/home-lab/commit/17d1aa4189b07d912232d5175d7fe7a56e95d9b2))
+* **admin-api:** read Helm releases through the Helm SDK ([#45](https://github.com/eetr-ai/home-lab/issues/45)) ([2dbdd1c](https://github.com/eetr-ai/home-lab/commit/2dbdd1c8a359118691a3dd3f90399862a3d6e470))
+* **admin-api:** resolve the caller on every request ([#64](https://github.com/eetr-ai/home-lab/issues/64)) ([5fe1a9b](https://github.com/eetr-ai/home-lab/commit/5fe1a9bfacd06266e0ea40c36eb0c51ed0b04eac))
+* **admin-web:** edit Helm values and roll them out from the panel ([#55](https://github.com/eetr-ai/home-lab/issues/55)) ([81d6dd8](https://github.com/eetr-ai/home-lab/commit/81d6dd897b1653f982b1286b5a4e21fbd8678173))
+* **admin-web:** give the Helm section a dashboard, and somewhere to go back to ([#60](https://github.com/eetr-ai/home-lab/issues/60)) ([470717b](https://github.com/eetr-ai/home-lab/commit/470717b20aae3baab0b9f81002d1ad7e36604e54))
+* **admin-web:** manage namespaces from the cluster section ([#44](https://github.com/eetr-ai/home-lab/issues/44)) ([05abb03](https://github.com/eetr-ai/home-lab/commit/05abb031076116fda9285a8ed5adbd972c5f4412))
+* **admin:** let the panel deploy its own namespace, and its own release ([#62](https://github.com/eetr-ai/home-lab/issues/62)) ([dd910f3](https://github.com/eetr-ai/home-lab/commit/dd910f33b66d0e918ef64e9f73af975b965cebde))
+* **admin:** run Helm operations in a Job, not in the API's own pods ([#68](https://github.com/eetr-ai/home-lab/issues/68)) ([68327ee](https://github.com/eetr-ai/home-lab/commit/68327ee84a2394a3fe7ae5a66704ca942d6caa22))
+
 ## [1.3.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.2.0...admin-v1.3.0) (2026-08-28)
 
 
