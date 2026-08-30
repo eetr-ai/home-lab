@@ -71,6 +71,11 @@ describe("resourceFor", () => {
 		["a bare word", "admin-panel"],
 		["a host with no scheme", "admin.example.invalid"],
 		["empty", ""],
+		// RFC 8707 forbids a fragment, and `new URL` accepts both of these — so
+		// without an explicit check they would reach the provider and come back as
+		// the invalid_target this function exists to prevent.
+		["a URI with a fragment", "https://admin.example.invalid/api#section"],
+		["a URI with a bare trailing #", "https://admin.example.invalid/api#"],
 	])("asks for nothing when the audience is %s", (_name, audience) => {
 		expect(resourceFor(audience)).toBeUndefined();
 	});

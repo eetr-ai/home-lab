@@ -154,9 +154,18 @@ export async function exchangeForToken(
  * panel's client id — and it needs no resource at all, because a token minted
  * without one already carries the client id in `aud`. So the common case must ask
  * for nothing, and only an audience that is genuinely a URI is passed through.
+ *
+ * A fragment disqualifies it too. RFC 8707 says the resource "MUST NOT include a
+ * fragment component", and `new URL` is perfectly happy with one — so without
+ * this check a `https://api.example/#x` audience would sail through here and come
+ * back as the same `invalid_target` this function exists to prevent.
  */
 export function resourceFor(audience: string): { resource: string } | undefined {
 	if (!audience) return undefined;
+	// The raw string rather than `url.hash`, which is empty for a bare trailing
+	// "#" — a URI that still carries a fragment component as far as the RFC is
+	// concerned, and as far as a strict provider is likely to be.
+	if (audience.includes("#")) return undefined;
 	try {
 		// A scheme is what makes it absolute. `new URL` needs no base for one, and
 		// throws for anything else — including a client id with an underscore in it.
