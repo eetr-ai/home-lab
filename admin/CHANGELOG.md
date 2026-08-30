@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.3](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.2...admin-v1.5.3) (2026-08-30)
+
+
+### Bug Fixes
+
+* **admin-web:** put the pipeline snippet behind a button and fold the log ([#76](https://github.com/eetr-ai/home-lab/issues/76)) ([e27cbe2](https://github.com/eetr-ai/home-lab/commit/e27cbe2596ae7b88089fad8a512f992035be9977))
+
 ## [1.5.2](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.1...admin-v1.5.2) (2026-08-30)
 
 
