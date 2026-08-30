@@ -41,5 +41,17 @@ export default async function HelmDeploymentPage({
 	// and the page it would replace is the one that says what is deployed.
 	const job = jobs.ok ? (jobs.data[0] ?? null) : null;
 
-	return <DeploymentView deployment={deployment.data} job={job} now={new Date()} />;
+	// The panel's own origin, read here rather than from `window.location` in the
+	// card: this is the address eetr-auth has registered and the one a pipeline
+	// outside the cluster can reach, where the browser's is whatever host it
+	// happened to arrive on — and reading it on the client would mismatch during
+	// hydration besides.
+	return (
+		<DeploymentView
+			deployment={deployment.data}
+			job={job}
+			now={new Date()}
+			origin={process.env.AUTH_URL ?? ""}
+		/>
+	);
 }

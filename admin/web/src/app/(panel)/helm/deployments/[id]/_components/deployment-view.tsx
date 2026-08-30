@@ -10,6 +10,7 @@ import { isPending, stuckForMinutes } from "@/lib/helm/status";
 import { useReleasePolling } from "../../../_components/use-release-polling";
 import type { HelmDeploymentDetail, HelmJob } from "@/lib/api/types";
 import { JobPanel } from "../../../_components/job-panel";
+import { PipelineCard } from "./pipeline-card";
 import { ValuesCard } from "./values-card";
 import { VersionHistory } from "./version-history";
 
@@ -17,10 +18,13 @@ export function DeploymentView({
 	deployment,
 	job,
 	now,
+	origin,
 }: {
 	deployment: HelmDeploymentDetail;
 	job: HelmJob | null;
 	now: Date;
+	/** The panel's own origin, for the pipeline snippet. Empty when unconfigured. */
+	origin: string;
 }) {
 	const [editing, setEditing] = useState(deployment.current.version);
 
@@ -111,6 +115,18 @@ export function DeploymentView({
 			</Card>
 
 			<ValuesCard deployment={deployment} editing={editing} onEditingChange={setEditing} />
+
+			{/* Last, and deliberately below the editor: this is reference material for
+			    somebody wiring up CI, not a control for what is on screen. Absent
+			    without an origin to build an address from — a snippet pointing at
+			    nowhere is worse than no snippet. */}
+			{origin ? (
+				<PipelineCard
+					origin={origin}
+					chartId={deployment.id}
+					chartVersion={deployment.current.chartVersion}
+				/>
+			) : null}
 		</div>
 	);
 }

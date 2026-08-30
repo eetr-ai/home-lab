@@ -83,6 +83,16 @@ spec:
               value: {{ required "admin.web.clientId is required" .Values.admin.web.clientId | quote }}
             - name: OIDC_PROVIDER_NAME
               value: {{ .Values.admin.web.providerName | quote }}
+            {{- with .Values.admin.api.oidc.audience }}
+            # Read only by the pipeline endpoint, which asks eetr-auth for a token
+            # naming this audience when it exchanges an API key. Taken from the
+            # API's own value rather than a second key: they are the same fact —
+            # what the API will accept — and two places to write it is one place
+            # to get it wrong. Absent when the API checks no audience, which is
+            # the default.
+            - name: OIDC_AUDIENCE
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.admin.web.writeEmails }}
             - name: ADMIN_WRITE_EMAILS
               value: {{ . | quote }}

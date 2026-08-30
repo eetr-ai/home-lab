@@ -71,6 +71,22 @@ if render --set admin.api.oidc.issuer=https:// >/dev/null 2>&1; then
   exit 1
 fi
 
+# The panel's pipeline endpoint asks eetr-auth for a token naming the audience the
+# API checks, so the two read one value. Absent by default, because the API checks
+# no audience by default and asking for a resource nobody registered fails the
+# exchange — a request refused before the API ever sees it.
+#
+# The pattern is anchored on the leading dash so it does not also match the API's
+# own ADMIN_OIDC_AUDIENCE, which is emitted unconditionally and would make both
+# halves of this pass for the wrong reason.
+if render_defaults | grep -q -- '- name: OIDC_AUDIENCE'; then
+  printf 'The panel was given an OIDC audience with none configured\n' >&2
+  exit 1
+fi
+
+audience_render="$(render --set admin.api.oidc.audience=admin-panel)"
+grep -A 1 -- '- name: OIDC_AUDIENCE' <<<"$audience_render" | grep -q 'value: "admin-panel"'
+
 # A moving tag cannot say which build is running, and the chart's appVersion is
 # what release-please keeps in step with the images.
 if grep -qE 'image: .*:latest"?$' "$output_file"; then

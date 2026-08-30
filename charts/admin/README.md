@@ -211,6 +211,11 @@ fill in the identity provider:
   replayed here. Neither value is a secret; both travel in every authorization
   request, which is why they live in values rather than a Secret.
 
+  It reaches the panel too, as `OIDC_AUDIENCE`, and only the pipeline endpoint
+  reads it: a token minted from a CI API key has to name the same audience the API
+  checks. One value serves both, because it is one fact — what the API will
+  accept — and two places to write it is one place to get it wrong.
+
 The provider's signing keys may be served from a different host than the issuer —
 eetr-auth publishes its JWKS on a CDN — so that host has to be reachable from the
 cluster.
