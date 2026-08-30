@@ -356,6 +356,13 @@ func translate(err error, what string) error {
 	case errors.Is(err, driver.ErrReleaseNotFound), errors.Is(err, driver.ErrNoDeployedReleases),
 		apierrors.IsNotFound(err):
 		return fmt.Errorf("%w: %s", ErrNotFound, what)
+	// A pod whose container has not started yet. Expected for the first moment of
+	// every job, and the caller's answer is to retry rather than to give up — so
+	// it must not present as an internal error.
+	case strings.Contains(err.Error(), "is waiting to start"),
+		strings.Contains(err.Error(), "ContainerCreating"),
+		strings.Contains(err.Error(), "PodInitializing"):
+		return fmt.Errorf("%w: %s", ErrNoPodYet, what)
 	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err),
 		// Helm wraps the API server's refusal in its own message often enough
 		// that the typed check alone misses it, and reading "forbidden" as a 500

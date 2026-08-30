@@ -327,6 +327,13 @@ func phaseOf(status batchv1.JobStatus) (phase, reason string) {
 	if status.Active > 0 {
 		return PhaseRunning, ""
 	}
+	// Started, but with no pod counted active and no terminal condition yet. That
+	// is the gap between the pod exiting and the controller writing Complete, and
+	// it is brief but real — reporting it as pending walks the phase backwards,
+	// which a client watching transitions renders as the operation starting over.
+	if status.StartTime != nil {
+		return PhaseRunning, ""
+	}
 	return PhasePending, ""
 }
 

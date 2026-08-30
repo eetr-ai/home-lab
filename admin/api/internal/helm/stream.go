@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 )
@@ -87,7 +88,7 @@ func (s *Service) StreamJob(ctx context.Context, name string, tail int64,
 	// back from being upgraded. Replay the log and say so, rather than watching
 	// something that will never change again.
 	if !job.Active() {
-		s.streamLog(ctx, job, tail, send)
+		_ = s.streamLog(ctx, job, tail, send)
 		_ = send(EventDone, JobEvent{Phase: job.Phase, Reason: job.Reason})
 		return nil
 	}
@@ -276,19 +277,30 @@ func (s *Service) drain(events chan logEvent, send func(string, JobEvent) error,
 	}
 }
 
-// follow waits for a pod and then streams its log a line at a time.
+// logRetryInterval is how often the follower tries again for a log it could not
+// open yet.
+const logRetryInterval = time.Second
+
+// follow streams the job's log, waiting for it to become readable.
 //
-// The waiting is the reason this exists rather than a call to streamLog: a job's
-// pod is not scheduled instantly, and a log opened too early is an error rather
-// than an empty stream.
+// Waiting is the whole job, and it is not just waiting for a *pod*. A pod exists
+// almost immediately; its container does not, and the API server refuses a log
+// request until it does — "is waiting to start". An attempt that opened the log
+// once and gave up on that error would silently deliver no log at all for every
+// operation, which is exactly what happened before this loop existed.
+//
+// So it retries until the log opens, the job ends, or the caller leaves. When the
+// job ends it tries once more: a job that finished quickly may never have been
+// readable while it was active, and its output is still the most useful thing
+// about it.
 func (s *Service) follow(ctx context.Context, name, pod string, tail int64,
 	send func(string, JobEvent) error,
 ) {
-	for pod == "" {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Second):
+	for {
+		if pod != "" {
+			if err := s.streamLog(ctx, Job{Name: name, Pod: pod}, tail, send); err == nil {
+				return
+			}
 		}
 
 		job, err := s.ReadJob(ctx, name)
@@ -296,26 +308,41 @@ func (s *Service) follow(ctx context.Context, name, pod string, tail int64,
 			return
 		}
 		pod = job.Pod
-	}
 
-	s.streamLog(ctx, Job{Name: name, Pod: pod}, tail, send)
+		if !job.Active() {
+			// One last attempt, then stop. The pod is gone or its log is readable;
+			// either way there will be no more.
+			if pod != "" {
+				_ = s.streamLog(ctx, Job{Name: name, Pod: pod}, tail, send)
+			}
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(logRetryInterval):
+		}
+	}
 }
 
 // streamLog sends a pod's log as one event per line.
 //
-// A failure to open it is not reported to the client. The usual causes are a pod
-// that has not started yet and a pod already reaped, and neither says anything
-// about whether the operation succeeded — which the job's own status answers.
+// It returns an error only for a log it could not open, so the caller can decide
+// whether to try again — the usual cause is a container that has not started yet,
+// which every job passes through. The failure is never reported to the client:
+// it says nothing about whether the operation succeeded, which the job's own
+// status answers.
 func (s *Service) streamLog(ctx context.Context, job Job, tail int64,
 	send func(string, JobEvent) error,
-) {
+) error {
 	if job.Pod == "" {
-		return
+		return fmt.Errorf("%w: %s", ErrNoPodYet, job.Name)
 	}
 
 	stream, err := s.jobs.PodLogs(ctx, job.Pod, true, tail)
 	if err != nil {
-		return
+		return err
 	}
 	defer func() { _ = stream.Close() }()
 
@@ -325,14 +352,15 @@ func (s *Service) streamLog(ctx context.Context, job Job, tail int64,
 
 	for scanner.Scan() {
 		if err := send(EventLog, JobEvent{Line: scanner.Text()}); err != nil {
-			return
+			return nil
 		}
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
 	}
 	// A closed stream and a cancelled context are both normal endings here.
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) && ctx.Err() == nil {
 		s.logger.Debug("a helm job log stream ended", "job", job.Name, "error", err)
 	}
+	return nil
 }

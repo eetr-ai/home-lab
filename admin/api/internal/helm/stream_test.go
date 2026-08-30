@@ -2,6 +2,7 @@ package helm
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -200,4 +201,57 @@ func closedEvents() chan logEvent {
 	events := make(chan logEvent)
 	close(events)
 	return events
+}
+
+// logsAfter refuses the log until the Nth attempt, the way the API server refuses
+// one for a container that has not started.
+type logsAfter struct {
+	streamingJobs
+	failures int
+	attempts int
+}
+
+func (l *logsAfter) PodLogs(_ context.Context, _ string, _ bool, _ int64) (io.ReadCloser, error) {
+	l.attempts++
+	if l.attempts <= l.failures {
+		return nil, fmt.Errorf("%w: container helm is waiting to start", ErrNoPodYet)
+	}
+	return io.NopCloser(strings.NewReader(l.log)), nil
+}
+
+// The log has to survive not being readable yet.
+//
+// Found live, and it made the whole log pane useless: a pod exists almost
+// immediately but its container does not, and the API server refuses the log
+// until it does. Opening it once and giving up on that error delivered no log at
+// all for every operation — the stream carried phases and nothing else.
+func TestStreamJobRetriesALogThatIsNotReadableYet(t *testing.T) {
+	runner := &logsAfter{
+		streamingJobs: streamingJobs{
+			states: []Job{
+				{Phase: PhaseRunning, Pod: "p"},
+				{Phase: PhaseRunning, Pod: "p"},
+				{Phase: PhaseSucceeded, Pod: "p"},
+			},
+			log: "Upgrade complete\n",
+		},
+		failures: 2,
+	}
+
+	events := collect(t, runner)
+
+	var logs int
+	for _, event := range events {
+		if strings.HasPrefix(event, EventLog) {
+			logs++
+		}
+	}
+	if logs == 0 {
+		t.Fatalf("the log never arrived after %d attempts; events were %v",
+			runner.attempts, events)
+	}
+	if runner.attempts <= runner.failures {
+		t.Errorf("gave up after %d attempts, want it to retry past %d failures",
+			runner.attempts, runner.failures)
+	}
 }

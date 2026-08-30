@@ -456,3 +456,27 @@ func TestBuildJobCarriesTheResourcesTheChartRenders(t *testing.T) {
 		t.Errorf("limits = %v, want the ones the chart renders", got.Limits)
 	}
 }
+
+// A phase must never walk backwards.
+//
+// Found live: between the pod exiting and the controller writing Complete, a job
+// reports no active pods and no terminal condition. Reading that as "pending"
+// sends running → pending → succeeded, which a client watching transitions
+// renders as the operation starting over.
+func TestPhaseOfNeverRegressesWhileFinishing(t *testing.T) {
+	started := metav1.Now()
+
+	// Started, nothing active, no condition yet: the gap.
+	phase, _ := phaseOf(batchv1.JobStatus{StartTime: &started})
+	if phase != PhaseRunning {
+		t.Errorf("phase = %q during the gap before Complete is written, want %q",
+			phase, PhaseRunning)
+	}
+
+	// Genuinely not started yet is still pending — otherwise every job would
+	// report running before it had a pod.
+	phase, _ = phaseOf(batchv1.JobStatus{})
+	if phase != PhasePending {
+		t.Errorf("phase = %q before the job starts, want %q", phase, PhasePending)
+	}
+}
