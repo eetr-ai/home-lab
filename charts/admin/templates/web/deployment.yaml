@@ -84,12 +84,15 @@ spec:
             - name: OIDC_PROVIDER_NAME
               value: {{ .Values.admin.web.providerName | quote }}
             {{- with .Values.admin.api.oidc.audience }}
-            # Read only by the pipeline endpoint, which asks eetr-auth for a token
-            # naming this audience when it exchanges an API key. Taken from the
-            # API's own value rather than a second key: they are the same fact —
-            # what the API will accept — and two places to write it is one place
-            # to get it wrong. Absent when the API checks no audience, which is
-            # the default.
+            # Read only by the pipeline endpoint, and only acted on when it is an
+            # absolute URI: RFC 8707 resource indicators have to be, and eetr-auth
+            # refuses anything else outright. The usual value here is the panel's
+            # client id, which a minted token already carries in `aud` without
+            # being asked — so the common case sends nothing and works.
+            #
+            # Taken from the API's own value rather than a second key: they are the
+            # same fact — what the API will accept — and two places to write it is
+            # one place to get it wrong.
             - name: OIDC_AUDIENCE
               value: {{ . | quote }}
             {{- end }}

@@ -33,8 +33,11 @@ export interface ExchangeDeps {
 	 *
 	 * eetr-auth puts the client id in `aud` when no resource indicator is
 	 * requested, so a key issued on the panel's own client already lands on the
-	 * right audience and this can stay empty. A key on a separate CI client needs
-	 * the resource, or the API refuses a token that is otherwise perfectly valid.
+	 * right audience whatever this says.
+	 *
+	 * It is only *asked for* when it is an absolute URI — see `resourceFor`, which
+	 * is where the reasoning is, and which exists because asking for a client id
+	 * is a `400` rather than a no-op.
 	 */
 	audience: string;
 }
@@ -110,23 +113,65 @@ export async function exchangeForToken(
 		const response = await deps.exchange(
 			// No `scope`: the admin API reads none, and asking for one a key does not
 			// hold is an `invalid_scope` in exchange for nothing.
-			{ apiKey, ...(deps.audience ? { resource: deps.audience } : {}) },
+			{ apiKey, ...resourceFor(deps.audience) },
 			{ apiKeyEndpoint: apiKeyEndpoint(deps.issuer) },
 		);
 		return response.access_token
 			? { token: response.access_token }
 			: { error: REFUSED, status: 401 };
 	} catch (err) {
-		// An OAuthError means the provider answered and said no, and every reason it
-		// might have had arrives as the same `invalid_client` — so this branch says
-		// no more than eetr-auth itself does. Anything else never got an answer at
-		// all, which is not a statement about the key and must not be reported as
-		// one.
-		if (err instanceof OAuthError) return { error: REFUSED, status: 401 };
+		if (err instanceof OAuthError) {
+			// `invalid_client` is every reason a key can be bad — unknown, revoked,
+			// expired, wrong secret — collapsed into one answer on purpose, so this
+			// branch says no more than eetr-auth itself does.
+			if (err.status === 401 || err.code === "invalid_client") {
+				return { error: REFUSED, status: 401 };
+			}
+			// Anything else is the panel having asked for something wrong, and
+			// reporting it as a bad key sends somebody to rotate a credential that
+			// was fine. The provider's own words, because they name the field.
+			return {
+				error: `the identity provider refused the exchange (${err.code})${
+					err.description ? `: ${err.description}` : ""
+				}`,
+				status: 502,
+			};
+		}
 		return {
 			error: `the identity provider is unreachable: ${(err as Error).message}`,
 			status: 502,
 		};
+	}
+}
+
+/**
+ * Whether the configured audience can be asked for as a resource indicator, and
+ * the whole of why this is not just `audience ? {resource: audience} : {}`.
+ *
+ * RFC 8707 requires an **absolute URI**, and eetr-auth enforces it: a bare client
+ * id comes back `400 invalid_target`, "resource must be an absolute URI". That is
+ * the normal configuration here — `admin.api.oidc.audience` is documented as the
+ * panel's client id — and it needs no resource at all, because a token minted
+ * without one already carries the client id in `aud`. So the common case must ask
+ * for nothing, and only an audience that is genuinely a URI is passed through.
+ *
+ * A fragment disqualifies it too. RFC 8707 says the resource "MUST NOT include a
+ * fragment component", and `new URL` is perfectly happy with one — so without
+ * this check a `https://api.example/#x` audience would sail through here and come
+ * back as the same `invalid_target` this function exists to prevent.
+ */
+export function resourceFor(audience: string): { resource: string } | undefined {
+	if (!audience) return undefined;
+	// The raw string rather than `url.hash`, which is empty for a bare trailing
+	// "#" — a URI that still carries a fragment component as far as the RFC is
+	// concerned, and as far as a strict provider is likely to be.
+	if (audience.includes("#")) return undefined;
+	try {
+		// A scheme is what makes it absolute. `new URL` needs no base for one, and
+		// throws for anything else — including a client id with an underscore in it.
+		return new URL(audience).protocol ? { resource: audience } : undefined;
+	} catch {
+		return undefined;
 	}
 }
 
