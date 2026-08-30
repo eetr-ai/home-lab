@@ -49,8 +49,8 @@ could only ever express a mistake; each component keeps its own
 
 ## Where the chart is published
 
-Each release publishes the chart to two places, and the images to one. All four
-artifacts carry **one version**: the release tag with the `admin-v` prefix
+Each release publishes the chart to two places, and the three images to one. All
+five artifacts carry **one version**: the release tag with the `admin-v` prefix
 stripped, so `admin-v1.5.0` publishes chart `1.5.0` and images `1.5.0`. That
 single number is what `admin.image.tag` defaults to.
 
