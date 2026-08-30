@@ -13,6 +13,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/kube"
 	"helm.sh/helm/v4/pkg/registry"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/restconfig"
@@ -79,6 +80,29 @@ type clients struct {
 // and legitimately does. Helm's actions take no context, so a caller hanging up
 // cannot end either — the deadline is the only thing that can, which is why the
 // read path gets one.
+// Helm 4 applies server-side, and server-side apply decides who may change a
+// field by the NAME OF THE MANAGER THAT LAST WROTE IT. Helm does not hardcode
+// that name: kube.getManagedFieldsManager falls back to
+// filepath.Base(os.Args[0]) when this variable is empty, so the manager is
+// whatever the calling binary happens to be called.
+//
+// For the helm CLI that is "helm", which is what owns every field of a release
+// installed or upgraded from a terminal. For this panel it would be "admin-api",
+// because that is the Job's entrypoint — and a release the CLI installed would
+// then refuse every field the panel tried to apply:
+//
+//	conflicts with "helm": .metadata.labels.helm.sh/chart
+//
+// One release, two names for the same writer, so Kubernetes treats the panel as
+// a second actor fighting the first. Pinning the name is what makes an upgrade
+// from the panel and an upgrade from the CLI the same writer, in either order.
+//
+// A package-level assignment because Helm reads it through a package-level
+// variable of its own; there is nowhere per-configuration to put it.
+func init() {
+	kube.ManagedFieldsManager = "helm"
+}
+
 func newClients(logger *slog.Logger) (*clients, error) {
 	config, err := restconfig.New()
 	if err != nil {
