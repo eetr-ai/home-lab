@@ -35,6 +35,34 @@ a per-component tag could only ever express a mistake. Each component keeps its
 own `image.repository` and `image.pullPolicy`, which genuinely differ; naming a
 `tag` beside one of those is refused by the schema rather than ignored.
 
+## Where the chart is published
+
+Each release publishes the chart to two places, both versioned by the release tag
+with the `admin-v` prefix stripped — so `admin-v1.4.0` publishes chart `1.4.0`:
+
+| Location | Readable by | Published from |
+| --- | --- | --- |
+| `oci://ghcr.io/eetr-ai/charts/home-lab-admin` | anyone | `.github/workflows/release-please.yml` |
+| `oci://us-west1-docker.pkg.dev/PROJECT/home-lab/home-lab-admin` | the lab's Google project | `cloudbuild.yaml` |
+
+The difference that matters is who can read them, and it is why the public copy
+exists. **The panel installs charts through the Helm SDK inside its own pods, and
+has no registry credential.** The node-level key
+`ansible/roles/registry_credentials` writes belongs to the kubelet: it authenticates
+image pulls and is never handed to a process in a pod. So the Artifact Registry
+copy — private — cannot be fetched by the panel, and a deployment declared against
+it fails when it tries to pull the chart. The GHCR copy is public and needs no
+credential, which is what lets the panel upgrade itself.
+
+The images stay in Artifact Registry and are unaffected: those are pulled by the
+kubelet, which does hold the credential.
+
+> **First publish only.** A new GHCR package is private until somebody says
+> otherwise. After the first release that pushes it, open the package under the
+> organisation's Packages tab and set its visibility to public — otherwise the
+> panel gets the same anonymous-token `403` the private registry gives, and the
+> symptom looks identical to no chart having been published at all.
+
 The templates are folded by component rather than by resource kind, the same way
 the Go code is:
 

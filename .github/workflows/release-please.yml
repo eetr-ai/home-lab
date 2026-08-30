@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Publishing the chart to GHCR. Scoped here rather than on the job because this
+  # workflow has one job and splitting the publish into a second one would put it
+  # back on the far side of the trigger problem described below.
+  packages: write
 
 jobs:
   release-please:
@@ -19,11 +23,67 @@ jobs:
       # trigger watches.
       #
       # The tag is created with GITHUB_TOKEN, which by design does not start other
-      # GitHub Actions workflows. That does not matter here: publishing runs in
-      # Cloud Build through its GitHub App, which sees the tag either way. It would
-      # matter if a release ever needed to run a workflow in this repository.
+      # GitHub Actions workflows. Cloud Build is unaffected — it sees the tag
+      # through its GitHub App rather than through Actions.
+      #
+      # THE CHART PUBLISH BELOW IS AFFECTED, AND THAT IS WHY IT LIVES HERE. A
+      # workflow triggered `on: release` or `on: push: tags` would never run: the
+      # tag that would start it was written by GITHUB_TOKEN. Nothing would fail —
+      # there would simply be no run, and the chart would quietly stop being
+      # published. Steps in this job are part of the run that release-please
+      # already started, so the restriction does not reach them.
       - name: Run release-please
+        id: release
         uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Everything below runs only on the push that actually cut a release, which
+      # is a small minority of pushes to main.
+      - name: Check out the released commit
+        if: steps.release.outputs['admin--release_created'] == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        if: steps.release.outputs['admin--release_created'] == 'true'
+        uses: azure/setup-helm@v5
+        with:
+          # Pinned for the same reason cloudbuild.yaml pins its own copy: how Helm
+          # packages a chart is exactly what this relies on.
+          version: v4.1.1
+
+      # The chart is published to GHCR as well as to Artifact Registry, and the
+      # difference is who can read it. Artifact Registry is private, and a Helm
+      # client running inside a pod has no credential for it — the node's registry
+      # key belongs to the kubelet and covers image pulls, not a chart fetch made
+      # in-process. GHCR is public, so the panel can install its own chart with no
+      # credential at all.
+      #
+      # Both copies take their version from the release rather than from
+      # Chart.yaml, whose tracked version is a placeholder for local work. Cloud
+      # Build strips the admin-v prefix off the tag; release-please hands the same
+      # number over directly. One release, one number, derived from one decision,
+      # so the two copies cannot drift into disagreeing about what 1.4.0 is.
+      - name: Publish the admin chart to GHCR
+        if: steps.release.outputs['admin--release_created'] == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs['admin--version'] }}
+          OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          # Through the environment rather than interpolated into the script, so
+          # the token is never part of the command line a failing step echoes.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          helm registry login ghcr.io \
+            --username "$ACTOR" \
+            --password-stdin <<<"$GHCR_TOKEN"
+
+          mkdir -p dist
+          helm package charts/admin \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination dist
+          helm push "dist/home-lab-admin-${VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts"
