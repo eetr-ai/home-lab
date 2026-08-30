@@ -29,11 +29,20 @@ describe("pipelineCurl", () => {
 	it("is a complete request for this deployment", () => {
 		expect(pipelineCurl("https://panel.example.invalid", "dep-123", "6.9.4")).toBe(
 			[
-				'curl -sS -X PATCH "https://panel.example.invalid/api/v1/charts/dep-123" \\',
+				'curl -sS --fail-with-body -X PATCH "https://panel.example.invalid/api/v1/charts/dep-123" \\',
 				'  -H "Authorization: Bearer $EETR_API_KEY" \\',
 				"  -H 'Content-Type: application/json' \\",
 				`  -d '{"chartVersion":"6.9.4"}'`,
 			].join("\n"),
+		);
+	});
+
+	// Plain curl exits 0 on a 401 or a 409. A line copied out of this card ends up
+	// in a script sooner or later, and one that reports a refused deploy as a
+	// success is worse than no snippet.
+	it("fails the shell on a refusal, and still prints why", () => {
+		expect(pipelineCurl("https://panel.example.invalid", "dep-123", "6.9.4")).toContain(
+			"--fail-with-body",
 		);
 	});
 

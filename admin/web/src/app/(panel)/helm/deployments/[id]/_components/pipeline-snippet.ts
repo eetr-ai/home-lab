@@ -21,10 +21,17 @@ export function pipelineUrl(origin: string, chartId: string): string {
  *
  * The key is the one thing left as a variable. A panel that offered to fill in a
  * credential would be a panel that had one to give.
+ *
+ * `--fail-with-body` because this gets pasted into scripts. Plain `curl` exits 0
+ * on a `401` or a `409`, so a copied line would report a deploy that never
+ * happened as a success — and the body is still printed, which is where this
+ * endpoint says what went wrong. A pipeline that needs to tell a `409` from a
+ * `400` reads the status instead; docs/deploying-from-a-pipeline.md has that
+ * version.
  */
 export function pipelineCurl(origin: string, chartId: string, chartVersion: string): string {
 	return [
-		`curl -sS -X PATCH "${pipelineUrl(origin, chartId)}" \\`,
+		`curl -sS --fail-with-body -X PATCH "${pipelineUrl(origin, chartId)}" \\`,
 		`  -H "Authorization: Bearer $EETR_API_KEY" \\`,
 		`  -H 'Content-Type: application/json' \\`,
 		`  -d '${JSON.stringify({ chartVersion })}'`,
