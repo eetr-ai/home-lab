@@ -18,9 +18,19 @@ import { auth } from "@/auth";
  * nothing.
  */
 
-/** Paths reachable without a session: the sign-in page, Auth.js, and assets. */
+/**
+ * Paths this gate does not answer for: the sign-in page, Auth.js, and assets.
+ *
+ * `/api/v1/` is not public — it is the pipeline endpoint, and it authenticates
+ * every request itself with an eetr-auth API key it exchanges for a token. It has
+ * to be listed here because this gate refuses anything under `/api/` without a
+ * *session*, and a pipeline has none by design. Removing this line does not make
+ * that endpoint safer; it makes it unreachable.
+ */
 function isPublic(pathname: string): boolean {
-	return pathname === "/" || pathname.startsWith("/api/auth");
+	return (
+		pathname === "/" || pathname.startsWith("/api/auth") || pathname.startsWith("/api/v1/")
+	);
 }
 
 export default auth((req) => {
