@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { OAuthError } from "@eetr/eetr-auth-client";
-import { apiKeyEndpoint, apiKeyFrom, exchangeForToken, type ExchangeDeps } from "./api-key";
+import {
+	apiKeyEndpoint,
+	apiKeyFrom,
+	exchangeForToken,
+	resourceFor,
+	type ExchangeDeps,
+} from "./api-key";
 
 const KEY = "eak_0123abcd_thesecretpart";
 
@@ -51,6 +57,25 @@ describe("apiKeyEndpoint", () => {
 	});
 });
 
+describe("resourceFor", () => {
+	it.each([
+		["https://admin.example.invalid", { resource: "https://admin.example.invalid" }],
+		["https://admin.example.invalid/api", { resource: "https://admin.example.invalid/api" }],
+		["urn:eetr:admin-api", { resource: "urn:eetr:admin-api" }],
+	])("passes %s through as a resource indicator", (audience, expected) => {
+		expect(resourceFor(audience)).toEqual(expected);
+	});
+
+	it.each([
+		["a client id", "eetr_ko9456i5b8ewcnifw5gh7bki"],
+		["a bare word", "admin-panel"],
+		["a host with no scheme", "admin.example.invalid"],
+		["empty", ""],
+	])("asks for nothing when the audience is %s", (_name, audience) => {
+		expect(resourceFor(audience)).toBeUndefined();
+	});
+});
+
 describe("exchangeForToken", () => {
 	it("returns the access token", async () => {
 		const exchange = token("an.access.token");
@@ -63,13 +88,23 @@ describe("exchangeForToken", () => {
 		);
 	});
 
-	it("asks for the audience as a resource when one is configured", async () => {
+	it("asks for the audience as a resource when it is an absolute URI", async () => {
 		const exchange = token("an.access.token");
-		await exchangeForToken(KEY, deps(exchange, "admin-panel-client-id"));
+		await exchangeForToken(KEY, deps(exchange, "https://admin.example.invalid"));
 		expect(exchange).toHaveBeenCalledWith(
-			{ apiKey: KEY, resource: "admin-panel-client-id" },
+			{ apiKey: KEY, resource: "https://admin.example.invalid" },
 			expect.anything(),
 		);
+	});
+
+	// The bug this replaced: `admin.api.oidc.audience` is normally the panel's
+	// client id, RFC 8707 wants an absolute URI, and eetr-auth answers
+	// `400 invalid_target` — while a token minted with no resource at all already
+	// carries that client id in `aud`. Asking was both wrong and unnecessary.
+	it("asks for nothing when the audience is a bare client id", async () => {
+		const exchange = token("an.access.token");
+		await exchangeForToken(KEY, deps(exchange, "eetr_ko9456i5b8ewcnifw5gh7bki"));
+		expect(exchange).toHaveBeenCalledWith({ apiKey: KEY }, expect.anything());
 	});
 
 	// Not a formality: asking for a resource the provider does not know about is a
@@ -85,7 +120,7 @@ describe("exchangeForToken", () => {
 
 	it("never asks for a scope", async () => {
 		const exchange = token("an.access.token");
-		await exchangeForToken(KEY, deps(exchange, "aud"));
+		await exchangeForToken(KEY, deps(exchange, "https://admin.example.invalid"));
 		expect(exchange).toHaveBeenCalledWith(
 			expect.not.objectContaining({ scope: expect.anything(), scopes: expect.anything() }),
 			expect.anything(),
@@ -99,6 +134,26 @@ describe("exchangeForToken", () => {
 		await expect(exchangeForToken(KEY, deps(exchange))).resolves.toEqual({
 			error: REFUSED,
 			status: 401,
+		});
+	});
+
+	// The distinction that cost an afternoon: a misconfigured panel reported a
+	// perfectly good key as rejected, so the obvious next move was to rotate a
+	// credential that was never the problem.
+	it("reports a provider that refused the request as a configuration fault", async () => {
+		const exchange = vi.fn(async () => {
+			throw new OAuthError(
+				"invalid_target",
+				"resource must be an absolute URI.",
+				400,
+				"resource must be an absolute URI.",
+			);
+		});
+		await expect(exchangeForToken(KEY, deps(exchange))).resolves.toEqual({
+			error:
+				"the identity provider refused the exchange (invalid_target): " +
+				"resource must be an absolute URI.",
+			status: 502,
 		});
 	});
 

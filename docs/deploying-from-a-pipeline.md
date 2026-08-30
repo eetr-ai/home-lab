@@ -74,10 +74,15 @@ Two things about *which* client the key belongs to:
 
 - Issued against the **panel's own client**, its token already names the audience
   the API checks — eetr-auth puts the client id in `aud` by default — and nothing
-  else needs configuring.
-- Issued against a **separate CI client**, the panel has to ask for the audience
-  explicitly. Set `OIDC_AUDIENCE` on the panel (from `admin.api.oidc.audience`,
-  which the chart wires up for you) to whatever the API is checking.
+  else needs configuring. This is the normal case.
+- Issued against a **separate CI client**, the token names *that* client, and the
+  API refuses it. The panel can ask for a different audience through
+  `OIDC_AUDIENCE` (wired from `admin.api.oidc.audience` by the chart), but only
+  when that value is an **absolute URI**: it travels as an RFC 8707 resource
+  indicator, and eetr-auth answers `invalid_target` for a bare client id. A
+  client-id audience is therefore not something a second client can be pointed at
+  — issue the key on the panel's client instead, or give the API a URI audience
+  and register it as a resource.
 
 **No scopes**, because this API reads none. A key with scopes is not wrong, it is
 just not consulted.
