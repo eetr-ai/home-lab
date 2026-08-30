@@ -1,13 +1,16 @@
 # Copy to charts/admin/values.local.yaml, which is ignored, and replace the
 # placeholders with the real registry path, hostname, and the version you intend
-# to run. The images always carry the same version — one release tag builds them
-# all — so the tags below should match.
+# to run.
 
 admin:
+  # One tag for all three images: one release tag builds them all, so there is
+  # one key rather than three that have to be kept saying the same thing.
+  image:
+    tag: "0.1.0"
+
   api:
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-api
-      tag: "0.1.0"
     oidc:
       issuer: https://auth.eetr.app
       audience: YOUR_ADMIN_PANEL_CLIENT_ID
@@ -17,7 +20,6 @@ admin:
     clientId: YOUR_ADMIN_PANEL_CLIENT_ID
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-web
-      tag: "0.1.0"
 
   # The assistant. Off by default in values.yaml, because it costs money per
   # answer and needs a provider key. Before enabling it:
@@ -28,4 +30,3 @@ admin:
     enabled: true
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-agent
-      tag: "0.1.0"

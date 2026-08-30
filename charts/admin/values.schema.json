@@ -9,6 +9,7 @@
       "type": "object",
       "required": [
         "imagePullSecrets",
+        "image",
         "gateway",
         "api",
         "web",
@@ -27,6 +28,23 @@
                 "type": "string",
                 "minLength": 1
               }
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "const": "latest"
+              },
+              "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
             }
           }
         },
@@ -402,21 +420,12 @@
       "type": "object",
       "required": [
         "repository",
-        "tag",
         "pullPolicy"
       ],
       "properties": {
         "repository": {
           "type": "string",
           "minLength": 1
-        },
-        "tag": {
-          "type": "string",
-          "minLength": 1,
-          "not": {
-            "const": "latest"
-          },
-          "description": "An immutable tag. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
         },
         "pullPolicy": {
           "enum": [
@@ -425,7 +434,8 @@
             "Never"
           ]
         }
-      }
+      },
+      "additionalProperties": false
     }
   }
 }

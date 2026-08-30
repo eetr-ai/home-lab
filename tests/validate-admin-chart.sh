@@ -28,10 +28,9 @@ render_defaults() {
     --namespace admin \
     --kube-version "$kube_version" \
     --set admin.api.oidc.issuer=https://auth.test.invalid \
-    --set admin.api.image.tag=0.0.1 \
+    --set admin.image.tag=0.0.1 \
     --set admin.web.hostname=admin.test.invalid \
-    --set admin.web.clientId=test-client \
-    --set admin.web.image.tag=0.0.1
+    --set admin.web.clientId=test-client
 }
 
 render >"$output_file"
@@ -74,6 +73,31 @@ fi
 # what release-please keeps in step with the images.
 if grep -qE 'image: .*:latest"?$' "$output_file"; then
   printf 'Admin chart must reference an explicit image tag, not latest\n' >&2
+  exit 1
+fi
+
+# One tag reaches all three images.
+#
+# Asserted on the rendered tags rather than on the values, because what matters is
+# that nothing renders a second one: the whole point of the single key is that a
+# mismatched set is unrepresentable. Read as the count of DISTINCT tags across
+# every image in the document, so a template that grew its own tag key fails here
+# even though it would render perfectly well.
+rendered_tags=$(grep -E '^ +image: ' "$output_file" |
+  sed -E 's/.*:([^:"]+)"?$/\1/' | sort -u)
+if [[ $(wc -l <<<"$rendered_tags") -ne 1 ]]; then
+  printf 'Every admin image must carry admin.image.tag; found several:\n%s\n' \
+    "$rendered_tags" >&2
+  exit 1
+fi
+
+# The per-component tags are gone, not defaulted. Asserted by rendering with one,
+# because a values file still carrying it must fail loudly rather than be quietly
+# ignored -- $defs/image is additionalProperties: false, and that is what turns
+# this migration into a message naming the stale key.
+if render --set admin.api.image.tag=0.0.2 >/dev/null 2>&1; then
+  printf 'admin.api.image.tag is gone; setting it must fail the render rather\n' >&2
+  printf 'than being ignored.\n' >&2
   exit 1
 fi
 

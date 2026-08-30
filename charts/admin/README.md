@@ -29,9 +29,11 @@ repository has a cohesive set of configurable Kubernetes resources.
 | `Service/admin-agent` | ClusterIP on port 80. No route: the panel proxies to it |
 | `PersistentVolumeClaim/admin-agent-data` | The agent's memory and workspace, on the NFS class |
 
-The images always carry the same version. One release tag builds all three and
-publishes the chart, so `admin.api.image.tag`, `admin.web.image.tag` and
-`admin.agent.image.tag` should match.
+The images always carry the same version, so there is one key that sets it:
+`admin.image.tag`. One release tag builds all three and publishes the chart, and
+a per-component tag could only ever express a mistake. Each component keeps its
+own `image.repository` and `image.pullPolicy`, which genuinely differ; naming a
+`tag` beside one of those is refused by the schema rather than ignored.
 
 The templates are folded by component rather than by resource kind, the same way
 the Go code is:
