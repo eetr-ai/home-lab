@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.2](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.1...admin-v1.5.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* **admin-web:** stop asking for a client id as a resource indicator ([#74](https://github.com/eetr-ai/home-lab/issues/74)) ([ad39e50](https://github.com/eetr-ai/home-lab/commit/ad39e508d55ce3bd565f3719e7c8bd7cc33e6b56))
+
 ## [1.5.1](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.0...admin-v1.5.1) (2026-08-30)
 
 
