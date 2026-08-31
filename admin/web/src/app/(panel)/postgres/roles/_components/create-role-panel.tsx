@@ -5,18 +5,36 @@ import { Users } from "lucide-react";
 import { createRole } from "@/app/actions/postgres";
 import { FormField, Input } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
+import { InstallSecretFields } from "../../../_components/install-secret-fields";
+import { useCredentialInstall } from "../../../_components/use-credential-install";
+import { EMPTY_INSTALL } from "@/lib/secrets/install-draft";
+import type { Namespace } from "@/lib/api/types";
 
 const EMPTY = { name: "", password: "", canLogin: true, canCreateDatabase: false, canCreateRole: false };
 
-export function CreateRolePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreateRolePanel({
+	open,
+	namespaces,
+	namespacesError,
+	onClose,
+}: {
+	open: boolean;
+	namespaces: Namespace[];
+	namespacesError: string | null;
+	onClose: () => void;
+}) {
 	const [draft, setDraft] = useState(EMPTY);
+	const secret = useCredentialInstall("role");
 
 	function reset() {
 		setDraft(EMPTY);
+		secret.reset();
 		onClose();
 	}
 
-	const dirty = JSON.stringify(draft) !== JSON.stringify(EMPTY);
+	const dirty =
+		JSON.stringify(draft) !== JSON.stringify(EMPTY) ||
+		JSON.stringify(secret.install) !== JSON.stringify(EMPTY_INSTALL);
 
 	return (
 		<CreatePanel
@@ -27,13 +45,15 @@ export function CreateRolePanel({ open, onClose }: { open: boolean; onClose: () 
 			dirty={dirty}
 			onClose={reset}
 			onSubmit={() =>
-				createRole({
-					name: draft.name,
-					...(draft.password ? { password: draft.password } : {}),
-					canLogin: draft.canLogin,
-					canCreateDatabase: draft.canCreateDatabase,
-					canCreateRole: draft.canCreateRole,
-				})
+				secret.submit({ username: draft.name, password: draft.password }, () =>
+					createRole({
+						name: draft.name,
+						...(draft.password ? { password: draft.password } : {}),
+						canLogin: draft.canLogin,
+						canCreateDatabase: draft.canCreateDatabase,
+						canCreateRole: draft.canCreateRole,
+					}),
+				)
 			}
 		>
 			<FormField label="Name" htmlFor="role-name">
@@ -82,6 +102,14 @@ export function CreateRolePanel({ open, onClose }: { open: boolean; onClose: () 
 					))}
 				</div>
 			</fieldset>
+
+			<InstallSecretFields
+				draft={secret.install}
+				username={draft.name}
+				namespaces={namespaces}
+				namespacesError={namespacesError}
+				onChange={secret.setInstall}
+			/>
 		</CreatePanel>
 	);
 }

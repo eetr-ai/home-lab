@@ -12,6 +12,8 @@ import type {
 	CreateNamespace,
 	Namespace,
 	Pod,
+	PutSecret,
+	SecretRef,
 	Storage,
 	Workload,
 	WorkloadDetail,
@@ -48,6 +50,23 @@ export async function createNamespace(
  */
 export async function deleteNamespace(namespace: string, force: boolean): Promise<ActionResult<void>> {
 	const result = await withWrite(() => kube.deleteNamespace(namespace, force));
+	if (result.ok) revalidatePath("/kubernetes", "layout");
+	return result;
+}
+
+/**
+ * Writes a Secret into a namespace.
+ *
+ * Called after a database role or user is created, with the password that role
+ * was given — which is why it revalidates the cluster section and nothing else:
+ * the credential itself is not stored anywhere the panel reads back.
+ */
+export async function putSecret(
+	namespace: string,
+	name: string,
+	request: PutSecret,
+): Promise<ActionResult<SecretRef>> {
+	const result = await withWrite(() => kube.putSecret(namespace, name, request));
 	if (result.ok) revalidatePath("/kubernetes", "layout");
 	return result;
 }

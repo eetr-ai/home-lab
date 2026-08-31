@@ -7,6 +7,8 @@ import type {
 	CreateNamespace,
 	Namespace,
 	Pod,
+	PutSecret,
+	SecretRef,
 	Storage,
 	Workload,
 	WorkloadDetail,
@@ -51,6 +53,26 @@ export function createNamespace(request: CreateNamespace): Promise<ActionResult<
 export function deleteNamespace(namespace: string, force: boolean): Promise<ActionResult<void>> {
 	const query = force ? "?force=true" : "";
 	return call<void>("DELETE", `/api/kubernetes/namespaces/${seg(namespace)}${query}`);
+}
+
+/**
+ * Writes an Opaque Secret into a namespace, so a credential the panel just
+ * issued reaches the chart that will use it.
+ *
+ * The API refuses a protected namespace and one the panel does not manage, and
+ * answers 409 when a Secret of that name is already there unless `overwrite` is
+ * set. Nothing reads a value back: the response carries the keys.
+ */
+export function putSecret(
+	namespace: string,
+	name: string,
+	request: PutSecret,
+): Promise<ActionResult<SecretRef>> {
+	return call<SecretRef>(
+		"PUT",
+		`/api/kubernetes/namespaces/${seg(namespace)}/secrets/${seg(name)}`,
+		request,
+	);
 }
 
 export function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {

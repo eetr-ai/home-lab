@@ -33,6 +33,29 @@ export interface CreateNamespace {
 	labels?: Record<string, string>;
 }
 
+/** PUT /api/kubernetes/namespaces/{namespace}/secrets/{name} */
+export interface PutSecret {
+	/**
+	 * The Secret's contents in plaintext. Every value is required to be non-empty:
+	 * a Secret whose password key holds "" starts the workload and fails to
+	 * authenticate, which reads as a broken database rather than a missing write.
+	 */
+	data: Record<string, string>;
+	labels?: Record<string, string>;
+	/**
+	 * Replace a Secret that is already there. Off unless asked for — overwriting
+	 * one is how a running release loses the credential it was started with.
+	 */
+	overwrite?: boolean;
+}
+
+/** What was written, and deliberately not what is in it. */
+export interface SecretRef {
+	namespace: string;
+	name: string;
+	keys: string[];
+}
+
 export interface Workload {
 	name: string;
 	namespace: string;
