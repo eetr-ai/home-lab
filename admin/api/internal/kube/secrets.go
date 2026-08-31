@@ -49,6 +49,15 @@ func (s *Service) PutSecret(ctx context.Context, namespace string, spec SecretSp
 		return SecretRef{}, fmt.Errorf("%w: %s is %s", ErrProtected, namespace, reason)
 	}
 
+	// Managed namespaces only, and this is the check that makes the refusal
+	// legible rather than a 403 out of the API server. The grant that permits this
+	// write is the same one that lets the panel read a namespace's releases — see
+	// rbac-deploy.yaml — so a namespace the panel does not manage is one where the
+	// write would fail anyway, and failing here says why.
+	if !s.policy.Managed(namespace, live.Labels) {
+		return SecretRef{}, fmt.Errorf("%w: %s", ErrNotManaged, namespace)
+	}
+
 	// The panel's own mark, applied over any label the caller sent, so a Secret
 	// this wrote is distinguishable from one an operator or a chart created.
 	// Nothing reads it today; it is what makes the question answerable later.

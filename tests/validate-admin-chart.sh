@@ -489,19 +489,24 @@ if grep -q 'name: admin-api' <<<"$deploy_subjects"; then
   exit 1
 fi
 
-# The API keeps exactly enough to READ a release, which means Secrets and only
-# Secrets, and only get/list/watch. A write verb here would put the deploy grant
-# back on the long-lived credential one resource at a time.
-helm_read_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-helm-read | extract_pairs)
-expected_read_pairs=$(LC_ALL=C sort <<'READPAIRS'
+# The API keeps exactly enough to read a release and to write one credential into
+# a managed namespace: Secrets, and only Secrets. create and update are the whole
+# of the write half -- no delete, which would be a way to break a running release,
+# and no patch, which would merge a new credential into an old one's keys. Any
+# other resource here would put the deploy grant back on the long-lived
+# credential one line at a time.
+helm_secret_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-secrets | extract_pairs)
+expected_secret_pairs=$(LC_ALL=C sort <<'SECRETPAIRS'
 core/secrets get
 core/secrets list
 core/secrets watch
-READPAIRS
+core/secrets create
+core/secrets update
+SECRETPAIRS
 )
-if [[ $helm_read_pairs != "$expected_read_pairs" ]]; then
-  printf 'The API Helm read grant must be Secrets get/list/watch and nothing else.\n' >&2
-  diff <(printf '%s\n' "$expected_read_pairs") <(printf '%s\n' "$helm_read_pairs") >&2 || true
+if [[ $helm_secret_pairs != "$expected_secret_pairs" ]]; then
+  printf 'The API Secret grant must be Secrets get/list/watch/create/update and nothing else.\n' >&2
+  diff <(printf '%s\n' "$expected_secret_pairs") <(printf '%s\n' "$helm_secret_pairs") >&2 || true
   exit 1
 fi
 

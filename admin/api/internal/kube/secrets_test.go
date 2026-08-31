@@ -79,6 +79,15 @@ func TestPutSecretRefusesBeforeItWrites(t *testing.T) {
 			spec:      SecretSpec{Name: "octo-database", Data: map[string]string{"password": "hunter2"}},
 			wantErr:   ErrProtected,
 		},
+		{
+			// The grant that permits this write is the one that makes a namespace
+			// Helm-managed. Refusing here says so; the API server's own 403 would
+			// read as a broken role binding.
+			name:      "a namespace the panel does not manage is refused",
+			namespace: "unmanaged",
+			spec:      SecretSpec{Name: "octo-database", Data: map[string]string{"password": "hunter2"}},
+			wantErr:   ErrNotManaged,
+		},
 	}
 
 	for _, test := range tests {
@@ -176,7 +185,8 @@ func TestPutSecretPassesAConflictThrough(t *testing.T) {
 func namespacesForSecretTests() map[string]Namespace {
 	return maps.Collect(func(yield func(string, Namespace) bool) {
 		for _, namespace := range []Namespace{
-			{Name: "apps"},
+			{Name: "apps", Labels: map[string]string{"home-lab.example/helm-managed": "true"}},
+			{Name: "unmanaged"},
 			{Name: "admin"},
 			{Name: "platform-system"},
 			{Name: "labelled", Labels: map[string]string{"home-lab.example/protected": "true"}},

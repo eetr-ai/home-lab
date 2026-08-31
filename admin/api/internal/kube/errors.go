@@ -26,4 +26,9 @@ var (
 	// ErrNotEmpty reports a namespace still running something, refused because
 	// deleting one cascades to everything in it.
 	ErrNotEmpty = errors.New("not empty")
+	// ErrNotManaged reports a namespace the panel holds no grant in. Separate from
+	// ErrForbidden because the answer is different: the panel's ServiceAccount is
+	// working exactly as configured, and what has to change is which namespaces
+	// the panel manages — not its role binding.
+	ErrNotManaged = errors.New("not a managed namespace")
 )

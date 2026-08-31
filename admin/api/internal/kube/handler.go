@@ -480,6 +480,10 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, ErrNotEmpty):
 		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
+	case errors.Is(err, ErrNotManaged):
+		// 403, and it names the namespace: the fix is to manage it, which is an
+		// operator decision rather than something to retry.
+		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, ErrForbidden):
 		// Almost always the panel's own ClusterRole binding rather than anything
 		// the caller did, so it says so rather than reading as a 500.
