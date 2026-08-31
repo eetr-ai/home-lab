@@ -23,9 +23,10 @@ func NewHandler(service *Service) *Handler {
 // Register adds the Kubernetes routes to a mux that already requires a verified
 // caller.
 //
-// Almost all of it is GETs. The two exceptions — restart and scale — change how
-// many pods a workload runs and when they last started, and nothing else; see the
-// note on Service.
+// Almost all of it is GETs. Restart and scale change how many pods a workload
+// runs and when they last started, and nothing else. The Secret route is the one
+// that brings something into existence; see the note on Service for why it is
+// here at all.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/namespaces", h.listNamespaces)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}", h.readNamespace)
@@ -46,6 +47,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.restartWorkload)
 	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale",
 		h.scaleWorkload)
+	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/secrets/{name}",
+		h.putSecret)
 }
 
 // listNamespaces returns every namespace in the cluster.
@@ -486,4 +489,45 @@ func respondError(w http.ResponseWriter, err error) {
 		slog.Error("kubernetes request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")
 	}
+}
+
+// putSecret writes an Opaque Secret into a namespace.
+//
+//	@Summary		Write a Secret
+//	@Description	Creates an Opaque Secret so a credential the panel just issued can
+//	@Description	reach the chart that will use it. Refused for a protected namespace,
+//	@Description	and refused with 409 when a Secret of that name is already there
+//	@Description	unless overwrite is set — replacing one is how a running release
+//	@Description	loses the credential it started with. The values are never readable
+//	@Description	back through this API: the response carries the keys and nothing else.
+//	@Tags			kubernetes
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string			true	"Namespace name"
+//	@Param			name		path		string			true	"Secret name"
+//	@Param			request		body		kube.SecretSpec	true	"The Secret contents"
+//	@Success		201			{object}	kube.SecretRef
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Failure		409			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/secrets/{name} [put]
+func (h *Handler) putSecret(w http.ResponseWriter, r *http.Request) {
+	var spec SecretSpec
+	if !httpx.DecodeJSON(w, r, &spec) {
+		return
+	}
+	// The name is the path segment, not a body field. One place for it means a
+	// request cannot name two different Secrets and leave the reader guessing
+	// which one it wrote.
+	spec.Name = r.PathValue("name")
+
+	ref, err := h.service.PutSecret(r.Context(), r.PathValue("namespace"), spec)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, ref)
 }

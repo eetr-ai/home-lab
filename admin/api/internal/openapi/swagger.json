@@ -750,6 +750,44 @@
                 },
                 "type": "object"
             },
+            "kube.SecretRef": {
+                "properties": {
+                    "keys": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.SecretSpec": {
+                "properties": {
+                    "data": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "overwrite": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Storage": {
                 "properties": {
                     "claims": {
@@ -3657,6 +3695,122 @@
                     }
                 ],
                 "summary": "Stream a pod's log",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/secrets/{name}": {
+            "put": {
+                "description": "Creates an Opaque Secret so a credential the panel just issued can\nreach the chart that will use it. Refused for a protected namespace,\nand refused with 409 when a Secret of that name is already there\nunless overwrite is set — replacing one is how a running release\nloses the credential it started with. The values are never readable\nback through this API: the response carries the keys and nothing else.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Secret name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kube.SecretSpec",
+                                        "summary": "request",
+                                        "description": "The Secret contents"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The Secret contents",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.SecretRef"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Write a Secret",
                 "tags": [
                     "kubernetes"
                 ]
