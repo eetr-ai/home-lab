@@ -123,7 +123,7 @@ func (f fakeEnrolment) Managed(context.Context) ([]string, error) {
 // the asymmetry the whole feature turns on — but it is deployable when it has
 // been enrolled, and here it has not, which is what these tests check refusal
 // against.
-func testEnrolment() Enrolment {
+func testEnrolment() fakeEnrolment {
 	return fakeEnrolment{namespaces: []string{"apps"}}
 }
 

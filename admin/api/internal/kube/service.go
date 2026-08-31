@@ -33,7 +33,7 @@ type repository interface {
 	UpdateSecret(ctx context.Context, namespace string, spec SecretSpec) error
 }
 
-// enrolment is the Helm enrolment this service reports and repairs. Declared
+// Enrolment is the Helm enrolment this service reports and repairs. Declared
 // here, where it is consumed, and nil when the panel is not managing namespaces
 // for Helm at all — in which case no namespace carries a state and the routes
 // answer 501.

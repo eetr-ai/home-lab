@@ -67,7 +67,7 @@ type DeploymentStore interface {
 	MarkRolledOut(ctx context.Context, id string, number, helmRevision int) error
 }
 
-// enrolment answers which namespaces this slice may work in.
+// Enrolment answers which namespaces this slice may work in.
 //
 // Declared here, where it is consumed. It replaces a list read from an
 // environment variable, and the difference is the point: enrolling a namespace

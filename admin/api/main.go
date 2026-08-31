@@ -235,11 +235,18 @@ func registerKubernetes(mux *stdhttp.ServeMux, policy nspolicy.Policy,
 	}
 
 	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
-	// Nil rather than a nil-valued interface: a typed nil handed to an interface
+
+	// Declared as the interface and assigned only when there is one, the same way
+	// the Helm slice's dependencies are: a typed nil handed to an interface
 	// parameter is an interface that is not nil, and every enrolment answer would
 	// then be a call through it instead of an absent one.
+	var enrolment kube.Enrolment
+	if enrol != nil {
+		enrolment = enrol
+	}
+
 	service, err := kube.NewService(repo, policy, os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"),
-		enrolmentOrNil(enrol))
+		enrolment)
 	if err != nil {
 		return err
 	}
@@ -370,15 +377,6 @@ func namespaceEnrolment(policy nspolicy.Policy, logger *slog.Logger) (*nsenrol.S
 	}
 	logger.Info("namespaces can be enrolled as Helm targets", slog.String("release", config.Release))
 	return nsenrol.NewService(nsenrol.NewRepository(clientset), config, policy), nil
-}
-
-// enrolmentOrNil hands the cluster slice an interface that is nil when there is
-// no service, rather than one holding a typed nil.
-func enrolmentOrNil(enrol *nsenrol.Service) kube.Enrolment {
-	if enrol == nil {
-		return nil
-	}
-	return enrol
 }
 
 // helmJobConfig describes the Job that performs one Helm operation.
