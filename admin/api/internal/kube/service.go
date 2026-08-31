@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eetr-ai/home-lab/admin/api/internal/nsenrol"
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 )
 
@@ -30,6 +31,17 @@ type repository interface {
 	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
 	CreateSecret(ctx context.Context, namespace string, spec SecretSpec) error
 	UpdateSecret(ctx context.Context, namespace string, spec SecretSpec) error
+}
+
+// enrolment is the Helm enrolment this service reports and repairs. Declared
+// here, where it is consumed, and nil when the panel is not managing namespaces
+// for Helm at all — in which case no namespace carries a state and the routes
+// answer 501.
+type Enrolment interface {
+	States(ctx context.Context, namespaces []nsenrol.Candidate) (map[string]nsenrol.State, error)
+	State(ctx context.Context, namespace string, labels map[string]string) (nsenrol.State, error)
+	Reconcile(ctx context.Context, namespace string, labels map[string]string) (nsenrol.State, error)
+	Revoke(ctx context.Context, namespace string) error
 }
 
 // Service reads the cluster, and rolls or resizes what is already on it.
@@ -55,6 +67,9 @@ type Service struct {
 	repo        repository
 	policy      nspolicy.Policy
 	podSecurity string
+	// enrol is nil when this lab does not deploy from the panel. Every enrolment
+	// answer is then absent rather than wrong.
+	enrol Enrolment
 }
 
 // NewService builds the service, and refuses a Pod Security level Kubernetes
@@ -77,7 +92,9 @@ type Service struct {
 // before the process serves anything. The chart's schema constrains this too,
 // and that is not enough on its own: the value also arrives from an environment
 // variable, and a rule that holds only when the chart wrote it is not a rule.
-func NewService(repo repository, policy nspolicy.Policy, podSecurity string) (*Service, error) {
+func NewService(repo repository, policy nspolicy.Policy, podSecurity string,
+	enrol Enrolment,
+) (*Service, error) {
 	if podSecurity == "" {
 		podSecurity = defaultPodSecurity
 	}
@@ -86,7 +103,7 @@ func NewService(repo repository, policy nspolicy.Policy, podSecurity string) (*S
 			"%w: pod security level %q is not one of %s",
 			ErrInvalidName, podSecurity, strings.Join(podSecurityLevels, ", "))
 	}
-	return &Service{repo: repo, policy: policy, podSecurity: podSecurity}, nil
+	return &Service{repo: repo, policy: policy, podSecurity: podSecurity, enrol: enrol}, nil
 }
 
 // ListNamespaces returns every namespace in the cluster, each carrying whether
@@ -103,7 +120,41 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	for i := range namespaces {
 		s.applyPolicy(&namespaces[i])
 	}
+	s.applyEnrolment(ctx, namespaces)
 	return namespaces, nil
+}
+
+// applyEnrolment fills in whether each namespace is set up for Helm.
+//
+// One request for the whole listing, not one per row.
+//
+// A failed read does not fail the listing. Enrolment is a second answer beside
+// the namespaces, and a page that refuses to render because the role bindings
+// could not be read would be worse than one saying it does not know — so every
+// candidate reports "unknown" and the cluster still lists.
+func (s *Service) applyEnrolment(ctx context.Context, namespaces []Namespace) {
+	if s.enrol == nil {
+		return
+	}
+
+	candidates := make([]nsenrol.Candidate, 0, len(namespaces))
+	for i := range namespaces {
+		candidates = append(candidates,
+			nsenrol.Candidate{Name: namespaces[i].Name, Labels: namespaces[i].Labels})
+	}
+
+	states, err := s.enrol.States(ctx, candidates)
+	if err != nil {
+		for i := range namespaces {
+			if s.policy.Managed(namespaces[i].Name, namespaces[i].Labels) {
+				namespaces[i].HelmEnrolment = string(nsenrol.StateUnknown)
+			}
+		}
+		return
+	}
+	for i := range namespaces {
+		namespaces[i].HelmEnrolment = string(states[namespaces[i].Name])
+	}
 }
 
 // ListWorkloads returns the Deployments, StatefulSets, and DaemonSets in one

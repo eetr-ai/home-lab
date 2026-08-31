@@ -57,7 +57,7 @@ func (s *Service) ListDeployments(ctx context.Context, namespace string) ([]Depl
 		return nil, ErrNotConfigured
 	}
 	if namespace != "" {
-		if err := s.checkNamespace(namespace); err != nil {
+		if err := s.checkNamespace(ctx, namespace); err != nil {
 			return nil, err
 		}
 	}
@@ -113,7 +113,7 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest, actor string)
 	if s.store == nil {
 		return Deployment{}, ErrNotConfigured
 	}
-	if err := s.checkRelease(req.Namespace, req.Name); err != nil {
+	if err := s.checkRelease(ctx, req.Namespace, req.Name); err != nil {
 		return Deployment{}, err
 	}
 
@@ -203,7 +203,7 @@ func (s *Service) load(ctx context.Context, id string) (Deployment, []Deployment
 	if err != nil {
 		return Deployment{}, nil, err
 	}
-	if err := s.checkNamespace(deployment.Namespace); err != nil {
+	if err := s.checkNamespace(ctx, deployment.Namespace); err != nil {
 		return Deployment{}, nil, err
 	}
 

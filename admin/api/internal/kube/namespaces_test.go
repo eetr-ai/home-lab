@@ -113,7 +113,7 @@ func TestCreateNamespace(t *testing.T) {
 // the panel's labels are applied over the caller's, not under them.
 func TestCreateNamespaceOverridesTheCallersPodSecurity(t *testing.T) {
 	repo := &fakeRepo{}
-	service, buildErr := NewService(repo, nspolicy.New(nspolicy.Config{Own: "admin"}), "restricted")
+	service, buildErr := NewService(repo, nspolicy.New(nspolicy.Config{Own: "admin"}), "restricted", nil)
 	if buildErr != nil {
 		t.Fatalf("build service: %v", buildErr)
 	}
@@ -246,13 +246,13 @@ func TestNewServiceRefusesAnInvalidPodSecurityLevel(t *testing.T) {
 	policy := nspolicy.New(nspolicy.Config{Own: "admin"})
 
 	for _, level := range []string{"privileged", "baseline", "restricted", ""} {
-		if _, err := NewService(&fakeRepo{}, policy, level); err != nil {
+		if _, err := NewService(&fakeRepo{}, policy, level, nil); err != nil {
 			t.Errorf("%q should be accepted: %v", level, err)
 		}
 	}
 
 	for _, level := range []string{"basline", "Baseline", "none", "off", "restrictive"} {
-		if _, err := NewService(&fakeRepo{}, policy, level); err == nil {
+		if _, err := NewService(&fakeRepo{}, policy, level, nil); err == nil {
 			t.Errorf("%q should be refused", level)
 		}
 	}

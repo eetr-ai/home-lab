@@ -23,6 +23,11 @@ var (
 	ErrProtected = errors.New("protected namespace")
 	// ErrAlreadyExists reports something the cluster already has.
 	ErrAlreadyExists = errors.New("already exists")
+	// ErrNotConfigured reports a capability this panel was not given. Helm
+	// enrolment is the one: a lab that does not deploy from the panel has no
+	// ClusterRoles to bind, and answering 501 says "built, not switched on" rather
+	// than pretending the request was malformed.
+	ErrNotConfigured = errors.New("not configured")
 	// ErrNotEmpty reports a namespace still running something, refused because
 	// deleting one cascades to everything in it.
 	ErrNotEmpty = errors.New("not empty")

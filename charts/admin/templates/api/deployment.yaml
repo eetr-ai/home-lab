@@ -71,7 +71,7 @@ spec:
               value: {{ join "," .Values.admin.api.kubernetes.namespaces.protected | quote }}
             - name: ADMIN_NAMESPACE_POD_SECURITY
               value: {{ .Values.admin.api.kubernetes.namespaces.podSecurity | quote }}
-            {{- if or .Values.admin.api.helm.namespaces .Values.admin.api.helm.allNamespaces }}
+            {{- if .Values.admin.api.helm.enabled }}
             # The Job that performs one Helm operation. It runs this same image,
             # templated from the same helper the container above uses so the two
             # cannot drift — and note the consequence: a self-upgrade is carried
@@ -101,15 +101,19 @@ spec:
               value: {{ join "," $names | quote }}
             {{- end }}
             {{- end }}
-            - name: ADMIN_HELM_MANAGED_NAMESPACES
-              value: {{ join "," .Values.admin.api.helm.namespaces | quote }}
-            {{- if .Values.admin.api.helm.allNamespaces }}
-            # Every unprotected namespace is a Helm target. Meaningless without
-            # the cluster-scoped grant rbac-deploy.yaml renders alongside it: the
-            # API would permit a namespace the ServiceAccount still cannot read.
-            - name: ADMIN_HELM_ALL_NAMESPACES
-              value: "true"
-            {{- end }}
+            # What the panel binds when it enrols a namespace, and which accounts
+            # it binds them to. All of it names objects this chart renders.
+            #
+            # There is deliberately no list of managed namespaces here any more.
+            # It used to be one, and it was the second reason enrolling a
+            # namespace needed a chart release: even with the grant in place, the
+            # API read the set from this variable, so the pods had to restart
+            # before a new namespace existed as far as they were concerned. The
+            # set is read from the cluster now, per request.
+            - name: ADMIN_HELM_RELEASE_NAME
+              value: {{ .Release.Name | quote }}
+            - name: ADMIN_API_SERVICE_ACCOUNT
+              value: admin-api
             {{- end }}
             {{- if and .Values.admin.api.kubernetes.enabled .Values.admin.api.helm.postgres.enabled }}
             # Where declared deployments and their values are kept. Absent, the

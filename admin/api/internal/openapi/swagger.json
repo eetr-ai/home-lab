@@ -534,6 +534,10 @@
                     "createdAt": {
                         "type": "string"
                     },
+                    "helmEnrolment": {
+                        "description": "HelmEnrolment is whether the panel's role bindings are in place, and\ntherefore whether Helm can actually work here — \"enrolled\", \"partial\",\n\"wrong\", or \"missing\". Empty for a namespace that has not asked to be a Helm\ntarget, which is not the same as one that asked and is not set up.\n\nIt is here rather than derived in the panel because the answer needs a\ncluster read the browser does not have, and because \"set up wrongly\" is a\nstate an operator has to be told about: a binding left by an older chart\nkeeps failing deploys and nothing else notices.",
+                        "type": "string"
+                    },
                     "helmManaged": {
                         "description": "HelmManaged reports whether this panel may write into the namespace at all\n-- install a release, or put a Secret there. It is the same verdict the\nwrite endpoints reach, computed once so the panel can stop offering a\ndestination that would be refused.\n\nIt cannot be worked out in the browser. Half the rule is a label, which the\npanel can see, and the other half is a list in a values file, which it\ncannot. Sending only the label half would be a filter that is right in one\ndeployment mode and wrong in the other.",
                         "type": "boolean"
@@ -3511,6 +3515,171 @@
                     }
                 ],
                 "summary": "List events",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/helm-enrolment": {
+            "delete": {
+                "description": "Removes the role bindings, after which the panel can neither deploy\ninto the namespace nor read its releases. The namespace's labels are\nleft alone: this owns role bindings, and nothing works without them.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Revoke a namespace's Helm enrolment",
+                "tags": [
+                    "kubernetes"
+                ]
+            },
+            "post": {
+                "description": "Creates the role bindings that let the panel read and deploy releases\nin this namespace, and replaces any that are there and wrong — a\nbinding left by an older chart points at a role that no longer exists,\nand roleRef is immutable, so nothing else will ever fix it. Idempotent:\nsetting up and repairing are the same request. Refused for a protected\nnamespace.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Namespace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Enrol a namespace as a Helm target",
                 "tags": [
                     "kubernetes"
                 ]

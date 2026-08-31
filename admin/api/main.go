@@ -31,6 +31,7 @@ import (
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 	"github.com/eetr-ai/home-lab/admin/api/internal/kube"
 	"github.com/eetr-ai/home-lab/admin/api/internal/mongo"
+	"github.com/eetr-ai/home-lab/admin/api/internal/nsenrol"
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
@@ -115,11 +116,19 @@ func run(logger *slog.Logger) error {
 
 	policy := namespacePolicy(logger)
 
-	if err := registerKubernetes(api, policy, logger); err != nil {
+	// Built once and handed to both slices, because it is one answer: the cluster
+	// slice enrols a namespace and reports whether each is set up, and the Helm
+	// slice asks which ones it may work in. Two copies would be two answers.
+	enrol, err := namespaceEnrolment(policy, logger)
+	if err != nil {
 		return err
 	}
 
-	if err := registerHelm(ctx, api, policy, logger); err != nil {
+	if err := registerKubernetes(api, policy, enrol, logger); err != nil {
+		return err
+	}
+
+	if err := registerHelm(ctx, api, policy, enrol, logger); err != nil {
 		return err
 	}
 
@@ -187,7 +196,7 @@ func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Con
 // by default for that reason, and ADMIN_KUBERNETES_DISABLED exists for running the
 // API somewhere with neither.
 func registerKubernetes(mux *stdhttp.ServeMux, policy nspolicy.Policy,
-	logger *slog.Logger,
+	enrol *nsenrol.Service, logger *slog.Logger,
 ) error {
 	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == envTrue {
 		logger.Warn("ADMIN_KUBERNETES_DISABLED is set; the cluster endpoints are not served")
@@ -226,7 +235,11 @@ func registerKubernetes(mux *stdhttp.ServeMux, policy nspolicy.Policy,
 	}
 
 	repo := kube.NewRepository(clientset, streamClient, metrics, nodeStats)
-	service, err := kube.NewService(repo, policy, os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"))
+	// Nil rather than a nil-valued interface: a typed nil handed to an interface
+	// parameter is an interface that is not nil, and every enrolment answer would
+	// then be a call through it instead of an absent one.
+	service, err := kube.NewService(repo, policy, os.Getenv("ADMIN_NAMESPACE_POD_SECURITY"),
+		enrolmentOrNil(enrol))
 	if err != nil {
 		return err
 	}
@@ -247,7 +260,7 @@ func registerKubernetes(mux *stdhttp.ServeMux, policy nspolicy.Policy,
 // means reading Secrets in that namespace, and RBAC cannot narrow that to Helm's
 // own.
 func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Policy,
-	logger *slog.Logger,
+	enrol *nsenrol.Service, logger *slog.Logger,
 ) error {
 	if os.Getenv("ADMIN_HELM_DISABLED") == envTrue {
 		logger.Warn("ADMIN_HELM_DISABLED is set; the Helm endpoints are not served")
@@ -272,12 +285,16 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		deployments = store
 	}
 
-	// Only when this lab has actually named somewhere to deploy. With no managed
-	// namespace every mutation answers 501 before it reaches a Job, so requiring
-	// the Job's configuration would fail a panel that was only ever meant to read
-	// releases — and the read routes work without any of it.
+	// Only when this lab can enrol a namespace at all. Without that every mutation
+	// answers 501 before it reaches a Job, so requiring the Job's configuration
+	// would fail a panel that was only ever meant to read releases — and the read
+	// routes work without any of it.
+	//
+	// Note what is NOT decided here any more: which namespaces are deployable.
+	// That used to come from an environment variable, so enrolling one meant
+	// restarting these pods; it is read from the cluster now, per request.
 	var runner *helm.JobRepository
-	if policy.ManagesEverything() || len(policy.ManagedNamespaces()) > 0 {
+	if enrol != nil {
 		jobConfig, err := helmJobConfig(timeout)
 		if err != nil {
 			return err
@@ -296,13 +313,72 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 		operations = runner
 	}
 
-	helm.NewHandler(helm.NewService(repo, deployments, operations, policy, timeout, logger)).
+	// The same nil-interface trap as the cluster slice: assigned only when there
+	// is one, so an unconfigured panel answers 501 instead of calling through a
+	// typed nil.
+	var enrolment helm.Enrolment
+	if enrol != nil {
+		enrolment = enrol
+	}
+
+	helm.NewHandler(helm.NewService(repo, deployments, operations, enrolment, policy, timeout, logger)).
 		Register(mux)
 	logger.Info("serving the Helm endpoints",
-		slog.Any("namespaces", policy.ManagedNamespaces()),
-		slog.Bool("everyNamespace", policy.ManagesEverything()),
+		slog.Bool("enrolment", enrol != nil),
 		slog.Duration("timeout", timeout))
 	return nil
+}
+
+// namespaceEnrolment builds the service that enrols namespaces as Helm targets,
+// or reports that this lab does not deploy from the panel.
+//
+// The ClusterRoles it binds are rendered by the chart, so the release name is
+// what says whether they exist. Absent, nothing here can bind anything and every
+// route that would answers 501 — which is the honest reply for a capability that
+// is built and not switched on.
+//
+// Every field comes from this process's own environment. Nothing a caller sends
+// reaches it, which is what keeps "which grant does enrolling hand out" a
+// property of the chart rather than of a request.
+func namespaceEnrolment(policy nspolicy.Policy, logger *slog.Logger) (*nsenrol.Service, error) {
+	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == envTrue {
+		return nil, nil
+	}
+
+	config := nsenrol.Config{
+		Release:    os.Getenv("ADMIN_HELM_RELEASE_NAME"),
+		Namespace:  os.Getenv("POD_NAMESPACE"),
+		APIAccount: os.Getenv("ADMIN_API_SERVICE_ACCOUNT"),
+		JobAccount: os.Getenv("ADMIN_HELM_JOB_SERVICE_ACCOUNT"),
+	}
+	if config.Release == "" {
+		logger.Warn("ADMIN_HELM_RELEASE_NAME is unset; namespaces cannot be enrolled for Helm")
+		return nil, nil
+	}
+	if !config.Valid() {
+		// Said out loud at startup rather than discovered on the first enrolment:
+		// a panel configured to deploy and unable to name the objects it would
+		// create is a misconfiguration, not a runtime condition.
+		return nil, fmt.Errorf(
+			"helm enrolment is configured but incomplete: POD_NAMESPACE, " +
+				"ADMIN_API_SERVICE_ACCOUNT and ADMIN_HELM_JOB_SERVICE_ACCOUNT must all be set")
+	}
+
+	clientset, err := kube.NewClientset()
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("namespaces can be enrolled as Helm targets", slog.String("release", config.Release))
+	return nsenrol.NewService(nsenrol.NewRepository(clientset), config, policy), nil
+}
+
+// enrolmentOrNil hands the cluster slice an interface that is nil when there is
+// no service, rather than one holding a typed nil.
+func enrolmentOrNil(enrol *nsenrol.Service) kube.Enrolment {
+	if enrol == nil {
+		return nil
+	}
+	return enrol
 }
 
 // helmJobConfig describes the Job that performs one Helm operation.
@@ -416,12 +492,6 @@ func namespacePolicy(logger *slog.Logger) nspolicy.Policy {
 	return nspolicy.New(nspolicy.Config{
 		Own:       own,
 		Protected: splitList(os.Getenv("ADMIN_PROTECTED_NAMESPACES")),
-		Managed:   splitList(os.Getenv("ADMIN_HELM_MANAGED_NAMESPACES")),
-		// Every unprotected namespace, rather than a named list. Set by the chart
-		// when the lab has chosen the cluster-scoped grant, and meaningless
-		// without it: the policy would permit a namespace the ServiceAccount
-		// still cannot read.
-		ManageEverything: os.Getenv("ADMIN_HELM_ALL_NAMESPACES") == envTrue,
 	})
 }
 

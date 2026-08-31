@@ -52,38 +52,20 @@ type Config struct {
 	Own string
 	// Protected are the lab's own additions, from chart values.
 	Protected []string
-	// Managed are the namespaces Helm may write to. Named here rather than in the
-	// Helm slice because protection has to win over it, and the two rules have to
-	// be decided together or a typo in one values file is a release in
-	// platform-system.
-	Managed []string
-	// ManageEverything makes every unprotected namespace a Helm target, instead
-	// of only those named in Managed.
-	//
-	// It exists because the panel can create namespaces and the per-namespace
-	// Roles are rendered by the chart: without it, a namespace created from the
-	// panel cannot be deployed to until somebody reinstalls the chart, which
-	// breaks "create a namespace, then deploy into it" — the workflow the whole
-	// feature is for. Protection is unaffected either way.
-	ManageEverything bool
 }
 
 // Policy answers questions about a namespace.
 type Policy struct {
-	own        string
-	protected  []string
-	managed    []string
-	everything bool
+	own       string
+	protected []string
 }
 
 // New builds the policy. Empty configuration is valid and still protects the
 // built-ins; those are not the lab's to switch off.
 func New(config Config) Policy {
 	return Policy{
-		own:        config.Own,
-		protected:  slices.Clone(config.Protected),
-		managed:    slices.Clone(config.Managed),
-		everything: config.ManageEverything,
+		own:       config.Own,
+		protected: slices.Clone(config.Protected),
 	}
 }
 
@@ -138,61 +120,26 @@ func (p Policy) blocked(namespace string, labels map[string]string) (bool, strin
 	}
 }
 
-// ManagedNamespaces returns the namespaces configuration names as Helm's, minus
-// any that are protected, in the order they were configured.
+// Managed reports whether Helm may work in a namespace.
 //
-// This is the list to enumerate. Finding the managed namespaces by reading every
-// namespace in the cluster and checking its label would need a cluster-wide grant
-// on Helm's release Secrets, which is exactly what this design refuses to hold.
+// Two conditions. The namespace must not be deploy-blocked, which wins over
+// everything else here; and it must carry the label, which is what makes the
+// decision visible on the object itself.
 //
-// Protection is applied here and not left to the caller. Enumerating a namespace
-// is not a passive act: reading its Helm releases means reading its Secrets, so a
-// protected name surviving into this list is the leak, not a step towards one.
-// The chart refuses to render a protected namespace into the managed list, but
-// that list also arrives from an environment variable — and a policy that holds
-// only when the chart wrote it is not a policy.
+// There used to be a third: a list of namespaces in chart values, which had to
+// agree with the label before anything was managed. It is gone, and what replaced
+// it is not "one key instead of two" — it is a second key that is also a live
+// object. Nothing can actually be deployed into a namespace whose RoleBindings
+// the panel has not created, and those are as visible in the cluster as the label
+// is. The list had to go because it was rendered at install time: enrolling a
+// namespace meant a chart release and a pod restart, which is exactly the thing
+// "create a namespace, then deploy into it" cannot survive.
 //
-// Labels are not consulted, because there is no object to read one from. That is
-// the same bound checkNamespace works under, and it is why this is still not the
-// same question as Managed: a name here has passed the checks that can be made
-// from configuration alone, so anything that writes must still ask.
-func (p Policy) ManagedNamespaces() []string {
-	managed := make([]string, 0, len(p.managed))
-	for _, namespace := range p.managed {
-		if blocked, _ := p.DeployBlocked(namespace, nil); blocked {
-			continue
-		}
-		managed = append(managed, namespace)
-	}
-	return managed
-}
-
-// Managed reports whether Helm may install into a namespace.
-//
-// Three conditions, and all of them are needed. The namespace must not be
-// deploy-blocked, which wins over everything else here. It must be named in
-// configuration, which is the operator's decision and is reviewable in a values
-// file. And it must carry the label, which is what makes the decision visible on
-// the object itself.
-//
-// Both halves of the allowlist are required because each is weak alone: the label
-// can be applied by anything that can label a namespace, and the configured list
-// cannot be seen by someone looking at the cluster.
+// Labels are read off the live object, so this answers for a namespace somebody
+// labelled by hand a moment ago, with nothing to reinstall.
 func (p Policy) Managed(namespace string, labels map[string]string) bool {
 	if blocked, _ := p.DeployBlocked(namespace, labels); blocked {
 		return false
 	}
-	if p.everything {
-		return labels[LabelManaged] == labelTrue
-	}
-	return slices.Contains(p.managed, namespace) && labels[LabelManaged] == labelTrue
-}
-
-// ManagesEverything reports whether every unprotected namespace is a Helm target.
-//
-// Callers that enumerate managed namespaces have to ask, because in this mode
-// there is no list to enumerate — the answer is "whatever the cluster has", and
-// only the cluster knows.
-func (p Policy) ManagesEverything() bool {
-	return p.everything
+	return labels[LabelManaged] == labelTrue
 }

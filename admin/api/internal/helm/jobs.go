@@ -391,7 +391,7 @@ func (s *Service) ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
 		return nil, ErrNotConfigured
 	}
 	if filter.Namespace != "" {
-		if err := s.checkNamespace(filter.Namespace); err != nil {
+		if err := s.checkNamespace(ctx, filter.Namespace); err != nil {
 			return nil, err
 		}
 	}

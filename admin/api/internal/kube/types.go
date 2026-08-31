@@ -29,6 +29,16 @@ type Namespace struct {
 	// cannot. Sending only the label half would be a filter that is right in one
 	// deployment mode and wrong in the other.
 	HelmManaged bool `json:"helmManaged"`
+	// HelmEnrolment is whether the panel's role bindings are in place, and
+	// therefore whether Helm can actually work here — "enrolled", "partial",
+	// "wrong", or "missing". Empty for a namespace that has not asked to be a Helm
+	// target, which is not the same as one that asked and is not set up.
+	//
+	// It is here rather than derived in the panel because the answer needs a
+	// cluster read the browser does not have, and because "set up wrongly" is a
+	// state an operator has to be told about: a binding left by an older chart
+	// keeps failing deploys and nothing else notices.
+	HelmEnrolment string `json:"helmEnrolment,omitempty"`
 }
 
 // NamespaceSpec is a request to create a namespace.

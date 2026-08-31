@@ -9,7 +9,7 @@ import (
 func (s *Service) Rollback(ctx context.Context, namespace, name string, revision int,
 	actor string,
 ) (Accepted, error) {
-	if err := s.checkRelease(namespace, name); err != nil {
+	if err := s.checkRelease(ctx, namespace, name); err != nil {
 		return Accepted{}, err
 	}
 	if revision < 1 {
@@ -40,7 +40,7 @@ func (s *Service) Rollback(ctx context.Context, namespace, name string, revision
 func (s *Service) Uninstall(ctx context.Context, namespace, name string,
 	actor string,
 ) (Accepted, error) {
-	if err := s.checkRelease(namespace, name); err != nil {
+	if err := s.checkRelease(ctx, namespace, name); err != nil {
 		return Accepted{}, err
 	}
 	if _, err := s.repo.ReadRelease(ctx, namespace, name); err != nil {

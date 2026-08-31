@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
@@ -66,6 +67,17 @@ type DeploymentStore interface {
 	MarkRolledOut(ctx context.Context, id string, number, helmRevision int) error
 }
 
+// enrolment answers which namespaces this slice may work in.
+//
+// Declared here, where it is consumed. It replaces a list read from an
+// environment variable, and the difference is the point: enrolling a namespace
+// used to mean reinstalling the chart and restarting these pods, so the answer
+// could not change while the process ran. Now it is read from the cluster, and a
+// namespace enrolled a second ago is deployable without anything being restarted.
+type Enrolment interface {
+	Managed(ctx context.Context) ([]string, error)
+}
+
 // Service manages the Helm releases in the namespaces this lab manages.
 //
 // What it will not do is decided here rather than left for each endpoint to
@@ -87,20 +99,24 @@ type Service struct {
 	store DeploymentStore
 	// jobs performs every mutation. Nothing writes to the cluster from this
 	// process any more.
-	jobs    Jobs
+	jobs Jobs
+	// enrol is nil when no namespace can be enrolled at all, and every route that
+	// needs one then answers 501.
+	enrol   Enrolment
 	policy  nspolicy.Policy
 	timeout time.Duration
 	logger  *slog.Logger
 }
 
 // NewService builds the service.
-func NewService(repo repository, deployments DeploymentStore, runner Jobs,
+func NewService(repo repository, deployments DeploymentStore, runner Jobs, enrol Enrolment,
 	policy nspolicy.Policy, timeout time.Duration, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		repo:    repo,
 		store:   deployments,
 		jobs:    runner,
+		enrol:   enrol,
 		policy:  policy,
 		timeout: timeout,
 		logger:  logger,
@@ -109,24 +125,38 @@ func NewService(repo repository, deployments DeploymentStore, runner Jobs,
 
 // ListReleases returns every release this lab can see.
 //
-// When the policy names the namespaces, those are enumerated. When it manages
-// every unprotected namespace, the empty list asks Helm to look cluster-wide,
-// which the cluster-scoped grant that mode renders makes possible.
+// The namespaces are enumerated rather than looked for cluster-wide, and that is
+// deliberate: reading a release means reading Secrets, and the panel holds a
+// grant only in the namespaces it enrolled. Asking Helm to search everywhere
+// would be asking for a 403 from every namespace it is not permitted in.
 func (s *Service) ListReleases(ctx context.Context) ([]Release, error) {
-	if s.policy.ManagesEverything() {
-		return s.repo.ListReleases(ctx, nil)
-	}
-
-	namespaces := s.policy.ManagedNamespaces()
-	if len(namespaces) == 0 {
-		return nil, ErrNotConfigured
+	namespaces, err := s.managed(ctx)
+	if err != nil {
+		return nil, err
 	}
 	return s.repo.ListReleases(ctx, namespaces)
 }
 
+// managed returns the namespaces this slice may work in, and refuses when there
+// are none — which is the honest reply for a capability that was built and has
+// not been switched on anywhere.
+func (s *Service) managed(ctx context.Context) ([]string, error) {
+	if s.enrol == nil {
+		return nil, ErrNotConfigured
+	}
+	namespaces, err := s.enrol.Managed(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(namespaces) == 0 {
+		return nil, ErrNotConfigured
+	}
+	return namespaces, nil
+}
+
 // ListNamespaceReleases returns the releases in one managed namespace.
 func (s *Service) ListNamespaceReleases(ctx context.Context, namespace string) ([]Release, error) {
-	if err := s.checkNamespace(namespace); err != nil {
+	if err := s.checkNamespace(ctx, namespace); err != nil {
 		return nil, err
 	}
 	return s.repo.ListReleases(ctx, []string{namespace})
@@ -134,7 +164,7 @@ func (s *Service) ListNamespaceReleases(ctx context.Context, namespace string) (
 
 // ReadRelease returns one release with the values it was configured with.
 func (s *Service) ReadRelease(ctx context.Context, namespace, name string) (ReleaseDetail, error) {
-	if err := s.checkRelease(namespace, name); err != nil {
+	if err := s.checkRelease(ctx, namespace, name); err != nil {
 		return ReleaseDetail{}, err
 	}
 	return s.repo.ReadRelease(ctx, namespace, name)
@@ -142,7 +172,7 @@ func (s *Service) ReadRelease(ctx context.Context, namespace, name string) (Rele
 
 // ReadHistory returns a release's revisions, newest first.
 func (s *Service) ReadHistory(ctx context.Context, namespace, name string) ([]Revision, error) {
-	if err := s.checkRelease(namespace, name); err != nil {
+	if err := s.checkRelease(ctx, namespace, name); err != nil {
 		return nil, err
 	}
 	return s.repo.ReadHistory(ctx, namespace, name)
@@ -163,8 +193,8 @@ func (s *Service) ListChartVersions(ctx context.Context, reference string) ([]Ch
 
 // checkRelease refuses a namespace this slice may not touch and a release name
 // Helm would not accept.
-func (s *Service) checkRelease(namespace, name string) error {
-	if err := s.checkNamespace(namespace); err != nil {
+func (s *Service) checkRelease(ctx context.Context, namespace, name string) error {
+	if err := s.checkNamespace(ctx, namespace); err != nil {
 		return err
 	}
 	return validateReleaseName(name)
@@ -175,14 +205,15 @@ func (s *Service) checkRelease(namespace, name string) error {
 //
 // Protected and unmanaged are distinguished because they mean different things to
 // whoever asked. Protected is permanent — platform-system will never be a Helm
-// target from here. Unmanaged is a configuration decision that can be changed,
-// and telling an operator which one they have hit is the difference between
-// editing a values file and giving up.
+// target from here. Unmanaged can be changed, and now it can be changed from the
+// panel: enrolling the namespace is a button rather than a chart release, which
+// is the whole reason this reads the cluster instead of an environment variable.
 //
-// The label half of the policy is not checked here: reading it needs the live
-// namespace, and this slice deliberately has no cluster read of its own. The
-// grant is what actually decides which Secrets are reachable, and this mirrors it.
-func (s *Service) checkNamespace(namespace string) error {
+// The enrolled set is the authority, not the label alone. A namespace can carry
+// the label and have no role bindings — which is what a half-finished enrolment
+// looks like — and permitting a deploy there would produce a 403 out of the API
+// server instead of a sentence naming the missing thing.
+func (s *Service) checkNamespace(ctx context.Context, namespace string) error {
 	if err := validateNamespace(namespace); err != nil {
 		return err
 	}
@@ -194,14 +225,12 @@ func (s *Service) checkNamespace(namespace string) error {
 		return fmt.Errorf("%w: %s is %s", ErrProtected, namespace, reason)
 	}
 
-	if s.policy.ManagesEverything() {
-		return nil
+	managed, err := s.managed(ctx)
+	if err != nil {
+		return err
 	}
-
-	for _, managed := range s.policy.ManagedNamespaces() {
-		if managed == namespace {
-			return nil
-		}
+	if slices.Contains(managed, namespace) {
+		return nil
 	}
 	return fmt.Errorf("%w: %s", ErrUnmanaged, namespace)
 }
