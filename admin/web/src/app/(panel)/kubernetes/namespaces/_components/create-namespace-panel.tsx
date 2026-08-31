@@ -59,7 +59,7 @@ export function CreateNamespacePanel({
 			open={open}
 			title="New namespace"
 			icon={Layers}
-			description="Names follow Kubernetes' DNS label rules: lowercase letters, digits, and hyphens."
+			description="Names follow Kubernetes' DNS label rules: lowercase letters, digits, and hyphens. A new namespace is set up for Helm straight away, so you can deploy into it without reinstalling anything."
 			dirty={name !== "" || Object.keys(labels).length > 0}
 			onClose={reset}
 			onSubmit={() => createNamespace({ name, ...(Object.keys(labels).length ? { labels } : {}) })}

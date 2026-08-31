@@ -26,6 +26,12 @@ export interface Namespace {
 	 * browser cannot see, so the API answers it rather than the panel guessing.
 	 */
 	helmManaged: boolean;
+	/**
+	 * Whether the panel's role bindings are in place, and therefore whether Helm
+	 * can work here at all. Absent for a namespace that has not asked to be a Helm
+	 * target, which is not the same as one that asked and is not set up.
+	 */
+	helmEnrolment?: "enrolled" | "partial" | "wrong" | "missing" | "unknown";
 }
 
 /** POST /api/kubernetes/namespaces */

@@ -71,6 +71,30 @@ export async function putSecret(
 	return result;
 }
 
+/**
+ * Enrols a namespace as a Helm target, or repairs one that is set up wrongly.
+ *
+ * Revalidates the Helm section as well as the cluster one: enrolling a namespace
+ * changes what can be deployed into, which is what the deployments page offers.
+ */
+export async function enrolNamespace(namespace: string): Promise<ActionResult<Namespace>> {
+	const result = await withWrite(() => kube.enrolNamespace(namespace));
+	if (result.ok) {
+		revalidatePath("/kubernetes", "layout");
+		revalidatePath("/helm", "layout");
+	}
+	return result;
+}
+
+export async function revokeNamespace(namespace: string): Promise<ActionResult<void>> {
+	const result = await withWrite(() => kube.revokeNamespace(namespace));
+	if (result.ok) {
+		revalidatePath("/kubernetes", "layout");
+		revalidatePath("/helm", "layout");
+	}
+	return result;
+}
+
 export async function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {
 	return withRead(() => kube.listWorkloads(namespace));
 }
