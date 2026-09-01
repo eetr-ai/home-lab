@@ -31,11 +31,14 @@ export function RotateSecretPanel({
 }) {
 	const [chosen, setChosen] = useState<Record<string, string>>({});
 
-	const rows: SecretRow[] = Object.entries(chosen).map(([key, value]) => ({
-		id: key,
-		key,
-		value,
-	}));
+	// Ordered by the Secret's own keys rather than by when each box was ticked.
+	// Object.entries follows insertion order, so unticking and reticking a key
+	// would move its row to the bottom — the fields would rearrange themselves
+	// under the operator halfway through filling them in.
+	const rows: SecretRow[] =
+		secret?.keys
+			.filter((key) => key in chosen)
+			.map((key) => ({ id: key, key, value: chosen[key] })) ?? [];
 
 	const dirty = Object.keys(chosen).length > 0;
 
