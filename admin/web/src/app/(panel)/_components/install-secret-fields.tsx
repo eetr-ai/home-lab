@@ -68,7 +68,7 @@ export function InstallSecretFields({
 					</FormField>
 
 					{namespacesError ? (
-						<p className="text-xs text-danger">The namespaces could not be read: {namespacesError}</p>
+						<p className="text-xs text-danger-fg">The namespaces could not be read: {namespacesError}</p>
 					) : null}
 
 					{/* An empty list is not an error, and it is not nothing either: the

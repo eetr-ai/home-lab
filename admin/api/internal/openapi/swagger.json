@@ -1407,6 +1407,20 @@
                     }
                 },
                 "type": "object"
+            },
+            "secretgen.Generated": {
+                "properties": {
+                    "length": {
+                        "type": "integer"
+                    },
+                    "shape": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
             }
         },
         "securitySchemes": {
@@ -6445,6 +6459,70 @@
                 "summary": "Update a role",
                 "tags": [
                     "postgres"
+                ]
+            }
+        },
+        "/api/secret-values": {
+            "get": {
+                "description": "Mints a password or a token, so nobody has to invent one. Shapes:\n`password` (letters, digits and shell-safe symbols), `alphanumeric`,\n`hex` and `base64` — the last two are 256 bits and ignore `length`,\nbecause that is the requirement rather than a default. `base64` is\nthe AUTH_SECRET shape, the same thing `npx auth secret` produces.\nDrawn from crypto/rand with rejection sampling, so every character is\nequally likely.\n\nNOTE that the value travels in the response, which is the point and is\nalso the cost: a credential minted here lands in the caller's logs and,\nif the caller is the assistant, in a model's context and memory. The\npanel's own password fields generate in the browser instead, so a value\nan operator keeps never leaves it.",
+                "parameters": [
+                    {
+                        "description": "password, alphanumeric, hex or base64 (default password)",
+                        "in": "query",
+                        "name": "shape",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "12-128, for the sized shapes only (default 24)",
+                        "in": "query",
+                        "name": "length",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/secretgen.Generated"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Generate a credential",
+                "tags": [
+                    "tools"
                 ]
             }
         },

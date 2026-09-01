@@ -4,6 +4,7 @@ import { useState } from "react";
 import { UserRound } from "lucide-react";
 import { createUser } from "@/app/actions/mongo";
 import { FormField, Input } from "@/components/ui";
+import { SecretInput } from "../../../_components/secret-input";
 import { CreatePanel } from "../../../_components/create-panel";
 import { InstallSecretFields } from "../../../_components/install-secret-fields";
 import { useCredentialInstall } from "../../../_components/use-credential-install";
@@ -70,12 +71,11 @@ export function CreateMongoUserPanel({
 			</FormField>
 
 			<FormField label="Password" htmlFor="mongo-user-password">
-				<Input
+				<SecretInput
 					id="mongo-user-password"
-					type="password"
 					value={password}
-					onChange={(event) => setPassword(event.target.value)}
-					autoComplete="new-password"
+					onChange={setPassword}
+					generateLabel="Generate a password"
 					required
 				/>
 			</FormField>

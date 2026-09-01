@@ -112,6 +112,33 @@ export function Popover({
 		};
 	}, [mounted, anchor, width]);
 
+	// Escape closes this and nothing else.
+	//
+	// useFocusTrap listens on its own container, which is right for a modal whose
+	// focus is inside it and wrong here: opening a popover does not reliably move
+	// focus into it — measured in a production build, focus stays on the trigger,
+	// which is a button inside whatever opened it. So Escape never reached this
+	// popover's handler at all. It reached the SidePanel underneath, and closed
+	// THAT: the panel slid out while the popover sat at its fixed coordinates,
+	// which is what "flickering on dismissal" looked like.
+	//
+	// Handled on the document in the capture phase so the topmost overlay sees it
+	// first, and stopped there so it never reaches the one below. That is the
+	// layering rule a nested overlay needs, and it does not depend on knowing why
+	// the focus does not land — which I could not determine.
+	useEffect(() => {
+		if (!open) return;
+
+		function onKeyDown(event: KeyboardEvent) {
+			if (event.key !== "Escape") return;
+			event.stopPropagation();
+			onRequestClose();
+		}
+
+		document.addEventListener("keydown", onKeyDown, true);
+		return () => document.removeEventListener("keydown", onKeyDown, true);
+	}, [open, onRequestClose]);
+
 	// A click outside closes it — but not a click on the trigger, which owns the
 	// toggle. Without that exception the trigger would close and immediately
 	// reopen, and the popover would look like it ignored the second click.
@@ -139,15 +166,40 @@ export function Popover({
 			aria-labelledby={titleId}
 			tabIndex={-1}
 			style={{
-				top: position?.top ?? 0,
-				left: position?.left ?? 0,
+				// Off-screen until measured, and hidden as well.
+				//
+				// `visibility: hidden` alone was the guard, and it is not enough: a
+				// popover opened from inside a SidePanel is seen for a frame in the
+				// top-left corner before it lands on its anchor. It reproduces in a
+				// production build, so it is not StrictMode's double-invoke, and the
+				// React render log shows no visible unpositioned render — which says
+				// the frame being painted is not one React thinks it asked for.
+				//
+				// Rather than keep hunting the mechanism, put the unmeasured panel
+				// somewhere a stray paint cannot be seen. Costs nothing and does not
+				// depend on being right about the cause.
+				top: position?.top ?? -9999,
+				left: position?.left ?? -9999,
 				width: popoverWidth[width],
-				// Hidden until measured, so it cannot flash in the corner.
 				visibility: position ? "visible" : "hidden",
 			}}
 			className={cn(
 				"fixed z-50 max-h-[min(70vh,32rem)] overflow-auto rounded-card border border-border bg-surface text-foreground shadow-xl outline-none duration-150 motion-reduce:animate-none",
-				open ? "animate-in fade-in zoom-in-95" : "animate-out fade-out zoom-out-95",
+				// The entry animation waits for the measurement.
+				//
+				// `visibility: hidden` above keeps an unplaced panel from being seen,
+				// but it does NOT stop a CSS animation from running: the animation
+				// starts when the node is inserted, at top:0 left:0, and whatever is
+				// left of it plays out from there once the panel becomes visible. On a
+				// first open — the one where nothing is warm and the measurement lands
+				// a frame later — that is a panel that zooms in from the top-left
+				// corner of the screen.
+				//
+				// Withholding the class until there is a position starts the animation
+				// where the panel actually is. The exit animation needs no such guard:
+				// by then it has been placed.
+				position && open && "animate-in fade-in zoom-in-95",
+				!open && "animate-out fade-out zoom-out-95",
 			)}
 		>
 			<h2 id={titleId} className="sr-only">

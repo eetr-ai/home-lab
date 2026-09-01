@@ -13,7 +13,9 @@ import type {
 	Namespace,
 	Pod,
 	PutSecret,
+	RotateSecret,
 	SecretRef,
+	SecretSummary,
 	Storage,
 	Workload,
 	WorkloadDetail,
@@ -67,6 +69,41 @@ export async function putSecret(
 	request: PutSecret,
 ): Promise<ActionResult<SecretRef>> {
 	const result = await withWrite(() => kube.putSecret(namespace, name, request));
+	if (result.ok) revalidatePath("/kubernetes", "layout");
+	return result;
+}
+
+/** The Secrets in a namespace, without any of their contents. */
+export async function listSecrets(namespace: string): Promise<ActionResult<SecretSummary[]>> {
+	return withRead(() => kube.listSecrets(namespace));
+}
+
+/**
+ * Removes a Secret.
+ *
+ * A write, so it is behind the allowlist. What it may reach is decided by the
+ * API — a protected namespace, Helm's release storage and ServiceAccount tokens
+ * are refused there — and the list already carries that answer per row, so the
+ * panel does not draw a button this would come back 403 from.
+ */
+export async function deleteSecret(namespace: string, name: string): Promise<ActionResult<void>> {
+	const result = await withWrite(() => kube.deleteSecret(namespace, name));
+	if (result.ok) revalidatePath("/kubernetes", "layout");
+	return result;
+}
+
+/**
+ * Replaces the values of keys a Secret already has.
+ *
+ * Revalidates the section because the key list is what a row shows and a rotation
+ * can change nothing else about it — the values were never on the page.
+ */
+export async function rotateSecret(
+	namespace: string,
+	name: string,
+	request: RotateSecret,
+): Promise<ActionResult<SecretRef>> {
+	const result = await withWrite(() => kube.rotateSecret(namespace, name, request));
 	if (result.ok) revalidatePath("/kubernetes", "layout");
 	return result;
 }

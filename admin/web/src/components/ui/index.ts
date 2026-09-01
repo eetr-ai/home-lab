@@ -11,6 +11,7 @@ export {
 	type IconButtonVariant,
 } from "./icon-button";
 export { Banner, type BannerProps, type BannerVariant } from "./banner";
+export { CopyButton } from "./copy-button";
 export {
 	Card,
 	SectionCard,
@@ -19,6 +20,14 @@ export {
 	type SectionCardProps,
 } from "./card";
 export { Input, inputClass, type InputProps } from "./input";
+export {
+	SecretField,
+	RevealAccessory,
+	CopyAccessory,
+	useSecretField,
+	type SecretFieldProps,
+	type SecretFieldContextValue,
+} from "./secret-field";
 export { Select, selectClass, type SelectProps } from "./select";
 export { Checkbox, type CheckboxProps } from "./checkbox";
 export { Label, type LabelProps } from "./label";

@@ -14,7 +14,14 @@ are how it is applied.
 `Button` · `IconButton` · `Banner` · `Card` · `SectionCard` · `PageHeader` ·
 `Table`/`THead`/`TBody`/`Th`/`Td` · `Input` · `Select` · `Label` · `FormField` ·
 `Spinner`/`FullPageSpinner` · `InlineDeleteConfirm` · `SidePanel` ·
-`ConfirmDialog` · `EmptyState`.
+`ConfirmDialog` · `Popover` · `CopyButton` · `SecretField` · `EmptyState`.
+
+`CopyButton` renders **nothing** where `navigator.clipboard` is absent, which is
+every plain-HTTP origin that is not localhost — a real way to reach this panel.
+Put the text it copies somewhere selectable, because selecting it is what still
+works there. It reads the clipboard's existence through `useSyncExternalStore`
+with a server snapshot of `false`; consulting `navigator` during render is a
+hydration mismatch over a button.
 
 **How you import one depends on what is importing it**, and there is exactly one
 rule:
@@ -68,6 +75,18 @@ inline theme script runs.
 raw Tailwind color ramps, `rounded-xl`, or `border-brand-muted` outside
 `theme.css`. Without it these creep back within a few changes, and the nested
 border look the visual system exists to prevent comes back with them.
+
+It also fails on a **role that does not exist**. `text-danger` looks exactly like
+a role token, and there is no `--color-danger` — only `danger-fg`, `danger-bg`,
+`danger-border` and `danger-icon`. Tailwind emits nothing for it, so the text
+renders in the inherited colour and nothing anywhere says so. That reached the
+panel twice, both times on an error message, which is where "looks like ordinary
+text" is exactly what no reviewer notices.
+
+The rule is scoped to names that are *trying* to be a role — the first segment
+matches a family the theme defines, but the whole name does not — so `text-xs` is
+not a false positive. If you add a colour family, that scoping is what decides
+whether a typo in it gets caught.
 
 ## Visual system
 
@@ -313,6 +332,59 @@ costs a reposition on scroll and resize, which it does for you.
 `SidePanel` is for **multi-field** create and edit forms. A single-field entity
 keeps a compact inline add-row; a full-screen overlay to capture one text input
 costs more screen than it saves.
+
+A `Popover` **may** be opened from inside a `SidePanel` — the credential
+generator is — and it works because the popover portals to the body rather than
+nesting inside the panel's containing block. Both run `useFocusTrap`, so check by
+hand that Escape closes the popover and leaves the panel open. Do not build a
+bespoke overlay to avoid the question.
+
+## Secret values
+
+Anywhere an operator would type a password, use `SecretInput` from
+`app/(panel)/_components`. It is the ready-made composition: a field with reveal
+and a generator.
+
+Underneath it is `SecretField`, and the shape is worth copying when you next need
+a control with attachments. **The field publishes a React context and the
+accessories read it**, rather than each call site wiring buttons by props:
+
+```tsx
+<SecretField value={password} onChange={setPassword} label="the password">
+  <RevealAccessory />
+  <GenerateAccessory />
+</SecretField>
+
+<SecretField value={candidate} readOnly defaultRevealed label="the generated value">
+  <CopyAccessory />
+</SecretField>
+```
+
+That is not decoration. The version before it passed a `text` prop to each button
+at each call site, and the accessories drifted: reveal and generate sat inside
+the field's border while a copy button beside a generated value sat outside it,
+so one kind of thing looked like two. An accessory that reads its field from
+context is written once and cannot be placed inconsistently.
+
+The border and the focus ring belong to the **group**, via `focus-within`, which
+is what makes an accessory look like it is *in* the field rather than next to it.
+An accessory that renders nothing — `CopyAccessory` does exactly that where the
+clipboard is absent — leaves no gap, because the slot is `empty:hidden`.
+
+`SecretField`, `RevealAccessory` and `CopyAccessory` are primitives.
+`GenerateAccessory` is not: it calls a server action, so it lives beside
+`SecretInput` in `app/(panel)/_components`. The context is the seam that lets it,
+without `components/ui` knowing it exists.
+
+The generator itself is in Go, `admin/api/internal/secretgen`, reached through
+`app/actions/tools.ts`. It is not in the browser, and the reason is that the
+assistant needs the same generator: two implementations of rejection sampling
+would agree until they did not.
+
+**Never show a stored secret's value.** The API has no route that returns one, by
+construction — a listing carries key names — and a screen that appears to reveal
+one is a screen that is lying or a route that should not exist. Where an operator
+asks for a value they did not keep, the answer is to rotate it.
 
 **Controlled, always.** The consumer owns `open`. `onRequestClose` fires from the
 X, the scrim, and Escape, and the panel never closes itself — that is exactly what

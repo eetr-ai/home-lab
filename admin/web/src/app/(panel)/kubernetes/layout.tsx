@@ -4,6 +4,7 @@ import { SectionTabs } from "../_components/section-tabs";
 
 const tabs = [
 	{ href: "/kubernetes/namespaces", label: "Namespaces" },
+	{ href: "/kubernetes/secrets", label: "Secrets" },
 	{ href: "/kubernetes/workloads", label: "Workloads" },
 	{ href: "/kubernetes/pods", label: "Pods" },
 	{ href: "/kubernetes/events", label: "Events" },

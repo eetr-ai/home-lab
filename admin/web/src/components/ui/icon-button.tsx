@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "./cn";
 
@@ -11,7 +11,11 @@ const iconButtonVariants: Record<IconButtonVariant, string> = {
 		"rounded-full p-1.5 text-muted-foreground hover:bg-danger-bg hover:text-danger-fg disabled:opacity-50",
 };
 
-export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+// ComponentPropsWithRef rather than ButtonHTMLAttributes, so `ref` is among them.
+// React 19 passes a ref to a function component as an ordinary prop, and the
+// generator field needs one here to anchor its popover to the button that opened
+// it. Nothing else changes: every other prop was already in this set.
+export interface IconButtonProps extends ComponentPropsWithRef<"button"> {
 	variant?: IconButtonVariant;
 	loading?: boolean;
 	/** Required — icon-only buttons must always carry an accessible label. */
