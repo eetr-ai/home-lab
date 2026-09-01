@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { WandSparkles } from "lucide-react";
 import {
 	Button,
@@ -145,6 +145,21 @@ function GeneratorPopover({
 
 	const chosen = PRESETS.find((option) => option.id === preset) ?? PRESETS[0];
 
+	// Opening the popover IS the request. Nobody presses "generate a password" to
+	// be asked again, and an empty panel with a Generate button in it reads as one
+	// that generated nothing.
+	//
+	// Guarded on there being nothing yet, so reopening the popover shows the value
+	// it last minted instead of quietly replacing the one that is already in the
+	// field.
+	useEffect(() => {
+		if (!open || candidate || error || pending) return;
+		mint();
+		// mint is recreated each render and depends on the same state this guards
+		// on; listing it would re-run this on every keystroke in the length field.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [open]);
+
 	function mint(nextPreset: Preset = preset, nextLength: number = length) {
 		// Checked here as well as in the API so a mistyped length is a message
 		// under the field rather than a round trip that comes back 400.
@@ -216,7 +231,7 @@ function GeneratorPopover({
 					</div>
 				) : null}
 
-				{error ? <p className="text-xs text-danger">{error}</p> : null}
+				{error ? <p className="text-xs text-danger-fg">{error}</p> : null}
 
 				{candidate ? (
 					<SecretField
