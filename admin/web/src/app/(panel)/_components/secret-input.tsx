@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { Eye, EyeOff, WandSparkles } from "lucide-react";
 import { Button, IconButton, Input, Popover, Select, cn, CopyButton } from "@/components/ui";
 import type { InputProps } from "@/components/ui";
@@ -53,7 +53,15 @@ export function SecretInput({
 	const trigger = useRef<HTMLButtonElement>(null);
 
 	return (
-		<div className="flex items-center gap-1">
+		// The controls sit INSIDE the field's border rather than beside it. Beside
+		// it they read as two more things in the form; inside, they read as part of
+		// the input they act on — and the row keeps the width every other field in
+		// the panel has, instead of being the one that is shorter by two buttons.
+		//
+		// The input carries the right padding that keeps text from running under
+		// them. It is stated in the same place as the buttons' width so the two
+		// cannot drift: two 28px buttons, a 2px gap, and 4px of inset.
+		<div className="relative">
 			<Input
 				id={id}
 				type={revealed ? "text" : "password"}
@@ -63,28 +71,33 @@ export function SecretInput({
 				// and a password manager filling this in would overwrite a fresh one.
 				autoComplete="new-password"
 				spellCheck={false}
-				className={cn("font-mono", className)}
+				className={cn("font-mono pr-[4.25rem]", className)}
 				{...rest}
 			/>
 
-			<IconButton
-				type="button"
-				aria-label={revealed ? "Hide the value" : "Show the value"}
-				aria-pressed={revealed}
-				onClick={() => setRevealed(!revealed)}
-			>
-				{revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-			</IconButton>
+			{/* inset-y-0 with items-center rather than a translate: the field's
+			    height is set by its own padding, and centring against it directly
+			    survives a caller that changes that. */}
+			<div className="absolute inset-y-0 right-1 flex items-center gap-0.5">
+				<IconButton
+					type="button"
+					aria-label={revealed ? "Hide the value" : "Show the value"}
+					aria-pressed={revealed}
+					onClick={() => setRevealed(!revealed)}
+				>
+					{revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+				</IconButton>
 
-			<IconButton
-				ref={trigger}
-				type="button"
-				aria-label={generateLabel}
-				aria-expanded={generating}
-				onClick={() => setGenerating(!generating)}
-			>
-				<WandSparkles className="h-4 w-4" />
-			</IconButton>
+				<IconButton
+					ref={trigger}
+					type="button"
+					aria-label={generateLabel}
+					aria-expanded={generating}
+					onClick={() => setGenerating(!generating)}
+				>
+					<WandSparkles className="h-4 w-4" />
+				</IconButton>
+			</div>
 
 			<GeneratorPopover
 				open={generating}
@@ -135,6 +148,23 @@ function GeneratorPopover({
 	const lengthId = useId();
 
 	const chosen = PRESETS.find((option) => option.id === preset) ?? PRESETS[0];
+
+	// A value the moment it opens, rather than an empty panel and a button.
+	//
+	// Opening this IS the request — nobody presses "generate a password" to be
+	// asked again — and an empty panel reads as one that generated nothing. The
+	// controls are still there to change the shape or ask for another.
+	//
+	// Guarded on there being nothing yet, so reopening the popover shows the value
+	// it last minted instead of quietly replacing the one that is already in the
+	// field.
+	useEffect(() => {
+		if (!open || candidate || error || pending) return;
+		mint();
+		// mint is recreated each render and depends on the same state this guards
+		// on; listing it would re-run this on every keystroke in the length field.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [open]);
 
 	function mint(nextPreset: Preset = preset, nextLength: number = length) {
 		// The bounds are checked here as well as in the API so a mistyped length is

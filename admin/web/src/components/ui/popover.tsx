@@ -147,7 +147,21 @@ export function Popover({
 			}}
 			className={cn(
 				"fixed z-50 max-h-[min(70vh,32rem)] overflow-auto rounded-card border border-border bg-surface text-foreground shadow-xl outline-none duration-150 motion-reduce:animate-none",
-				open ? "animate-in fade-in zoom-in-95" : "animate-out fade-out zoom-out-95",
+				// The entry animation waits for the measurement.
+				//
+				// `visibility: hidden` above keeps an unplaced panel from being seen,
+				// but it does NOT stop a CSS animation from running: the animation
+				// starts when the node is inserted, at top:0 left:0, and whatever is
+				// left of it plays out from there once the panel becomes visible. On a
+				// first open — the one where nothing is warm and the measurement lands
+				// a frame later — that is a panel that zooms in from the top-left
+				// corner of the screen.
+				//
+				// Withholding the class until there is a position starts the animation
+				// where the panel actually is. The exit animation needs no such guard:
+				// by then it has been placed.
+				position && open && "animate-in fade-in zoom-in-95",
+				!open && "animate-out fade-out zoom-out-95",
 			)}
 		>
 			<h2 id={titleId} className="sr-only">

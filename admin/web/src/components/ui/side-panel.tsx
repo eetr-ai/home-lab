@@ -63,6 +63,34 @@ export function SidePanel({
 	useScrollLock(mounted);
 	useFocusTrap(panelRef, mounted, onRequestClose);
 
+	// What the panel shows while it slides out is what it showed when it was open.
+	//
+	// Closing one of these is two things at once: the parent sets `open` to false,
+	// and the form that owns the fields resets them -- every caller's onClose does
+	// both, because the page's "stop showing this" and the form's "forget what was
+	// typed" are the same handler. This component stays mounted for the length of
+	// the exit animation, so without a snapshot the operator watches the form empty
+	// itself on the way out: fields blank, a banner vanishes, a button changes
+	// label. That is the flicker, and it is in all eleven panels at once.
+	//
+	// The rule below is suppressed rather than worked around, so here is the case
+	// for it. It exists because a ref read during render can tear under concurrent
+	// rendering: two renders of the same commit disagree. This ref is written only
+	// while `open` and read only while closing, and the two never happen in the
+	// same render -- so every render that reads it sees the same value, and the
+	// worst failure available is one frame of slightly stale content inside an
+	// animation whose whole job is to show content that is on its way out.
+	//
+	// The alternative is threading an onReset through all eleven callers and
+	// splitting each one's onClose in two. That is a real option if this ever
+	// needs to be more than a snapshot; it is not worth eleven touched files today.
+	//
+	const lastShown = useRef({ title, Icon, description, footer, children });
+	// eslint-disable-next-line react-hooks/refs -- written open, read closing; see above
+	if (open) lastShown.current = { title, Icon, description, footer, children };
+	// eslint-disable-next-line react-hooks/refs -- same
+	const shown = open ? { title, Icon, description, footer, children } : lastShown.current;
+
 	if (!mounted) return null;
 
 	return createPortal(
@@ -93,11 +121,11 @@ export function SidePanel({
 				<div className="flex items-start justify-between gap-3 border-b border-border p-6 pb-4">
 					<div className="min-w-0">
 						<h2 id={titleId} className="flex items-center gap-2 text-lg font-medium">
-							{Icon ? <Icon className="h-5 w-5 shrink-0" /> : null}
-							{title}
+							{shown.Icon ? <shown.Icon className="h-5 w-5 shrink-0" /> : null}
+							{shown.title}
 						</h2>
-						{description ? (
-							<p className="mt-1 text-sm text-muted-foreground">{description}</p>
+						{shown.description ? (
+							<p className="mt-1 text-sm text-muted-foreground">{shown.description}</p>
 						) : null}
 					</div>
 					<IconButton type="button" aria-label="Close panel" onClick={onRequestClose}>
@@ -105,9 +133,11 @@ export function SidePanel({
 					</IconButton>
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
+				<div className="min-h-0 flex-1 overflow-y-auto p-6">{shown.children}</div>
 
-				{footer ? <div className="border-t border-border p-6 pt-4">{footer}</div> : null}
+				{shown.footer ? (
+					<div className="border-t border-border p-6 pt-4">{shown.footer}</div>
+				) : null}
 			</div>
 		</div>,
 		document.body,
