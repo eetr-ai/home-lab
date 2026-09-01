@@ -40,13 +40,19 @@ const VIEWS: Record<Enrolment, EnrolmentView> = {
 /**
  * The view for a namespace, or null when there is nothing to show.
  *
- * Null for two different reasons, and both are right. A protected namespace is
- * never a Helm target, so offering to set one up would be offering something the
- * API refuses. And a namespace with no enrolment state has not asked to be one —
- * the API leaves the field off — which is not the same as being set up wrongly.
+ * The API decides which namespaces have an enrolment at all — it fills the field
+ * only for the ones that asked to be Helm targets and are permitted to be — so
+ * this reads the answer rather than working out a second one. A namespace with no
+ * state has not asked, which is not the same as one that asked and is not set up.
+ *
+ * Note what is deliberately NOT consulted here: `protected`. The two are
+ * different questions, and the panel's own namespace is where they come apart —
+ * `admin` is refused for deletion and permitted for deploys, because deleting it
+ * destroys the panel and upgrading it is the reason the Helm feature exists. It
+ * is the namespace that most needs to show as set up, and an earlier version of
+ * this hid it.
  */
 export function enrolmentView(namespace: Namespace): EnrolmentView | null {
-	if (namespace.protected) return null;
 	if (!namespace.helmEnrolment) return null;
 	return VIEWS[namespace.helmEnrolment as Enrolment] ?? null;
 }

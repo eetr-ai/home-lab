@@ -46,10 +46,13 @@ describe("enrolmentView", () => {
 		expect(view?.action).toBeNull();
 	});
 
-	it("shows nothing for a protected namespace", () => {
-		expect(
-			enrolmentView(namespace({ protected: true, helmEnrolment: "missing" })),
-		).toBeNull();
+	// The panel's own namespace is protected from deletion and deployable, and it
+	// is the namespace most likely to be a Helm target — hiding its enrolment
+	// because it carries a delete refusal was wrong, and looked fine until the
+	// table was rendered.
+	it("shows enrolment for a protected namespace that is a Helm target", () => {
+		const view = enrolmentView(namespace({ protected: true, helmEnrolment: "enrolled" }));
+		expect(view?.label).toBe("set up");
 	});
 
 	// A namespace that has not asked to be a Helm target is not one that is set up

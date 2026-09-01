@@ -55,7 +55,7 @@ export function EnrolmentCell({
 	if (confirming) {
 		return (
 			<InlineDeleteConfirm
-				label="Revoke the panel's access to this namespace?"
+				label="Revoke the panel's access?"
 				confirmLabel="Revoke"
 				busy={pending}
 				onConfirm={() => run(() => revokeNamespace(namespace.name))}
