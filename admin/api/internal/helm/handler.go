@@ -246,6 +246,10 @@ func (h *Handler) uninstallRelease(w http.ResponseWriter, r *http.Request) {
 
 // respondError maps this slice's errors to status codes.
 func respondError(w http.ResponseWriter, err error) {
+	if respondUnwired(w, err) {
+		return
+	}
+
 	switch {
 	case errors.Is(err, ErrInvalidName), errors.Is(err, ErrInvalidChartRef),
 		errors.Is(err, ErrInvalidValues), errors.Is(err, ErrValuesTooLarge):
@@ -279,6 +283,25 @@ func respondError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrForbidden):
 		httpx.Error(w, http.StatusForbidden, "forbidden",
 			"the panel's service account is not permitted to read this namespace's releases")
+	default:
+		slog.Error("helm request failed", slog.Any("error", err))
+		httpx.Error(w, http.StatusInternalServerError, "internal_error",
+			"the request could not be completed")
+	}
+}
+
+// respondUnwired answers the errors that say nothing about the request.
+//
+// The other cases in respondError are a verdict on what was asked for. These
+// three are a verdict on this installation: a database that was never
+// configured, a database that did not answer, a Helm capability with no
+// namespaces named for it. Grouping them keeps that distinction visible, and it
+// is also what keeps respondError under the complexity the linter allows --
+// which is worth admitting rather than dressing up as taste alone.
+//
+// Reports whether it answered, so the caller stops.
+func respondUnwired(w http.ResponseWriter, err error) bool {
+	switch {
 	case errors.Is(err, ErrStoreUnavailable):
 		// 503 rather than 500. The request was fine and the code is fine; the
 		// database did not answer, and the caller should try again rather than
@@ -300,8 +323,8 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusNotImplemented, "not_configured",
 			"no namespaces are configured for Helm")
 	default:
-		slog.Error("helm request failed", slog.Any("error", err))
-		httpx.Error(w, http.StatusInternalServerError, "internal_error",
-			"the request could not be completed")
+		return false
 	}
+
+	return true
 }
