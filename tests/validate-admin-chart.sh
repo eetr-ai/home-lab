@@ -445,26 +445,42 @@ fi
 #
 # Nothing at all by default: an empty namespace list must leave no Role, no
 # RoleBinding, and no reference to one behind.
-if grep -qE '^kind: Role$|-helm(-read|-jobs)?$|admin-helm-job' "$output_file"; then
+if grep -qE '^kind: Role$|-helm(-secrets|-enrol|-jobs)?$|admin-helm-job' "$output_file"; then
   printf 'The Helm grants must not be created by default\n' >&2
   exit 1
 fi
 
-helm_rbac=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+helm_rbac=$(render --set admin.api.helm.enabled=true \
+  --set 'admin.api.helm.namespaces[0]=apps' \
   --show-only templates/api/rbac-deploy.yaml)
 
-# A Role, never a ClusterRole. That is the containment, and it is the failure that
-# matters: a ClusterRole here would grant read on every Secret in the cluster.
-if grep -q '^kind: ClusterRole' <<<"$helm_rbac"; then
-  printf 'The Helm grant must be a namespaced Role, never a ClusterRole\n' >&2
+# The rules are ClusterRoles, and NOTHING binds them cluster-wide.
+#
+# This is the containment now, and it is a different shape from the Roles it
+# replaced: a ClusterRole nothing binds grants nothing, and what binds these is a
+# RoleBinding in one namespace. So the failure that matters is a
+# ClusterRoleBinding onto one of them, which would hand the panel every Secret in
+# the cluster in one line.
+for wide in home-lab-admin-helm home-lab-admin-secrets; do
+  if printf '%s\n' "$helm_rbac" | awk '/^kind: ClusterRoleBinding$/ { grab = 1 }
+       /^---$/ { grab = 0 } grab' | grep -q "name: $wide\$"; then
+    printf 'Nothing may bind %s cluster-wide: it is granted one namespace at a\n' "$wide" >&2
+    printf 'time, by a RoleBinding the panel creates when a namespace is enrolled.\n' >&2
+    exit 1
+  fi
+done
+
+# The bootstrap list renders bindings, not Roles. A Role here would be the old
+# shape coming back, and with it the chart release every new namespace needed.
+if grep -q '^kind: Role$' <<<"$helm_rbac"; then
+  printf 'Enrolment renders RoleBindings onto ClusterRoles, never a Role\n' >&2
   exit 1
 fi
-# Two of each per namespace: one pair the API reads releases with, one pair the
-# Job deploys with. The split is the point of the whole arrangement, so a render
-# that collapsed back to one is a failure whichever one survived.
-if [[ $(grep -c '^kind: Role$' <<<"$helm_rbac") != 2 ]] ||
-   [[ $(grep -c '^kind: RoleBinding$' <<<"$helm_rbac") != 2 ]]; then
-  printf 'One managed namespace must render two Roles and two RoleBindings\n' >&2
+# Two per bootstrap namespace: one the API reads releases with, one the Job
+# deploys with. The split is the point of the whole arrangement, so a render that
+# collapsed back to one is a failure whichever one survived.
+if [[ $(grep -c '^kind: RoleBinding$' <<<"$helm_rbac") != 2 ]]; then
+  printf 'One bootstrap namespace must render two RoleBindings\n' >&2
   exit 1
 fi
 
@@ -475,8 +491,9 @@ fi
 # document-wide grep for admin-helm-job passes on a chart that ALSO still binds
 # admin-api, which is precisely the regression that would silently undo this.
 deploy_subjects=$(printf '%s\n' "$helm_rbac" |
-  awk '/^kind: RoleBinding$/ { inside = 0 } /name: home-lab-admin-helm$/ { inside = 1 }
-       inside && /^subjects:/ { grab = 1; next } grab && /^[^ ]/ { grab = 0 }
+  awk '/^kind: / { binding = ($0 == "kind: RoleBinding"); named = 0; grab = 0 }
+       binding && /^  name: home-lab-admin-helm$/ { named = 1 }
+       named && /^subjects:/ { grab = 1; next } grab && /^[^ -]/ { grab = 0 }
        grab { print }')
 if ! grep -q 'name: admin-helm-job' <<<"$deploy_subjects"; then
   printf 'The Helm deploy grant must be bound to admin-helm-job\n' >&2
@@ -490,7 +507,7 @@ if grep -q 'name: admin-api' <<<"$deploy_subjects"; then
 fi
 
 # The API keeps exactly enough to read a release and to write one credential into
-# a managed namespace: Secrets, and only Secrets. create and update are the whole
+# an enrolled namespace: Secrets, and only Secrets. create and update are the whole
 # of the write half -- no delete, which would be a way to break a running release,
 # and no patch, which would merge a new credential into an old one's keys. Any
 # other resource here would put the deploy grant back on the long-lived
@@ -511,8 +528,8 @@ if [[ $helm_secret_pairs != "$expected_secret_pairs" ]]; then
 fi
 
 # ...bound into the namespace it names, not into the release namespace.
-if ! grep -A4 '^kind: Role$' <<<"$helm_rbac" | grep -q '  namespace: apps'; then
-  printf 'The Helm Role must live in the namespace it grants access to\n' >&2
+if [[ $(grep -A4 '^kind: RoleBinding$' <<<"$helm_rbac" | grep -c '  namespace: apps') != 2 ]]; then
+  printf 'Both enrolment bindings must live in the namespace they grant access to\n' >&2
   exit 1
 fi
 
@@ -706,9 +723,9 @@ fi
 # `create` on a Job here is, in reach, equivalent to holding the deploy grant
 # above, because Kubernetes does not check whether a Job's creator may run as the
 # Job's ServiceAccount. What these assert is the shape, not a bound.
-jobs_rbac=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+jobs_rbac=$(render --set admin.api.helm.enabled=true \
   --show-only templates/api/rbac-jobs.yaml)
-helm_deploy_env=$(render --set 'admin.api.helm.namespaces[0]=apps' \
+helm_deploy_env=$(render --set admin.api.helm.enabled=true \
   --show-only templates/api/deployment.yaml)
 
 # Namespaced, and to the release namespace. A ClusterRole here would let the panel
@@ -739,9 +756,9 @@ if [[ $jobs_pairs != "$expected_jobs_pairs" ]]; then
 fi
 
 # The account the Job runs as exists wherever the grant that names it does.
-if ! render --set 'admin.api.helm.namespaces[0]=apps' \
+if ! render --set admin.api.helm.enabled=true \
     --show-only templates/api/serviceaccount.yaml | grep -q 'name: admin-helm-job'; then
-  printf 'A managed namespace must render the admin-helm-job ServiceAccount\n' >&2
+  printf 'Switching Helm on must render the admin-helm-job ServiceAccount\n' >&2
   exit 1
 fi
 
@@ -770,6 +787,27 @@ if ! grep -A1 'name: ADMIN_HELM_JOB_RESOURCES' <<<"$helm_deploy_env" | grep -q '
   exit 1
 fi
 
+# The enrolment identity travels with the Job account it is checked against.
+#
+# main.go reads ADMIN_HELM_RELEASE_NAME to decide whether enrolment is configured
+# at all, and then requires ADMIN_HELM_JOB_SERVICE_ACCOUNT with it -- a panel that
+# can enrol a namespace and cannot name the account it would grant to is broken
+# rather than limited, so it refuses to start. These two used to render outside
+# the Helm block, so the shipped Kubernetes-only values produced an admin-api that
+# exited at startup. $output_file is that install.
+for enrolment_var in ADMIN_HELM_RELEASE_NAME ADMIN_API_SERVICE_ACCOUNT; do
+  if grep -q "name: $enrolment_var" "$output_file"; then
+    printf '%s renders with Helm switched off.\n' "$enrolment_var" >&2
+    printf 'It is only half of what main.go needs -- the other half lives in the\n' >&2
+    printf 'Helm block -- so the API would refuse to start.\n' >&2
+    exit 1
+  fi
+done
+if ! grep -q 'name: ADMIN_HELM_RELEASE_NAME' <<<"$helm_deploy_env"; then
+  printf 'ADMIN_HELM_RELEASE_NAME must render when Helm is on, or nothing can be enrolled\n' >&2
+  exit 1
+fi
+
 # The self-upgrade special case is gone, and so is the identity it needed.
 if grep -q 'ADMIN_RELEASE_NAME' "$output_file"; then
   printf 'ADMIN_RELEASE_NAME is gone: nothing recognises its own release any more,\n' >&2
@@ -782,32 +820,98 @@ fi
 # implicit: it is one line away from being refused again by somebody tidying the
 # protected list, and the failure would look like a chart bug rather than a
 # policy change.
-if ! render --set 'admin.api.helm.namespaces[0]=admin' \
+if ! render --set admin.api.helm.enabled=true --set 'admin.api.helm.namespaces[0]=admin' \
     --show-only templates/api/rbac-deploy.yaml | grep -q '  namespace: admin'; then
   printf "The release's own namespace must be allowed as a Helm target\n" >&2
   exit 1
 fi
 
-# admin.api.helm.allNamespaces gives the containment above up on purpose, and what
-# matters is that it is the ONLY thing that does: one ClusterRole, no Roles, and
-# exactly the same verbs as the bounded mode. A wider grant hiding behind this
-# flag would be the worst of both.
-helm_all=$(render --set admin.api.helm.allNamespaces=true \
-  --show-only templates/api/rbac-deploy.yaml)
+# The enrolment grant, which is the one thing in this file bound cluster-wide and
+# the only reason the panel can enrol a namespace at all.
+#
+# Everything about it is a bound, so every part is asserted. It writes
+# RoleBindings and no Roles, so it cannot author a rule of its own; it may bind
+# exactly the two ClusterRoles this chart renders, named in resourceNames, which
+# is what stops it binding cluster-admin; and it holds no escalate, which would
+# make the resourceNames decorative.
+enrol_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-enrol | extract_pairs)
+expected_enrol_pairs=$(LC_ALL=C sort <<'ENROLPAIRS'
+rbac.authorization.k8s.io/clusterroles bind
+rbac.authorization.k8s.io/rolebindings create
+rbac.authorization.k8s.io/rolebindings delete
+rbac.authorization.k8s.io/rolebindings get
+rbac.authorization.k8s.io/rolebindings list
+rbac.authorization.k8s.io/rolebindings watch
+ENROLPAIRS
+)
+if [[ $enrol_pairs != "$expected_enrol_pairs" ]]; then
+  printf 'The enrolment grant must be RoleBindings and one bind, and nothing else.\n' >&2
+  printf 'roles would let it author a rule; clusterrolebindings would let it grant\n' >&2
+  printf 'cluster-wide; either removes the bound this whole arrangement rests on.\n' >&2
+  diff <(printf '%s\n' "$expected_enrol_pairs") <(printf '%s\n' "$enrol_pairs") >&2 || true
+  exit 1
+fi
 
-if [[ $(grep -c '^kind: ClusterRole$' <<<"$helm_all") != 2 ]] ||
-   [[ $(grep -c '^kind: ClusterRoleBinding$' <<<"$helm_all") != 2 ]]; then
-  printf 'allNamespaces must render exactly two ClusterRoles and two ClusterRoleBindings\n' >&2
+# `delete` on RoleBindings is scoped by name, and that has to be asserted per
+# rule rather than per document: the pair list above cannot tell a delete on two
+# named objects from a delete on every RoleBinding in the cluster, and the second
+# is what this account used to hold. nsenrol only ever deletes the two bindings it
+# creates -- Revoke walks Config.Names(), and a repair deletes what a filtered
+# list returned -- so nothing is given up by narrowing it.
+unscoped_delete=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-enrol |
+  awk '/^  - apiGroups:/ { named = 0 }
+       /^    resourceNames:/ { named = 1 }
+       /^    verbs:/ && /delete/ && !named { print "unscoped" }')
+if [[ -n $unscoped_delete ]]; then
+  printf 'The enrolment grant deletes RoleBindings it has not named.\n' >&2
+  printf 'That is delete on every RoleBinding in every namespace, which is a way\n' >&2
+  printf 'to revoke anybody. Name the two this chart creates.\n' >&2
   exit 1
 fi
-if grep -qE '^kind: Role$|^kind: RoleBinding$' <<<"$helm_all"; then
-  printf 'allNamespaces must render no per-namespace Roles\n' >&2
+
+# The resourceNames are what make `bind` safe. Without them it is bind on every
+# ClusterRole in the cluster, which is cluster-admin one RoleBinding later.
+#
+# Deduplicated because the same two names appear twice now: once for `bind` on the
+# ClusterRoles, and once for `get`/`delete` on the RoleBindings this creates,
+# which are named after them. Asserting the set rather than the occurrences is the
+# stronger claim anyway -- no rule in this grant may name a third object.
+enrol_names=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-enrol |
+  awk '/^    resourceNames:/ { grab = 1; next } grab && /^      - / { print $2; next }
+       grab { grab = 0 }' | LC_ALL=C sort -u)
+if [[ $enrol_names != "$(printf 'home-lab-admin-helm\nhome-lab-admin-secrets')" ]]; then
+  printf 'The bind verb must name exactly the two ClusterRoles this chart renders.\n' >&2
+  printf 'Got: [%s]\n' "$enrol_names" >&2
   exit 1
 fi
-if [[ $(printf '%s\n' "$helm_all" | doc_named home-lab-admin-helm | extract_pairs) != "$expected_helm_pairs" ]]; then
-  printf 'The cluster-wide Helm grant must hold exactly the same verbs as the bounded one.\n' >&2
-  diff <(printf '%s\n' "$expected_helm_pairs") \
-    <(printf '%s\n' "$helm_all" | doc_named home-lab-admin-helm | extract_pairs) >&2 || true
+
+# Nowhere in the chart, on any grant. escalate defeats resourceNames, and there is
+# no reading of this panel that needs it.
+if grep -q 'escalate' "$output_file" ||
+   grep -q '"escalate"' <<<"$helm_rbac"; then
+  printf 'Nothing in this chart may hold escalate\n' >&2
+  exit 1
+fi
+
+# admin.api.helm.allNamespaces is gone, not defaulted -- enrolment replaced the
+# reason it existed. Asserted by rendering with it, because a values file still
+# setting it must fail loudly rather than be quietly ignored.
+if render --set admin.api.helm.allNamespaces=true >/dev/null 2>&1; then
+  printf 'admin.api.helm.allNamespaces is gone; setting it must fail the render\n' >&2
+  printf 'rather than being ignored.\n' >&2
+  exit 1
+fi
+
+# Switching Helm on with no bootstrap namespace is the ordinary case: the grants
+# exist and nothing is bound into any namespace until something enrols one.
+helm_none=$(render --set admin.api.helm.enabled=true \
+  --show-only templates/api/rbac-deploy.yaml)
+if grep -qE '^kind: RoleBinding$' <<<"$helm_none"; then
+  printf 'With no bootstrap namespace, nothing may be bound into one\n' >&2
+  exit 1
+fi
+if ! grep -q 'name: home-lab-admin-enrol' <<<"$helm_none"; then
+  printf 'The enrolment grant must exist whenever Helm is switched on\n' >&2
   exit 1
 fi
 
@@ -872,7 +976,8 @@ fi
 # the mistake that turns a bounded grant into an unbounded one, and a warning in
 # a Helm output nobody reads is not a control.
 for forbidden in platform-system kube-system kube-flannel default; do
-  if render --set "admin.api.helm.namespaces[0]=$forbidden" >/dev/null 2>&1; then
+  if render --set admin.api.helm.enabled=true \
+      --set "admin.api.helm.namespaces[0]=$forbidden" >/dev/null 2>&1; then
     printf 'The chart rendered with %s as a Helm-managed namespace\n' "$forbidden" >&2
     exit 1
   fi

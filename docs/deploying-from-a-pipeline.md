@@ -33,10 +33,24 @@ can upgrade one. Read the note at the top of `charts/admin/values.yaml` about
 what is still unbounded, and the credential section below about why nothing
 narrows a token today.
 
-**The namespace has to be one the panel may deploy into.** Either it is named in
-`admin.api.helm.namespaces`, or the lab has set `admin.api.helm.allNamespaces`.
-Read the comment at the top of `charts/admin/templates/api/rbac-deploy.yaml`
-before changing either; neither is a free choice.
+**The namespace has to be enrolled.** Enrolling one creates two RoleBindings in
+it, onto ClusterRoles the admin chart owns — the panel does that from the
+namespaces page, and a namespace it creates is enrolled on the spot. Nothing has
+to be reinstalled, which is the point: enrolment used to be a values list
+rendered at install time, so adding a namespace meant a chart release and a pod
+restart.
+
+All of that is conditional on `admin.api.helm.enabled`, which is off by default.
+With it off the chart renders none of these grants, nothing is enrolled — a
+namespace created from the panel included — and the enrolment routes answer 501.
+
+`admin.api.helm.namespaces` still exists, and is now only a bootstrap list — the
+namespaces enrolled at install time, for the ones that cannot be enrolled from a
+panel that is not running yet. Read the comment at the top of
+`charts/admin/templates/api/rbac-deploy.yaml` before changing it, and before
+switching `admin.api.helm.enabled` on at all: an enrolled namespace is one whose
+every Secret the panel can read, and the panel can enrol any namespace that is
+not protected.
 
 **The admin API does not have to be reachable, and should not be.** The pipeline
 talks to the panel, which is already routable and is already the only thing that
@@ -359,11 +373,12 @@ create. The declared values are in the database and are not affected.
 This is the case the feature was asked for, and it used to be the awkward one.
 Most of what made it awkward is gone.
 
-**The panel's own namespace has to be a Helm target.** It is deployable by
-default — `admin` is refused for *deletion* and permitted for *deploys*, because
-deleting it destroys the panel and nothing about upgrading needs that. But it
-still has to be named in `admin.api.helm.namespaces`, or covered by
-`allNamespaces`.
+**The panel's own namespace has to be enrolled.** It is deployable by policy —
+`admin` is refused for *deletion* and permitted for *deploys*, because deleting
+it destroys the panel and nothing about upgrading needs that. But it still needs
+the bindings, and it is the one namespace that cannot be enrolled from a running
+panel on a fresh install, because there is no running panel yet. So name it in
+`admin.api.helm.namespaces`, which is what that list is for.
 
 Know what that means: it is the namespace holding the panel's OIDC client secret
 and its database connection strings, and a Helm grant there is read and write on
@@ -458,8 +473,8 @@ everybody, including you.
   this repository pins everything, and a constraint means installing whatever
   satisfies it on the day it happens to run.
 - **Touch a protected namespace.** `platform-system`, `default`, and anything
-  under `kube-` are refused with `403`, and putting one in the managed list is a
-  chart render failure rather than a warning. The panel's *own* namespace is not
+  under `kube-` are refused with `403`, enrolling one is refused, and putting one
+  in the bootstrap list is a chart render failure rather than a warning. The panel's *own* namespace is not
   in that set: it is refused for deletion and permitted for deploys, which is the
   asymmetry the section above depends on.
 - **Send values that are not YAML-encodable, or larger than 256 KiB.** Values end

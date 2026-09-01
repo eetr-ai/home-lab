@@ -101,8 +101,26 @@ story of the Helm feature.
 | File | Identity | Reach |
 | --- | --- | --- |
 | `rbac.yaml` | `admin-api` | Cluster-wide, almost entirely read-only. Reading the cluster; two write verbs for restart and scale. |
-| `rbac-deploy.yaml` | `admin-api` **and** `admin-helm-job` | Split in two. The API gets `secrets` `get`/`list`/`watch` in each managed namespace, which is all a *read* of a Helm release needs, plus `create`/`update` for writing a database credential into one. The Job gets everything a deploy needs. |
+| `rbac-deploy.yaml` | `admin-api` **and** `admin-helm-job` | Split in three. Two ClusterRoles nothing binds cluster-wide — `secrets` `get`/`list`/`watch` plus `create`/`update` for the API, everything a deploy needs for the Job — granted one namespace at a time by a RoleBinding the panel creates when that namespace is enrolled. Plus the small enrolment grant, which is the one thing here bound cluster-wide. |
 | `rbac-jobs.yaml` | `admin-api` | `batch/jobs` `get`/`list`/`watch`/`create`, in the release namespace only. |
+
+**Enrolment replaced the per-namespace Roles**, and it is worth knowing why. A
+`Role` needs a concrete `metadata.namespace`, which Helm only knows at render
+time, so the grants used to be rendered per entry in a values list — and adding a
+namespace meant reinstalling this chart and restarting the API's pods, in the
+middle of the workflow the feature exists for. A `RoleBinding` onto a
+`ClusterRole` has neither problem: the rules are written once, the reach is still
+one namespace per binding, and the panel can create one at runtime.
+
+State the cost plainly: the API can enrol any namespace that is not protected, so
+its eventual reach is every unprotected namespace's Secrets — the same as the
+cluster-wide grant this replaced. What differs is that it is not standing.
+Enrolling leaves two named objects behind, a namespace nobody enrolled is one the
+panel cannot read, and `kubectl get rolebindings -A` is the whole audit. What
+bounds it is `bind` on those two ClusterRoles **by name**: Kubernetes refuses any
+other `roleRef`, so the panel cannot hand out a grant this chart did not write.
+`get` and `delete` on RoleBindings name the same two objects, so revoking reaches
+only what enrolling created — it is not a way to remove anybody else's binding.
 
 Every Helm mutation runs as a Kubernetes Job in the panel's own namespace, so the
 deploy grant belongs to `admin-helm-job` and exists for the lifetime of one

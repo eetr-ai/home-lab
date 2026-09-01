@@ -1,5 +1,5 @@
 {{- if .Values.admin.api.kubernetes.enabled }}
-{{- if or .Values.admin.api.helm.namespaces .Values.admin.api.helm.allNamespaces }}
+{{- if .Values.admin.api.helm.enabled }}
 {{- /*
 Starting a Helm operation, and watching one.
 

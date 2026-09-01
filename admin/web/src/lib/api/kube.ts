@@ -75,6 +75,26 @@ export function putSecret(
 	);
 }
 
+/**
+ * Enrols a namespace as a Helm target, or repairs an enrolment that is there and
+ * wrong. One call for both, because they are the same request.
+ */
+export function enrolNamespace(namespace: string): Promise<ActionResult<Namespace>> {
+	return call<Namespace>(
+		"POST",
+		`/api/kubernetes/namespaces/${seg(namespace)}/helm-enrolment`,
+	);
+}
+
+/** Removes the role bindings, after which the panel can neither deploy into the
+ * namespace nor read its releases. */
+export function revokeNamespace(namespace: string): Promise<ActionResult<void>> {
+	return call<void>(
+		"DELETE",
+		`/api/kubernetes/namespaces/${seg(namespace)}/helm-enrolment`,
+	);
+}
+
 export function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {
 	return call<Workload[]>("GET", `/api/kubernetes/namespaces/${seg(namespace)}/workloads`);
 }

@@ -1,9 +1,9 @@
 {{- if .Values.admin.api.kubernetes.enabled }}
-{{- if or .Values.admin.api.helm.namespaces .Values.admin.api.helm.allNamespaces }}
+{{- if .Values.admin.api.helm.enabled }}
 {{- /*
-Installing and reading Helm releases, one namespace at a time.
+Installing and reading Helm releases.
 
-READ THIS BEFORE ADDING A NAMESPACE TO THE LIST.
+READ THIS BEFORE CHANGING ANY OF IT.
 
 Start with the part that no configuration changes: INSTALLING AN ARBITRARY CHART
 IS CLUSTER-ADMIN. A chart's templates are arbitrary manifests -- a
@@ -19,11 +19,9 @@ entry somebody wrote into values.yaml at a version its declared repository
 serves, and never a URL or a path a caller chose. Everything below is secondary
 to that, and none of it would be sufficient without it.
 
-What is bounded here is reach. The grant is a Role in one namespace, it names the
-resources the catalogued charts actually need and no others, and it deliberately
-holds nothing in rbac.authorization.k8s.io or apiextensions.k8s.io -- a chart
-needing RBAC or CRDs is one to install by hand and then read from the panel, and
-withholding those leaves escalation prevention nothing to escalate through.
+What is bounded here is reach. The rules name the resources the catalogued charts
+actually need and no others, and they hold nothing in apiextensions.k8s.io -- a
+chart needing CRDs is one to install by hand and then read from the panel.
 
 ADD A RESOURCE THE SAME DAY YOU ADD THE CHART THAT NEEDS IT, not in advance. A
 standing grant for something unused is a permission nobody is reviewing, which is
@@ -32,70 +30,55 @@ the rule the read ClusterRole next door already follows.
 Helm keeps a release in a Secret in the namespace it was installed into: the
 chart it came from, the values it was given, the manifests it rendered, and every
 previous revision of all three. So reading releases means `get`, `list`, and
-`watch` on Secrets — and RBAC has no way to narrow that to Helm's own. There is no
-label selector in a Role, and `owner=helm` would buy nothing if there were.
+`watch` on Secrets -- and RBAC has no way to narrow that to Helm's own. There is
+no label selector in a Role, and `owner=helm` would buy nothing if there were.
 
   A Helm-managed namespace is a namespace whose every Secret this panel can read.
 
-That is the whole cost of this feature, stated once and plainly. Anything holding
-a token the API accepts can reach those Secrets through it. A namespace holding a
-credential that matters must not appear in the list below.
+That is the whole cost of this feature, stated once and plainly.
 
-The read ClusterRole next door deliberately excludes configmaps, on the reasoning
-that plenty of workloads keep connection strings in one and the panel renders
-whatever it reads. Secrets are strictly worse, which is exactly why this grant is
-here rather than there:
+# WHY THESE ARE ClusterRoles THAT NOTHING BINDS CLUSTER-WIDE
 
-  - A Role, not a ClusterRole. It reaches into one namespace and stops.
-  - One per namespace named in admin.api.helm.namespaces, so the blast radius is
-    a list somebody has to edit rather than the cluster.
-  - Nothing wildcard, and nothing in rbac.authorization.k8s.io or
-    apiextensions.k8s.io. A chart needing RBAC or CRDs is one to install by hand
-    and then read from the panel, and withholding them leaves Kubernetes'
-    escalation prevention nothing to escalate through.
+The rules below live in cluster-scoped objects, and the only ClusterRoleBinding
+in this file is for the small enrolment grant at the bottom. On their own, a
+ClusterRole nothing binds grants nothing.
 
-There is a second mode, and it gives all of that up on purpose.
+What binds them is a RoleBinding in one namespace, created by the panel when that
+namespace is enrolled -- see internal/nsenrol. This used to be a Role rendered
+per entry in a values list, and a Role needs a concrete metadata.namespace, which
+Helm only knows at render time. So enrolling a namespace meant reinstalling this
+chart and restarting the API's pods, in the middle of the workflow the feature
+exists for: create a namespace from the panel, then deploy into it.
 
-admin.api.helm.allNamespaces renders ONE ClusterRole instead of the per-namespace
-Roles, because the panel can create namespaces and these Roles are rendered when
-the chart is installed — so without it, a namespace created from the panel cannot
-be deployed into until somebody reinstalls this chart. That breaks the workflow
-the feature exists for.
+A RoleBinding that references a ClusterRole has neither problem. The rules are
+written once, here, where a reviewer reads them once; the reach is still one
+namespace per binding; and enrolling is something the panel can do at runtime.
 
-  With allNamespaces on, the sentence above widens to: this panel can read every
-  Secret in every namespace on the cluster.
+# WHAT THAT COSTS
 
-Protection is unaffected in either mode — it is enforced in the API, and the
-release namespace, platform-system, default and kube-* are refused whichever
-grant is rendered. But protection is an application rule and this is a Kubernetes
-grant, so with allNamespaces on the grant no longer backs the rule up. Turn it on
-for a lab where one person holds every credential anyway; leave it off otherwise.
+Say it plainly: the API can enrol any namespace that is not protected, and
+enrolling one is what makes its Secrets readable. The eventual reach is every
+unprotected namespace -- the same as the cluster-wide grant this replaced.
 
-A protected namespace here is a render failure rather than a warning, because
-"someone put platform-system in the managed list" is exactly the mistake that
-turns a bounded grant into an unbounded one, and a warning in a Helm output
-nobody reads is not a control.
+What differs is that it is not standing. Reaching a namespace takes a deliberate
+act that leaves two named objects behind, a namespace nobody enrolled is one the
+panel cannot read, and `kubectl get rolebindings -A` is the whole audit. That is
+worth having. It is not a smaller grant, and describing it as one here would be
+the comment that gets somebody hurt.
 
-tests/validate-admin-chart.sh asserts all of it: that a namespace list renders
-Roles and never a ClusterRole, that allNamespaces renders exactly one ClusterRole
-and no Role, that both grant the same verbs, that neither reaches
-rbac.authorization.k8s.io or apiextensions.k8s.io, and that a protected namespace
-in the list fails the render.
-*/ -}}
-{{- /*
-The release namespace is NOT in this list, and that is deliberate. Deploying the
-panel's own chart from a pipeline is what this feature was asked for, so its
-namespace has to be a permitted Helm target. It is still not deletable — the API
-refuses that separately, and for a different reason: deleting it destroys the
-panel and everything in it, which no deploy needs.
+The one thing that bounds it is how the API is permitted to create those
+bindings: `bind` on these two ClusterRoles BY NAME, and nothing else. Kubernetes
+refuses a RoleBinding whose roleRef the creator may neither bind nor already
+hold, so this cannot hand out a grant that is not written above.
 
-Read the WARNING above before naming it, though. It is the namespace holding the
-panel's OIDC client secret and its database connection strings, and a Role there
-means the panel can read and rewrite all of them.
+tests/validate-admin-chart.sh asserts all of it: that the grants are ClusterRoles
+with no cluster-wide binding but the enrolment one, that the enrolment grant
+names exactly those two in resourceNames, that nothing anywhere holds `escalate`,
+that neither reaches apiextensions.k8s.io, and that a protected namespace in the
+bootstrap list fails the render.
 */ -}}
 {{- $protected := concat (list "default" "kube-system" "kube-public" "kube-node-lease")
       .Values.admin.api.kubernetes.namespaces.protected }}
-{{- if .Values.admin.api.helm.allNamespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -160,14 +143,9 @@ rules:
     resources:
       - httproutes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Unconditional, and it used to be behind admin.api.helm.selfDeploy. That flag
-  # existed because these verbs were held by the API's own long-lived credential,
-  # which made "the panel can hand every permission it holds to any
-  # ServiceAccount" a standing property of it. They belong to a Job that lives for
-  # one operation now, so the flag was deleted rather than defaulted.
-  #
-  # This chart renders a ClusterRole, a ClusterRoleBinding, a Role and a
-  # RoleBinding, so upgrading the panel needs all four.
+  # Upgrading the panel itself is a Helm operation like any other, and this chart
+  # renders ClusterRoles, a ClusterRoleBinding and RoleBindings -- so a Job
+  # applying it needs all of them.
   #
   # No escalate and no bind verb, deliberately. Without them Kubernetes refuses
   # to let this create a role holding more than the Job already holds, which is
@@ -191,7 +169,7 @@ rules:
   # endpoint: Helm keeps a release in a Secret in the namespace it was installed
   # into -- the chart, the values, the rendered manifests, every revision.
   #
-  # THIS GRANT IS NO LONGER READ-ONLY, WHICH IS WHY IT IS NO LONGER CALLED -read.
+  # NOT read-only, and that is why it is not called -read.
   #
   # `create` and `update` are here for one route: PUT on
   # /api/kubernetes/namespaces/{namespace}/secrets/{name}, which writes a
@@ -207,12 +185,15 @@ rules:
   #
   # It is held by admin-api rather than by the Job, and that is a real change to
   # what the long-lived credential can do. Weigh it as: this account could
-  # already READ every Secret in a managed namespace, so it could already learn
+  # already READ every Secret in an enrolled namespace, so it could already learn
   # every credential there; it can now also overwrite one, which breaks a
-  # workload rather than exposing anything new. That is the honest shape of it,
-  # and it is bounded to managed namespaces because this grant is.
+  # workload rather than exposing anything new. It reaches only namespaces
+  # something enrolled, because that is what binds this grant at all.
   #
-  # The warning at the top still applies to the `get` half unchanged:
+  # Every other Helm mutation still runs in a Job holding the grant above, for the
+  # length of one operation.
+  #
+  # The warning at the top applies to this in full:
   #
   #   A Helm-managed namespace is a namespace whose every Secret this panel can
   #   read.
@@ -224,36 +205,90 @@ rules:
       - secrets
     verbs: ["get", "list", "watch", "create", "update"]
 ---
+{{- /*
+Enrolling a namespace, and the one grant in this file that IS bound cluster-wide.
+
+It is deliberately tiny, and every part of it is load-bearing:
+
+  - RoleBindings only. No Roles, so this cannot write a rule of its own -- the
+    only rules it can hand out are the two ClusterRoles above, which are in this
+    file and reviewed with it.
+  - `bind` with resourceNames naming exactly those two. Kubernetes refuses a
+    RoleBinding whose roleRef the creator may neither bind nor already hold, so
+    the resourceNames are what stop this from binding cluster-admin.
+  - No `escalate`, which would make the resourceNames pointless.
+  - No ClusterRoleBinding verbs. Enrolment is namespaced by construction: this
+    cannot grant anything cluster-wide, including to itself.
+
+`delete` is here because revoking has to work, and because a roleRef is
+immutable -- a binding left pointing at something else by an older chart can only
+be repaired by deleting and recreating it, which is the case this whole state
+machine exists for.
+*/ -}}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: ClusterRole
 metadata:
-  name: {{ .Release.Name }}-secrets
+  name: {{ .Release.Name }}-enrol
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ .Release.Name }}-secrets
-subjects:
-  - kind: ServiceAccount
-    name: admin-api
-    namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - rolebindings
+    verbs: ["list", "watch", "create"]
+  # `get` and `delete` name the two bindings this creates, because neither verb
+  # needs to reach any other. `list` and `watch` cannot be narrowed this way --
+  # resourceNames does not apply to them, which is why the reading is done by
+  # listing the namespace and filtering by name in Go. `create` cannot be narrowed
+  # either; what bounds it is `bind` below, since a RoleBinding whose roleRef the
+  # creator may not bind is refused outright.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - rolebindings
+    resourceNames:
+      - {{ .Release.Name }}-helm
+      - {{ .Release.Name }}-secrets
+    verbs: ["get", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - clusterroles
+    resourceNames:
+      - {{ .Release.Name }}-helm
+      - {{ .Release.Name }}-secrets
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ .Release.Name }}-helm
+  name: {{ .Release.Name }}-enrol
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Release.Name }}-helm
+  name: {{ .Release.Name }}-enrol
 subjects:
   - kind: ServiceAccount
-    name: admin-helm-job
+    name: admin-api
     namespace: {{ .Release.Namespace }}
-{{- else }}
+{{- /*
+The bootstrap list.
+
+Everything else here is enrolled at runtime, from the panel. This exists for the
+namespaces that cannot be: the panel's own, which has to be a Helm target before
+there is a running panel to enrol it, and any namespace a lab wants deployable
+from a pipeline on a fresh install.
+
+It is not the managed list any more -- there is no such list. A namespace named
+here is enrolled at install time and can be revoked from the panel afterwards,
+and one that is not named can be enrolled from the panel without touching this
+chart. Which is the entire point.
+
+A protected namespace here is a render failure rather than a warning, because
+"someone put platform-system in the list" is exactly the mistake that turns a
+bounded grant into an unbounded one, and a warning in a Helm output nobody reads
+is not a control.
+*/ -}}
 {{- range $namespace := .Values.admin.api.helm.namespaces }}
 {{- if has $namespace $protected }}
 {{- fail (printf "admin.api.helm.namespaces contains %s, which is a protected namespace" $namespace) }}
@@ -263,151 +298,6 @@ subjects:
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ $.Release.Name }}-helm
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "home-lab-admin.labels" $ | nindent 4 }}
-rules:
-  # Helm's release storage, and the resources a chart creates that live in the
-  # core group. See the warning above: `secrets` here is every Secret in the
-  # namespace, and RBAC cannot make it fewer.
-  - apiGroups: [""]
-    resources:
-      - secrets
-      - configmaps
-      - services
-      - serviceaccounts
-      - persistentvolumeclaims
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # What a chart runs.
-  - apiGroups: ["apps"]
-    resources:
-      - deployments
-      - statefulsets
-      - daemonsets
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Read-only, and not because a chart creates one -- the Deployment controller
-  # does. Helm waits for a release to become ready, and it computes a Deployment's
-  # readiness by walking down to the ReplicaSets it owns. Without this the wait
-  # never resolves: the chart applies, the pods come up healthy, and the release
-  # sits in pending-install until the timeout gives up and marks it failed.
-  #
-  # That failure is worth describing because it looks like nothing is wrong. The
-  # workload is running; only the release record disagrees. And it defeats the
-  # completion check a pipeline makes, which waits for exactly that record.
-  #
-  # No write verbs: nothing here creates or deletes a ReplicaSet, and the rule
-  # this file follows is that a grant arrives in the change that needs it.
-  - apiGroups: ["apps"]
-    resources:
-      - replicasets
-    verbs: ["get", "list", "watch"]
-  # Chart hooks are Jobs, so a chart with a migration or an install hook needs
-  # these even when it runs nothing on a schedule.
-  - apiGroups: ["batch"]
-    resources:
-      - jobs
-      - cronjobs
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources:
-      - networkpolicies
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["policy"]
-    resources:
-      - poddisruptionbudgets
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Routing. This lab is Gateway API only -- the Ingress provider is switched off
-  # in the platform chart -- so an Ingress grant would be a permission for
-  # something that cannot work.
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources:
-      - httproutes
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Unconditional, and it used to be behind admin.api.helm.selfDeploy. That flag
-  # existed because these verbs were held by the API's own long-lived credential,
-  # which made "the panel can hand every permission it holds to any
-  # ServiceAccount" a standing property of it. They belong to a Job that lives for
-  # one operation now, so the flag was deleted rather than defaulted.
-  #
-  # This chart renders a ClusterRole, a ClusterRoleBinding, a Role and a
-  # RoleBinding, so upgrading the panel needs all four.
-  #
-  # No escalate and no bind verb, deliberately. Without them Kubernetes refuses
-  # to let this create a role holding more than the Job already holds, which is
-  # the difference between a wide grant and an unbounded one.
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources:
-      - roles
-      - rolebindings
-      - clusterroles
-      - clusterrolebindings
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ $.Release.Name }}-secrets
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "home-lab-admin.labels" $ | nindent 4 }}
-rules:
-  # Reading a release, and the whole of what the API needs to answer every read
-  # endpoint: Helm keeps a release in a Secret in the namespace it was installed
-  # into -- the chart, the values, the rendered manifests, every revision.
-  #
-  # THIS GRANT IS NO LONGER READ-ONLY, WHICH IS WHY IT IS NO LONGER CALLED -read.
-  #
-  # `create` and `update` are here for one route: PUT on
-  # /api/kubernetes/namespaces/{namespace}/secrets/{name}, which writes a
-  # database credential the panel has just issued into the namespace of the chart
-  # that will use it. Without it that credential leaves the panel by being typed
-  # into a `kubectl create secret`, which is worse in every way that matters.
-  #
-  # What is NOT here is as deliberate as what is. No `delete`: removing a Secret
-  # is not part of that workflow and the verb would be a way to break a running
-  # release. No `patch`: an update replaces the object with what the caller asked
-  # for, and a merge would leave a previous credential's keys beside the new
-  # one -- a Secret holding two passwords and no way to tell which is live.
-  #
-  # It is held by admin-api rather than by the Job, and that is a real change to
-  # what the long-lived credential can do. Weigh it as: this account could
-  # already READ every Secret in a managed namespace, so it could already learn
-  # every credential there; it can now also overwrite one, which breaks a
-  # workload rather than exposing anything new. That is the honest shape of it,
-  # and it is bounded to managed namespaces because this grant is.
-  #
-  # The warning at the top still applies to the `get` half unchanged:
-  #
-  #   A Helm-managed namespace is a namespace whose every Secret this panel can
-  #   read.
-  #
-  # RBAC has no way to narrow that to Helm's own. There is no label selector in a
-  # Role, and `owner=helm` would buy nothing if there were.
-  - apiGroups: [""]
-    resources:
-      - secrets
-    verbs: ["get", "list", "watch", "create", "update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ $.Release.Name }}-secrets
-  namespace: {{ $namespace }}
-  labels:
-    {{- include "home-lab-admin.labels" $ | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ $.Release.Name }}-secrets
-subjects:
-  - kind: ServiceAccount
-    name: admin-api
-    namespace: {{ $.Release.Namespace }}
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ $.Release.Name }}-helm
@@ -416,13 +306,28 @@ metadata:
     {{- include "home-lab-admin.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
+  kind: ClusterRole
   name: {{ $.Release.Name }}-helm
 subjects:
   - kind: ServiceAccount
     name: admin-helm-job
     namespace: {{ $.Release.Namespace }}
-{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Name }}-secrets
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $.Release.Name }}-secrets
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ $.Release.Namespace }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -92,20 +92,39 @@ func (f *fakeRepo) ReadHistory(_ context.Context, namespace, name string) ([]Rev
 }
 
 // newTestService builds a service with the policy this lab actually runs: the
-// panel in "admin", platform-system protected, and "apps" the one Helm target.
+// panel in "admin", platform-system protected, and "apps" the one enrolled
+// namespace.
 func newTestService(repo repository) *Service {
-	return NewService(repo, nil, &fakeJobs{}, testPolicy(), time.Minute,
+	return NewService(repo, nil, &fakeJobs{}, testEnrolment(), testPolicy(), time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
-// testPolicy is the policy this lab actually runs: the panel in "admin",
-// platform-system protected, and "apps" the one Helm target.
+// testPolicy is the policy this lab actually runs: the panel in "admin" and
+// platform-system protected.
 func testPolicy() nspolicy.Policy {
 	return nspolicy.New(nspolicy.Config{
 		Own:       "admin",
 		Protected: []string{"platform-system"},
-		Managed:   []string{"apps"},
 	})
+}
+
+// fakeEnrolment answers with a fixed set of enrolled namespaces. It stands in for
+// the cluster read that decides which namespaces this slice may work in.
+type fakeEnrolment struct {
+	namespaces []string
+	err        error
+}
+
+func (f fakeEnrolment) Managed(context.Context) ([]string, error) {
+	return f.namespaces, f.err
+}
+
+// Only "apps". The panel's own namespace is deployable in principle — that is
+// the asymmetry the whole feature turns on — but it is deployable when it has
+// been enrolled, and here it has not, which is what these tests check refusal
+// against.
+func testEnrolment() fakeEnrolment {
+	return fakeEnrolment{namespaces: []string{"apps"}}
 }
 
 // Every read is refused for a namespace this slice may not reach, and refused
@@ -230,12 +249,12 @@ func TestReleaseNameValidation(t *testing.T) {
 	}
 }
 
-// With nothing configured there is no namespace to look in, and that is not the
-// same as there being no releases. Answering with an empty list would report a
-// lab that was never switched on as a lab with nothing installed.
+// With no namespace enrolled there is nowhere to look, and that is not the same
+// as there being no releases. Answering with an empty list would report a lab
+// that was never switched on as a lab with nothing installed.
 func TestListReleasesReportsAnUnconfiguredLab(t *testing.T) {
 	repo := newFakeRepo()
-	service := NewService(repo, nil, &fakeJobs{}, nspolicy.New(nspolicy.Config{Own: "admin"}), time.Minute,
+	service := NewService(repo, nil, &fakeJobs{}, fakeEnrolment{}, testPolicy(), time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	_, err := service.ListReleases(t.Context())
@@ -247,15 +266,16 @@ func TestListReleasesReportsAnUnconfiguredLab(t *testing.T) {
 	}
 }
 
-// The cluster-wide listing asks for exactly the configured namespaces. Reading
-// every namespace instead would need a cluster-wide grant on Helm's release
-// Secrets, which is the one thing this design refuses to hold.
-func TestListReleasesAsksOnlyForConfiguredNamespaces(t *testing.T) {
+// The listing asks for exactly the enrolled namespaces. Asking Helm to search
+// cluster-wide instead would need a cluster-wide grant on release Secrets, which
+// is the one thing this design refuses to hold — and would answer with a 403 from
+// every namespace the panel was never enrolled in.
+func TestListReleasesAsksOnlyForEnrolledNamespaces(t *testing.T) {
 	repo := newFakeRepo()
 	if _, err := newTestService(repo).ListReleases(t.Context()); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(repo.asked) != 1 || repo.asked[0] != "list:apps" {
-		t.Errorf("asked = %v, want a single listing of the configured namespaces", repo.asked)
+		t.Errorf("asked = %v, want a single listing of the enrolled namespaces", repo.asked)
 	}
 }

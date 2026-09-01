@@ -1,7 +1,6 @@
 package nspolicy
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -9,7 +8,6 @@ func TestProtected(t *testing.T) {
 	lab := Config{
 		Own:       "admin",
 		Protected: []string{"platform-system"},
-		Managed:   []string{"apps", "platform-system"},
 	}
 
 	tests := []struct {
@@ -118,7 +116,6 @@ func TestManaged(t *testing.T) {
 	lab := Config{
 		Own:       "admin",
 		Protected: []string{"platform-system"},
-		Managed:   []string{"apps", "platform-system", "admin"},
 	}
 	managed := map[string]string{LabelManaged: "true"}
 
@@ -135,22 +132,23 @@ func TestManaged(t *testing.T) {
 			want:      true,
 		},
 		{
-			// The list alone cannot be seen from the object, so it is not enough.
-			name:      "configured but not labelled",
+			// The label is the whole of the question here. A namespace that does
+			// not carry it has not asked to be a Helm target — and the role
+			// bindings, which are the other half, are nsenrol's answer rather than
+			// this one's.
+			name:      "not labelled",
 			namespace: "apps",
 			want:      false,
 		},
 		{
-			// The label alone can be applied by anything that can label a
-			// namespace, so it is not enough either.
-			name:      "labelled but not configured",
+			name:      "any labelled namespace, not only a configured one",
 			namespace: "other",
 			labels:    managed,
-			want:      false,
+			want:      true,
 		},
 		{
-			// Protection wins over the managed list, in both directions, or a
-			// typo in one values file is a Helm release in platform-system.
+			// Protection wins, however the namespace is labelled, or one label
+			// applied by hand is a Helm release in platform-system.
 			name:      "protected by configuration, however it is labelled",
 			namespace: "platform-system",
 			labels:    managed,
@@ -179,35 +177,6 @@ func TestManaged(t *testing.T) {
 				t.Errorf("Managed(%q, %v) = %v, want %v", test.namespace, test.labels, got, test.want)
 			}
 		})
-	}
-}
-
-// Enumerating a namespace is not a passive act: reading its Helm releases means
-// reading its Secrets. So a protected name must not survive into the list that
-// gets enumerated, however it got into the configured one.
-func TestManagedNamespacesExcludesProtected(t *testing.T) {
-	policy := New(Config{
-		Own:       "admin",
-		Protected: []string{"platform-system"},
-		Managed:   []string{"apps", "platform-system", "admin", "kube-system", "tools"},
-	})
-
-	got := policy.ManagedNamespaces()
-	// "admin" survives: it is the panel's own, which is deploy-able. The two
-	// genuinely protected names do not.
-	want := []string{"apps", "admin", "tools"}
-
-	if !slices.Equal(got, want) {
-		t.Errorf("ManagedNamespaces() = %v, want %v", got, want)
-	}
-}
-
-// ...and the ordinary case still comes back whole, in the order it was written.
-func TestManagedNamespacesKeepsWhatIsAllowed(t *testing.T) {
-	policy := New(Config{Own: "admin", Managed: []string{"tools", "apps"}})
-
-	if got := policy.ManagedNamespaces(); !slices.Equal(got, []string{"tools", "apps"}) {
-		t.Errorf("ManagedNamespaces() = %v, want the configured list unchanged", got)
 	}
 }
 

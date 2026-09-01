@@ -303,14 +303,16 @@ func TestReplicaCountIsBounded(t *testing.T) {
 }
 
 // newTestService builds a service with the policy this lab actually runs: the
-// panel in "admin", platform-system protected by configuration, and "apps"
-// managed.
+// panel in "admin" and platform-system protected by configuration.
+//
+// No enrolment: these tests are about namespaces and workloads, and a nil
+// enrolment is the shape a lab that does not deploy from the panel has. The
+// enrolment paths have their own tests.
 func newTestService(repo repository) *Service {
 	service, err := NewService(repo, nspolicy.New(nspolicy.Config{
 		Own:       "admin",
 		Protected: []string{"platform-system"},
-		Managed:   []string{"apps"},
-	}), "")
+	}), "", nil)
 	if err != nil {
 		panic(err)
 	}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Layers, Lock, Plus, Trash2 } from "lucide-react";
 import { deleteNamespace } from "@/app/actions/kube";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
+import { EnrolmentCell } from "./enrolment-cell";
 import { ActionsHeader, Directory } from "../../../_components/directory";
 import { useRowDelete } from "../../../_components/use-row-delete";
 import { formatAge } from "@/lib/format/age";
@@ -36,7 +37,7 @@ export function NamespaceList({
 			<Directory
 				error={error}
 				isEmpty={namespaces.length === 0}
-				minWidth="min-w-[640px]"
+				minWidth="min-w-[760px]"
 				empty={{
 					icon: Layers,
 					title: "No namespaces",
@@ -53,6 +54,12 @@ export function NamespaceList({
 						    icon — a sentence in there wrapped to three ragged lines and
 						    dragged the row height with it. */}
 						<Th>Protection</Th>
+						{/* Whether Helm can actually work in this namespace. It is not
+						    the same question as protection: a namespace can be perfectly
+						    unprotected and still have no role bindings, and a deploy
+						    into one fails with a 403 that names nothing an operator can
+						    act on. */}
+						<Th>Helm</Th>
 						<Th className="w-px whitespace-nowrap text-right">Age</Th>
 						<ActionsHeader />
 					</>
@@ -63,6 +70,9 @@ export function NamespaceList({
 						<Td className="text-muted-foreground">{namespace.status}</Td>
 						<Td className="text-muted-foreground">
 							<Protection namespace={namespace} />
+						</Td>
+						<Td className="text-muted-foreground">
+							<EnrolmentCell namespace={namespace} onError={setError} />
 						</Td>
 						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
 							{formatAge(namespace.createdAt, now)}

@@ -157,17 +157,17 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Deploy Helm releases from the panel. Renders the grants a namespace is enrolled into and lets the panel enrol one; off, every deployment route answers 501. See templates/api/rbac-deploy.yaml before switching it on: an enrolled namespace is one whose every Secret the panel can read, and the panel can enrol any namespace that is not protected."
+                },
                 "namespaces": {
                   "type": "array",
                   "items": {
                     "type": "string",
                     "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                   },
-                  "description": "Namespaces the panel may deploy Helm releases into. Each renders a Role granting read on EVERY Secret in that namespace; see templates/api/rbac-deploy.yaml."
-                },
-                "allNamespaces": {
-                  "type": "boolean",
-                  "description": "Deploy into every unprotected namespace instead of the list above. Renders one ClusterRole in place of the per-namespace Roles, which means the panel can read every Secret in every unprotected namespace. Needed for 'create a namespace, then deploy into it', because the per-namespace Roles are rendered at install time."
+                  "description": "Namespaces enrolled at install time, for the ones that cannot be enrolled from the panel - its own namespace, and anything a pipeline deploys into on a fresh install. Not an allowlist: the panel enrols and revokes the rest at runtime."
                 },
                 "postgres": {
                   "$ref": "#/$defs/managedService",

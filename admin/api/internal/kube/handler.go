@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
+	"github.com/eetr-ai/home-lab/admin/api/internal/nsenrol"
 )
 
 // Handler exposes the Kubernetes slice over HTTP.
@@ -49,6 +50,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.scaleWorkload)
 	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/secrets/{name}",
 		h.putSecret)
+	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/helm-enrolment",
+		h.enrolNamespace)
+	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/helm-enrolment",
+		h.revokeNamespace)
 }
 
 // listNamespaces returns every namespace in the cluster.
@@ -471,10 +476,17 @@ func respondError(w http.ResponseWriter, err error) {
 		// would let the second operator overwrite the first without either knowing.
 		httpx.Error(w, http.StatusConflict, "conflict",
 			"the workload changed while this request was in flight — try again")
-	case errors.Is(err, ErrProtected):
+	case errors.Is(err, ErrProtected), errors.Is(err, nsenrol.ErrProtected):
 		// 403 rather than 409: this is a statement about the object, not a
 		// temporary condition, so there is nothing to retry. The reason travels
 		// with it because the panel shows it next to the namespace.
+		//
+		// nsenrol has a protection sentinel of its own, and it reaches here: the
+		// enrolment routes pass Reconcile's error straight through. Matched
+		// explicitly rather than folded into one sentinel, because the check that
+		// produces it is nsenrol's own defence and not this slice's -- and without
+		// this line it walked past every case and came out as a 500, on a route
+		// whose OpenAPI documents a 403.
 		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, ErrAlreadyExists):
 		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
@@ -484,6 +496,12 @@ func respondError(w http.ResponseWriter, err error) {
 		// 403, and it names the namespace: the fix is to manage it, which is an
 		// operator decision rather than something to retry.
 		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
+	case errors.Is(err, ErrNotConfigured):
+		// 501, the same answer the Helm routes give when nothing is enrolled: the
+		// capability is built and this lab has not switched it on, which is
+		// neither the caller's mistake nor a failure.
+		httpx.Error(w, http.StatusNotImplemented, "not_configured",
+			"this panel is not configured to deploy with Helm")
 	case errors.Is(err, ErrForbidden):
 		// Almost always the panel's own ClusterRole binding rather than anything
 		// the caller did, so it says so rather than reading as a 500.
@@ -534,4 +552,58 @@ func (h *Handler) putSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, ref)
+}
+
+// enrolNamespace creates or repairs the role bindings a Helm target needs.
+//
+//	@Summary		Enrol a namespace as a Helm target
+//	@Description	Creates the role bindings that let the panel read and deploy releases
+//	@Description	in this namespace, and replaces any that are there and wrong — a
+//	@Description	binding left by an older chart points at a role that no longer exists,
+//	@Description	and roleRef is immutable, so nothing else will ever fix it. Idempotent:
+//	@Description	setting up and repairing are the same request. Refused for a protected
+//	@Description	namespace.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace name"
+//	@Success		200			{object}	kube.Namespace
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Failure		501			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/helm-enrolment [post]
+func (h *Handler) enrolNamespace(w http.ResponseWriter, r *http.Request) {
+	namespace, err := h.service.EnrolNamespace(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, namespace)
+}
+
+// revokeNamespace removes the panel's role bindings from a namespace.
+//
+//	@Summary		Revoke a namespace's Helm enrolment
+//	@Description	Removes the role bindings, after which the panel can neither deploy
+//	@Description	into the namespace nor read its releases. The namespace's labels are
+//	@Description	left alone: this owns role bindings, and nothing works without them.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path	string	true	"Namespace name"
+//	@Success		204
+//	@Failure		400	{object}	http.ErrorBody
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Failure		404	{object}	http.ErrorBody
+//	@Failure		501	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/helm-enrolment [delete]
+func (h *Handler) revokeNamespace(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RevokeNamespace(r.Context(), r.PathValue("namespace")); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

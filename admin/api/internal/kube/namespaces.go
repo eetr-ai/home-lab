@@ -58,7 +58,15 @@ func (s *Service) ReadNamespace(ctx context.Context, name string) (Namespace, er
 		return Namespace{}, err
 	}
 	s.applyPolicy(&namespace)
-	return namespace, nil
+
+	// The slice is what gets decorated, so read the answer back out of it. Passing
+	// `[]Namespace{namespace}` hands applyEnrolment a COPY, and a version of this
+	// that returned `namespace` returned the undecorated one — every single-
+	// namespace read reported no enrolment at all while the listing beside it was
+	// correct.
+	decorated := []Namespace{namespace}
+	s.applyEnrolment(ctx, decorated)
+	return decorated[0], nil
 }
 
 // CreateNamespace brings a namespace into existence with the labels this lab
@@ -99,6 +107,30 @@ func (s *Service) CreateNamespace(ctx context.Context, spec NamespaceSpec) (Name
 		return Namespace{}, err
 	}
 	s.applyPolicy(&namespace)
+
+	// Enrol it immediately, because "create a namespace, then deploy into it" is
+	// the workflow this whole feature exists for and a namespace that has to be
+	// set up in a second step is a namespace somebody forgets to set up.
+	//
+	// A failure here does NOT undo the namespace. It exists, it is correct, and
+	// the only thing missing is two role bindings that the repair action creates
+	// on demand — so the namespace is returned carrying the state it is really in
+	// rather than being rolled back into nothing.
+	// Decorated through a slice the result is read back out of, because
+	// applyEnrolment takes one and a fresh literal would be decorating a copy
+	// nothing looks at again. Getting that wrong is invisible while Reconcile
+	// succeeds -- the line below overwrites the state anyway -- and shows up only
+	// when it fails, as a namespace reporting no enrolment state at all rather
+	// than the "missing" or "wrong" that would tell an operator to repair it.
+	decorated := []Namespace{namespace}
+	s.applyEnrolment(ctx, decorated)
+	namespace = decorated[0]
+
+	if s.enrol != nil {
+		if state, err := s.enrol.Reconcile(ctx, namespace.Name, namespace.Labels); err == nil {
+			namespace.HelmEnrolment = string(state)
+		}
+	}
 	return namespace, nil
 }
 
@@ -182,4 +214,55 @@ func validateNamespaceLabels(labels map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// EnrolNamespace creates the role bindings that make a namespace a Helm target,
+// and repairs them when they are there and wrong.
+//
+// One idempotent call for both, because they are the same request: an operator
+// pressing "set up" on a namespace with nothing, and one pressing "repair" on a
+// namespace whose bindings an older chart left pointing elsewhere, want the same
+// end state and should not have to know which case they are in.
+//
+// Protection is checked by the enrolment service itself, not here, because it is
+// the layer that writes.
+func (s *Service) EnrolNamespace(ctx context.Context, name string) (Namespace, error) {
+	namespace, err := s.readForEnrolment(ctx, name)
+	if err != nil {
+		return Namespace{}, err
+	}
+
+	state, err := s.enrol.Reconcile(ctx, namespace.Name, namespace.Labels)
+	if err != nil {
+		return Namespace{}, err
+	}
+	namespace.HelmEnrolment = string(state)
+	return namespace, nil
+}
+
+// RevokeNamespace removes the panel's role bindings from a namespace.
+//
+// What makes enrolment safe to offer is that it comes off again. The label is
+// left where it is: this writes role bindings, and nothing deploys without them.
+func (s *Service) RevokeNamespace(ctx context.Context, name string) error {
+	if _, err := s.readForEnrolment(ctx, name); err != nil {
+		return err
+	}
+	return s.enrol.Revoke(ctx, name)
+}
+
+// readForEnrolment validates the name, refuses the request when this lab does not
+// deploy from the panel, and reads the live namespace.
+//
+// The namespace is read rather than taken on trust because both operations turn
+// on its labels, and a label is exactly the thing that can have changed since the
+// listing the operator is looking at was rendered.
+func (s *Service) readForEnrolment(ctx context.Context, name string) (Namespace, error) {
+	if err := validateNamespace(name); err != nil {
+		return Namespace{}, err
+	}
+	if s.enrol == nil {
+		return Namespace{}, ErrNotConfigured
+	}
+	return s.ReadNamespace(ctx, name)
 }

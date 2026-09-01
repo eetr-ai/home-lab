@@ -193,27 +193,38 @@ admin:
     # A repository allowlist belongs here when this lab grows one, and per-subject
     # authorization is coming as a platform module.
     helm:
-      # Namespaces the panel may deploy into. Empty leaves the deployment routes
-      # answering 501: the capability is built, and this lab has not switched it
-      # on. A protected namespace here is a render failure rather than a warning.
+      # Deploy Helm releases from the panel.
+      #
+      # Off leaves the deployment routes answering 501: the capability is built,
+      # and this lab has not switched it on.
+      #
+      # READ templates/api/rbac-deploy.yaml BEFORE SWITCHING IT ON. On, the panel
+      # can enrol any namespace that is not protected -- and an enrolled namespace
+      # is one whose every Secret it can read. That is the cost of the feature and
+      # it is not reducible: Helm keeps a release in a Secret, and RBAC cannot
+      # narrow a Secret grant to Helm's own.
+      #
+      # There is also no allowlist of installable charts, and nothing narrowing
+      # what a caller may do: this API checks that a token is authentic and asks
+      # nothing about permission, so anyone holding one can install any chart this
+      # cluster can reach -- and a chart's templates are arbitrary manifests. The
+      # deploy grant is what bounds the damage, and it is the only thing that does.
+      enabled: false
+
+      # Namespaces enrolled at install time.
+      #
+      # NOT an allowlist. Every other namespace is enrolled from the panel, at
+      # runtime, with nothing to reinstall -- which is the whole point: the grant
+      # is a RoleBinding onto a ClusterRole this chart owns, so it no longer has
+      # to be rendered per namespace.
+      #
+      # This list exists for the namespaces that cannot be enrolled from the panel
+      # because there is no panel yet: its own, and anything a pipeline deploys
+      # into on a fresh install.
+      #
+      # A protected namespace here is a render failure rather than a warning.
       namespaces: []
         # - apps
-
-      # Deploy into every namespace that is not protected, instead of the list
-      # above.
-      #
-      # This exists because the panel can create namespaces, and the per-namespace
-      # Roles above are rendered when the chart is installed: without it, a
-      # namespace created from the panel cannot be deployed into until somebody
-      # reinstalls this chart, which breaks "create a namespace, then deploy into
-      # it".
-      #
-      # The cost is the one named above, widened to the whole cluster: with this
-      # on, the panel can read every Secret in every namespace that is not
-      # protected. Protection is unaffected -- the release namespace,
-      # platform-system, default and kube-* stay refused either way. Off unless a
-      # lab decides otherwise.
-      allNamespaces: false
 
       # The Job that performs one Helm operation.
       #

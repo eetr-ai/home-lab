@@ -177,7 +177,7 @@ func newDeploymentService(repo repository, deployments DeploymentStore) *Service
 func newDeploymentServiceWithJobs(repo repository, deployments DeploymentStore,
 	runner Jobs,
 ) *Service {
-	return NewService(repo, deployments, runner, testPolicy(), time.Minute,
+	return NewService(repo, deployments, runner, testEnrolment(), testPolicy(), time.Minute,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -428,17 +428,29 @@ func TestDeclareValidatesBeforeItWrites(t *testing.T) {
 
 // With no database configured, the deployment endpoints report that the
 // capability was not switched on rather than failing as though it were broken.
+//
+// And they name the RIGHT missing thing. This used to be ErrNotConfigured, which
+// the handler renders as "no namespaces are configured for Helm" — so an
+// operator whose namespaces were fine and whose database was absent was sent to
+// look at the namespaces. The two conditions are independent: reading releases
+// works without a store, and declaring one needs it however many namespaces are
+// enrolled.
 func TestDeploymentsReportAnUnconfiguredStore(t *testing.T) {
 	service := newDeploymentService(newFakeRepo(), nil)
 
-	if _, err := service.ListDeployments(t.Context(), ""); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("list: want ErrNotConfigured, got %v", err)
+	if _, err := service.ListDeployments(t.Context(), ""); !errors.Is(err, ErrNoDeploymentStore) {
+		t.Errorf("list: want ErrNoDeploymentStore, got %v", err)
 	}
-	if _, err := service.ReadDeployment(t.Context(), "d1"); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("read: want ErrNotConfigured, got %v", err)
+	if _, err := service.ReadDeployment(t.Context(), "d1"); !errors.Is(err, ErrNoDeploymentStore) {
+		t.Errorf("read: want ErrNoDeploymentStore, got %v", err)
 	}
-	if _, err := service.Rollout(t.Context(), "d1", RolloutRequest{}, "tester"); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("rollout: want ErrNotConfigured, got %v", err)
+	if _, err := service.Rollout(t.Context(), "d1", RolloutRequest{}, "tester"); !errors.Is(err, ErrNoDeploymentStore) {
+		t.Errorf("rollout: want ErrNoDeploymentStore, got %v", err)
+	}
+	// The missing store must not masquerade as the other condition, which is what
+	// this whole split is for.
+	if _, err := service.ListDeployments(t.Context(), ""); errors.Is(err, ErrNotConfigured) {
+		t.Error("a missing store must not report as an unconfigured namespace list")
 	}
 }
 
@@ -528,3 +540,37 @@ func TestReadDeploymentReportsAFailedReleaseRead(t *testing.T) {
 // see. What replaces it is a live check, recorded on the pull request: upgrade
 // the admin release from the panel and watch the Job outlive both Deployments
 // rolling.
+
+// The unscoped listing is checked too, and it is the one that had nothing
+// checking it.
+//
+// A declared deployment outlives the enrolment that made its namespace
+// deployable — revoking removes role bindings and leaves the record — so the
+// store holds rows for namespaces this panel may no longer touch. Asked for one
+// of them by name, every other route answers 403; the listing used to hand them
+// over anyway, with the live release status read out of the namespace beside it.
+func TestUnscopedDeploymentListingDropsNamespacesTheStackMayNotReach(t *testing.T) {
+	store := newFakeStore()
+	seededDeployment(store, "replicaCount: 1")
+	store.seed(Deployment{
+		ID:          "d2",
+		Namespace:   "revoked",
+		ReleaseName: "whoami",
+		ChartRef:    "oci://ghcr.io/example/whoami",
+	}, DeploymentVersion{Version: 1, ChartVersion: "1.0.0", Source: SourcePanel})
+
+	summaries, err := newDeploymentService(newFakeRepo(), store).ListDeployments(t.Context(), "")
+	if err != nil {
+		t.Fatalf("ListDeployments() error = %v", err)
+	}
+
+	for _, summary := range summaries {
+		if summary.Namespace == "revoked" {
+			t.Errorf("the listing carried %s/%s, whose namespace is not enrolled",
+				summary.Namespace, summary.ReleaseName)
+		}
+	}
+	if len(summaries) != 1 {
+		t.Errorf("listed %d deployments, want only the enrolled one", len(summaries))
+	}
+}
