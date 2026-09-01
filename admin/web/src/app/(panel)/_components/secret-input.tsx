@@ -237,7 +237,7 @@ function GeneratorPopover({
 					</div>
 				) : null}
 
-				{error ? <p className="text-xs text-danger">{error}</p> : null}
+				{error ? <p className="text-xs text-danger-fg">{error}</p> : null}
 
 				{candidate ? (
 					<div className="flex items-start gap-1">
