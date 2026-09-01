@@ -112,6 +112,33 @@ export function Popover({
 		};
 	}, [mounted, anchor, width]);
 
+	// Escape closes this and nothing else.
+	//
+	// useFocusTrap listens on its own container, which is right for a modal whose
+	// focus is inside it and wrong here: opening a popover does not reliably move
+	// focus into it — measured in a production build, focus stays on the trigger,
+	// which is a button inside whatever opened it. So Escape never reached this
+	// popover's handler at all. It reached the SidePanel underneath, and closed
+	// THAT: the panel slid out while the popover sat at its fixed coordinates,
+	// which is what "flickering on dismissal" looked like.
+	//
+	// Handled on the document in the capture phase so the topmost overlay sees it
+	// first, and stopped there so it never reaches the one below. That is the
+	// layering rule a nested overlay needs, and it does not depend on knowing why
+	// the focus does not land — which I could not determine.
+	useEffect(() => {
+		if (!open) return;
+
+		function onKeyDown(event: KeyboardEvent) {
+			if (event.key !== "Escape") return;
+			event.stopPropagation();
+			onRequestClose();
+		}
+
+		document.addEventListener("keydown", onKeyDown, true);
+		return () => document.removeEventListener("keydown", onKeyDown, true);
+	}, [open, onRequestClose]);
+
 	// A click outside closes it — but not a click on the trigger, which owns the
 	// toggle. Without that exception the trigger would close and immediately
 	// reopen, and the popover would look like it ignored the second click.
