@@ -56,3 +56,27 @@ describe("credentialSecretData", () => {
 		expect(result).toEqual({ ok: false, error: '"password" would have no value.' });
 	});
 });
+
+// The keys Kubernetes refuses for a reason that is not about characters. A key
+// is a filename once the Secret is mounted, so these would be a 500 from the API
+// server — arriving after the role has already been created.
+describe("the keys Kubernetes reserves", () => {
+	it.each([".", "..", "..hidden"])("refuses %j", (key) => {
+		const result = credentialSecretData(credential, { ...DEFAULT_LAYOUT, passwordKey: key });
+		expect(result).toEqual({
+			ok: false,
+			error: `"${key}" is a path Kubernetes reserves, so it cannot be a Secret key.`,
+		});
+	});
+
+	it("allows a leading single dot, which Kubernetes does", () => {
+		const result = credentialSecretData(credential, { ...DEFAULT_LAYOUT, passwordKey: ".env" });
+		expect(result.ok && result.data[".env"]).toBe("hunter2hunter2hu");
+	});
+
+	it("refuses a key past the 253 characters a mounted path allows", () => {
+		const key = "k".repeat(254);
+		const result = credentialSecretData(credential, { ...DEFAULT_LAYOUT, passwordKey: key });
+		expect(result.ok).toBe(false);
+	});
+});

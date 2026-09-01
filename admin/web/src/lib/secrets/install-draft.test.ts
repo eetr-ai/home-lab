@@ -45,3 +45,47 @@ describe("secretName", () => {
 		expect(secretName(on, "")).toBe("");
 	});
 });
+
+// The name is checked here because of the order the two calls go in: the role is
+// created first, so a name the API would refuse costs an operator a live
+// credential that reached nothing.
+describe("the Secret name", () => {
+	it("refuses one the API would not accept", () => {
+		const plan = planInstall(
+			{ ...EMPTY_INSTALL, enabled: true, namespace: "apps", name: "analytics credentials" },
+			{ username: "octo", password: "hunter2hunter2hu" },
+		);
+		expect(plan?.ok).toBe(false);
+	});
+
+	it("refuses one past 63 characters", () => {
+		const plan = planInstall(
+			{ ...EMPTY_INSTALL, enabled: true, namespace: "apps", name: "a".repeat(64) },
+			{ username: "octo", password: "hunter2hunter2hu" },
+		);
+		expect(plan?.ok).toBe(false);
+	});
+
+	it("accepts the one it derives from the credential", () => {
+		const plan = planInstall(
+			{ ...EMPTY_INSTALL, enabled: true, namespace: "apps" },
+			{ username: "octo", password: "hunter2hunter2hu" },
+		);
+		expect(plan).toMatchObject({ ok: true, name: "octo-credentials" });
+	});
+});
+
+// A PostgreSQL role may be named analytics_app; a Secret may not.
+describe("the derived name", () => {
+	it("makes an underscored role name into a legal Secret name", () => {
+		expect(secretName(on, "analytics_app")).toBe("analytics-app-credentials");
+	});
+
+	it("plans an install for one", () => {
+		const plan = planInstall(
+			{ ...EMPTY_INSTALL, enabled: true, namespace: "apps" },
+			{ username: "analytics_app", password: "hunter2hunter2hu" },
+		);
+		expect(plan).toMatchObject({ ok: true, name: "analytics-app-credentials" });
+	});
+});

@@ -534,6 +534,10 @@
                     "createdAt": {
                         "type": "string"
                     },
+                    "helmManaged": {
+                        "description": "HelmManaged reports whether this panel may write into the namespace at all\n-- install a release, or put a Secret there. It is the same verdict the\nwrite endpoints reach, computed once so the panel can stop offering a\ndestination that would be refused.\n\nIt cannot be worked out in the browser. Half the rule is a label, which the\npanel can see, and the other half is a list in a values file, which it\ncannot. Sending only the label half would be a filter that is right in one\ndeployment mode and wrong in the other.",
+                        "type": "boolean"
+                    },
                     "labels": {
                         "additionalProperties": {
                             "type": "string"

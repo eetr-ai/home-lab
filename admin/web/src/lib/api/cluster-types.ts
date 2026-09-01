@@ -20,6 +20,12 @@ export interface Namespace {
 	protected: boolean;
 	/** Why, when it is. Shown next to the namespace in place of a delete action. */
 	protectedReason?: string;
+	/**
+	 * Whether the panel may write into it — install a release, or put a Secret
+	 * there. Half the rule is a label and half is a list in a values file the
+	 * browser cannot see, so the API answers it rather than the panel guessing.
+	 */
+	helmManaged: boolean;
 }
 
 /** POST /api/kubernetes/namespaces */

@@ -90,6 +90,7 @@ export function CreateMongoUserPanel({
 			<InstallSecretFields
 				draft={secret.install}
 				username={name}
+				database={database}
 				namespaces={namespaces}
 				namespacesError={namespacesError}
 				onChange={secret.setInstall}

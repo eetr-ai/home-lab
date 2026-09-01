@@ -18,6 +18,7 @@ import type { Namespace } from "@/lib/api/types";
 export function InstallSecretFields({
 	draft,
 	username,
+	database,
 	namespaces,
 	namespacesError,
 	onChange,
@@ -25,6 +26,12 @@ export function InstallSecretFields({
 	draft: InstallDraft;
 	/** The credential being created, which is what the Secret is named after. */
 	username: string;
+	/**
+	 * The database the credential belongs to, where it belongs to one. MongoDB
+	 * users do; PostgreSQL roles do not, and the key field for it is not offered
+	 * when there is nothing to put in it.
+	 */
+	database?: string;
 	namespaces: Namespace[];
 	namespacesError: string | null;
 	onChange: (draft: InstallDraft) => void;
@@ -64,6 +71,15 @@ export function InstallSecretFields({
 						<p className="text-xs text-danger">The namespaces could not be read: {namespacesError}</p>
 					) : null}
 
+					{/* An empty list is not an error, and it is not nothing either: the
+					    cluster has namespaces, and none of them is one this panel may
+					    write into. Saying so beats a select with one placeholder in it. */}
+					{!namespacesError && namespaces.length === 0 ? (
+						<p className="text-xs text-muted-foreground">
+							No namespace here is managed by the panel, so there is nowhere to install a Secret.
+						</p>
+					) : null}
+
 					<FormField label="Secret name" htmlFor="secret-name">
 						<Input
 							id="secret-name"
@@ -95,6 +111,17 @@ export function InstallSecretFields({
 								required
 							/>
 						</FormField>
+						{database ? (
+							<FormField label="Database key" htmlFor="secret-database-key">
+								<Input
+									id="secret-database-key"
+									value={draft.databaseKey}
+									onChange={(event) => set("databaseKey", event.target.value)}
+									placeholder="leave empty to omit"
+									autoComplete="off"
+								/>
+							</FormField>
+						) : null}
 					</div>
 
 					<Checkbox

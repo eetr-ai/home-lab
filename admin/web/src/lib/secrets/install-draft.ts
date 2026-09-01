@@ -38,8 +38,37 @@ export type InstallPlan =
  * own than one that says what it holds.
  */
 export function secretName(draft: InstallDraft, username: string): string {
-	return draft.name.trim() || (username ? `${username}-credentials` : "");
+	return draft.name.trim() || defaultSecretName(username);
 }
+
+/**
+ * The derived name, made legal.
+ *
+ * `analytics_app` is an ordinary PostgreSQL role and an illegal Secret name, so
+ * the obvious derivation produces something the API refuses — after the role has
+ * been created. Underscores become hyphens, capitals come down, and anything else
+ * is dropped; a name the operator types is left exactly as typed and checked.
+ */
+function defaultSecretName(username: string): string {
+	const stem = username
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+	return stem ? `${stem}-credentials` : "";
+}
+
+/**
+ * The name rule the API applies, repeated here so a typo is caught before the
+ * credential exists.
+ *
+ * A DNS-1123 *label*, not the subdomain Kubernetes would allow: the API is
+ * deliberately stricter — see validateSecretName — and a client that were more
+ * permissive would let `analytics credentials` through, create the role, and then
+ * fail the write with the operator holding half a result.
+ */
+const NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const MAX_NAME_LENGTH = 63;
 
 /**
  * Turns the draft and the credential into the call to make, or into the reason
@@ -55,6 +84,14 @@ export function planInstall(draft: InstallDraft, credential: Credential): Instal
 
 	const name = secretName(draft, credential.username);
 	if (!name) return { ok: false, error: "Name the Secret." };
+	if (name.length > MAX_NAME_LENGTH || !NAME_PATTERN.test(name)) {
+		return {
+			ok: false,
+			error: `"${name}" is not a valid Secret name: lowercase letters, digits and ` +
+				`hyphens, starting and ending with a letter or digit, at most ` +
+				`${MAX_NAME_LENGTH} characters.`,
+		};
+	}
 
 	const data = credentialSecretData(credential, draft);
 	if (!data.ok) return data;

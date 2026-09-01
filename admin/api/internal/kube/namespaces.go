@@ -159,6 +159,7 @@ func (s *Service) DeleteNamespace(ctx context.Context, name string, force bool) 
 func (s *Service) applyPolicy(namespace *Namespace) {
 	namespace.Protected, namespace.ProtectedReason =
 		s.policy.Protected(namespace.Name, namespace.Labels)
+	namespace.HelmManaged = s.policy.Managed(namespace.Name, namespace.Labels)
 }
 
 // validateNamespaceLabels refuses the label keys a caller may not set.

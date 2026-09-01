@@ -19,6 +19,16 @@ type Namespace struct {
 	// by internal/nspolicy from the name and the labels above, not by the cluster.
 	Protected       bool   `json:"protected"`
 	ProtectedReason string `json:"protectedReason,omitempty"`
+	// HelmManaged reports whether this panel may write into the namespace at all
+	// -- install a release, or put a Secret there. It is the same verdict the
+	// write endpoints reach, computed once so the panel can stop offering a
+	// destination that would be refused.
+	//
+	// It cannot be worked out in the browser. Half the rule is a label, which the
+	// panel can see, and the other half is a list in a values file, which it
+	// cannot. Sending only the label half would be a filter that is right in one
+	// deployment mode and wrong in the other.
+	HelmManaged bool `json:"helmManaged"`
 }
 
 // NamespaceSpec is a request to create a namespace.
