@@ -76,6 +76,18 @@ raw Tailwind color ramps, `rounded-xl`, or `border-brand-muted` outside
 `theme.css`. Without it these creep back within a few changes, and the nested
 border look the visual system exists to prevent comes back with them.
 
+It also fails on a **role that does not exist**. `text-danger` looks exactly like
+a role token, and there is no `--color-danger` — only `danger-fg`, `danger-bg`,
+`danger-border` and `danger-icon`. Tailwind emits nothing for it, so the text
+renders in the inherited colour and nothing anywhere says so. That reached the
+panel twice, both times on an error message, which is where "looks like ordinary
+text" is exactly what no reviewer notices.
+
+The rule is scoped to names that are *trying* to be a role — the first segment
+matches a family the theme defines, but the whole name does not — so `text-xs` is
+not a false positive. If you add a colour family, that scoping is what decides
+whether a typo in it gets caught.
+
 ## Visual system
 
 **Depth comes from surface, not outline.** A boundary gets exactly one edge, drawn
