@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.3...admin-v1.6.0) (2026-09-01)
+
+
+### Features
+
+* **admin:** a Secrets tab, and a password field that generates one ([#82](https://github.com/eetr-ai/home-lab/issues/82)) ([2b5f11d](https://github.com/eetr-ai/home-lab/commit/2b5f11d7cdbbfb640a6ae222393cb0dcd4b318fa))
+* **admin:** enrol a namespace as a Helm target without reinstalling the chart ([#79](https://github.com/eetr-ai/home-lab/issues/79)) ([3d38067](https://github.com/eetr-ai/home-lab/commit/3d3806740f6abc485b7078cfe5015ef4233ea882))
+* **admin:** install a minted database credential as a Secret ([#78](https://github.com/eetr-ai/home-lab/issues/78)) ([44ff242](https://github.com/eetr-ai/home-lab/commit/44ff242da14fde101644dbafce6211c7960ff3ba))
+* **admin:** manage a namespace's Secrets from the panel ([#81](https://github.com/eetr-ai/home-lab/issues/81)) ([84f3405](https://github.com/eetr-ai/home-lab/commit/84f340554fcf6a6ec3bcb9741dbfe9657cfe77d2))
+
 ## [1.5.3](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.2...admin-v1.5.3) (2026-08-30)
 
 
