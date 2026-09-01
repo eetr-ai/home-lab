@@ -54,7 +54,7 @@ type PipelineRequest struct {
 // ListDeployments returns the declared deployments with their live status.
 func (s *Service) ListDeployments(ctx context.Context, namespace string) ([]DeploymentSummary, error) {
 	if s.store == nil {
-		return nil, ErrNotConfigured
+		return nil, ErrNoDeploymentStore
 	}
 	if namespace != "" {
 		if err := s.checkNamespace(ctx, namespace); err != nil {
@@ -111,7 +111,7 @@ func (s *Service) ReadDeployment(ctx context.Context, id string) (DeploymentDeta
 // Declare records a chart for a namespace, and puts nothing on the cluster.
 func (s *Service) Declare(ctx context.Context, req DeclareRequest, actor string) (Deployment, error) {
 	if s.store == nil {
-		return Deployment{}, ErrNotConfigured
+		return Deployment{}, ErrNoDeploymentStore
 	}
 	if err := s.checkRelease(ctx, req.Namespace, req.Name); err != nil {
 		return Deployment{}, err
@@ -196,7 +196,7 @@ func (s *Service) AddVersion(ctx context.Context, id string, req VersionRequest,
 // version — they are written together — so the caller may index the first.
 func (s *Service) load(ctx context.Context, id string) (Deployment, []DeploymentVersion, error) {
 	if s.store == nil {
-		return Deployment{}, nil, ErrNotConfigured
+		return Deployment{}, nil, ErrNoDeploymentStore
 	}
 
 	deployment, err := s.store.ReadDeployment(ctx, id)

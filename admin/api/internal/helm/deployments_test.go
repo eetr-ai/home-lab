@@ -428,17 +428,29 @@ func TestDeclareValidatesBeforeItWrites(t *testing.T) {
 
 // With no database configured, the deployment endpoints report that the
 // capability was not switched on rather than failing as though it were broken.
+//
+// And they name the RIGHT missing thing. This used to be ErrNotConfigured, which
+// the handler renders as "no namespaces are configured for Helm" — so an
+// operator whose namespaces were fine and whose database was absent was sent to
+// look at the namespaces. The two conditions are independent: reading releases
+// works without a store, and declaring one needs it however many namespaces are
+// enrolled.
 func TestDeploymentsReportAnUnconfiguredStore(t *testing.T) {
 	service := newDeploymentService(newFakeRepo(), nil)
 
-	if _, err := service.ListDeployments(t.Context(), ""); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("list: want ErrNotConfigured, got %v", err)
+	if _, err := service.ListDeployments(t.Context(), ""); !errors.Is(err, ErrNoDeploymentStore) {
+		t.Errorf("list: want ErrNoDeploymentStore, got %v", err)
 	}
-	if _, err := service.ReadDeployment(t.Context(), "d1"); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("read: want ErrNotConfigured, got %v", err)
+	if _, err := service.ReadDeployment(t.Context(), "d1"); !errors.Is(err, ErrNoDeploymentStore) {
+		t.Errorf("read: want ErrNoDeploymentStore, got %v", err)
 	}
-	if _, err := service.Rollout(t.Context(), "d1", RolloutRequest{}, "tester"); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("rollout: want ErrNotConfigured, got %v", err)
+	if _, err := service.Rollout(t.Context(), "d1", RolloutRequest{}, "tester"); !errors.Is(err, ErrNoDeploymentStore) {
+		t.Errorf("rollout: want ErrNoDeploymentStore, got %v", err)
+	}
+	// The missing store must not masquerade as the other condition, which is what
+	// this whole split is for.
+	if _, err := service.ListDeployments(t.Context(), ""); errors.Is(err, ErrNotConfigured) {
+		t.Error("a missing store must not report as an unconfigured namespace list")
 	}
 }
 

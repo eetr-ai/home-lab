@@ -286,6 +286,13 @@ func respondError(w http.ResponseWriter, err error) {
 		slog.Error("the helm deployment store did not answer", slog.Any("error", err))
 		httpx.Error(w, http.StatusServiceUnavailable, "store_unavailable",
 			"the record of declared deployments could not be reached")
+	case errors.Is(err, ErrNoDeploymentStore):
+		// 501, like the one below, and for the same reason -- but it says which of
+		// the two things is missing. They used to share a message, and the one it
+		// used named namespaces, so an operator whose namespaces were fine went
+		// looking at them anyway.
+		httpx.Error(w, http.StatusNotImplemented, "not_configured",
+			"no database is configured for declared deployments")
 	case errors.Is(err, ErrNotConfigured):
 		// 501 rather than 404. The capability is built and served; this lab has
 		// not named a namespace for it to work in. A 404 would read as "no such
