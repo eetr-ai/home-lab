@@ -285,10 +285,6 @@ func TestDeleteNamespaceIsConditionedOnTheObjectItChecked(t *testing.T) {
 // Secret write would refuse — and the failure mode if it went missing is silent:
 // every namespace would look unmanaged and the install section would offer
 // nothing, with no error anywhere to say why.
-//
-// Both halves of the rule are checked, because each is weak alone. The label can
-// be applied by anything that can label a namespace; the configured list cannot
-// be seen from the cluster.
 func TestANamespaceSaysWhetherThePanelMayWriteThere(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -296,7 +292,7 @@ func TestANamespaceSaysWhetherThePanelMayWriteThere(t *testing.T) {
 		want      bool
 	}{
 		{
-			name: "configured and labelled",
+			name: "labelled as a Helm target",
 			namespace: Namespace{
 				Name:   "apps",
 				Labels: map[string]string{nspolicy.LabelManaged: "true"},
@@ -304,14 +300,7 @@ func TestANamespaceSaysWhetherThePanelMayWriteThere(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "labelled but not configured",
-			namespace: Namespace{
-				Name:   "somewhere-else",
-				Labels: map[string]string{nspolicy.LabelManaged: "true"},
-			},
-		},
-		{
-			name:      "configured but not labelled",
+			name:      "not labelled",
 			namespace: Namespace{Name: "apps"},
 		},
 		{
@@ -323,22 +312,10 @@ func TestANamespaceSaysWhetherThePanelMayWriteThere(t *testing.T) {
 		},
 	}
 
-	// Its own policy rather than the shared one, because the point is that a
-	// namespace has to be in the configured list *and* carry the label, and a
-	// policy with no list managed everything and would prove only half of it.
-	service, err := NewService(&fakeRepo{}, nspolicy.New(nspolicy.Config{
-		Own:       "admin",
-		Protected: []string{"platform-system"},
-		Managed:   []string{"apps"},
-	}), "")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			namespace := test.namespace
-			service.applyPolicy(&namespace)
+			newTestService(&fakeRepo{}).applyPolicy(&namespace)
 			if namespace.HelmManaged != test.want {
 				t.Errorf("HelmManaged = %v, want %v", namespace.HelmManaged, test.want)
 			}

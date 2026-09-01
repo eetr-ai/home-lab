@@ -8,6 +8,7 @@ function namespace(fields: Partial<Namespace>): Namespace {
 		status: "Active",
 		createdAt: "2026-08-31T00:00:00Z",
 		protected: false,
+		helmManaged: true,
 		...fields,
 	};
 }
