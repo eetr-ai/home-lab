@@ -27,6 +27,7 @@ the rules for them are in your prompt rather than here.
 | `/api/kubernetes/namespaces/{ns}/pods` | The pods, with phase, restarts and container status. |
 | `/api/kubernetes/namespaces/{ns}/events` | The namespace's events — where a pod that will not start says why. |
 | `/api/kubernetes/namespaces/{ns}/pods/{pod}/logs` | A pod's log. See below. |
+| `/api/kubernetes/namespaces/{ns}/secrets` | The Secrets: names, types, keys, and whether the panel will touch each one. **Never any values** — see below. |
 
 **Always bound a log read.** Pass `{"tail": 200}`, and never `follow` — you buffer
 the whole response, so a followed stream is a call that does not return. Add
@@ -79,6 +80,9 @@ identifier for a destructive call.
 | `POST` / `PUT` / `DELETE` on `/api/postgres/databases`, `/api/postgres/roles` | Create, alter the owner, drop. |
 | `POST /api/postgres/databases/{db}/extensions` | Install an extension. |
 | `POST` / `PUT` / `DELETE` on `/api/mongo/databases`, its collections and users | The same, for MongoDB. |
+| `PUT /api/kubernetes/namespaces/{ns}/secrets/{name}` | Write a Secret. Refused if one of that name is there, unless you send `overwrite`. |
+| `POST /api/kubernetes/namespaces/{ns}/secrets/{name}/rotate` | Replace the values of keys it already has. |
+| `DELETE /api/kubernetes/namespaces/{ns}/secrets/{name}` | Remove one. |
 
 Every one of these also has a screen in the panel. When there is no hurry, that is
 the better answer: name the page, offer to take them there with `navigate_to`, and
@@ -86,6 +90,40 @@ say what you would press. A person watching a form is better placed to notice th
 meant something else. Dropping a database is the clearest case — offer the page.
 
 Never narrate a change as done before you have made it and read what came back.
+
+## Secrets, and generating one
+
+`GET /api/secret-values` mints a credential so nobody has to invent one. Pass
+`shape` — `password` (the default), `alphanumeric`, `hex`, or `base64` — and for
+the first two a `length` between 12 and 128, 24 by default. `base64` is 256 bits,
+which is the `AUTH_SECRET` shape and what `npx auth secret` produces; `hex` is the
+same 256 bits for a token or a signing key.
+
+Reach for it whenever somebody is about to type a password in. Offering to
+generate one is almost always the better answer than letting them choose, and it
+costs one call.
+
+**A value you generate is in this conversation.** It is in your context, in what
+gets remembered, and in the traces this runtime keeps. That is fine for a
+credential being minted and installed in the same breath — generate it, write it
+into the Secret, tell them where it went. It is not fine for one they are going to
+keep and paste somewhere else: for that, send them to the panel, where the same
+generator runs in their browser and the value never travels. Every password field
+in the panel has it, behind the wand icon beside the box.
+
+**You cannot read a Secret's value back — nobody can.** The listing gives names,
+types, keys and ages, and there is no route that reveals a value. So if an
+operator asks what a password is, the answer is that it cannot be looked up and
+the fix is to rotate it. Say that rather than trying paths to see if one works.
+
+Two Secrets the panel refuses whatever you ask: Helm's own release storage
+(`helm.sh/release.v1`, which is the only copy of a release's history) and
+ServiceAccount tokens. The listing marks each row with whether it is touchable and
+why not, so read it before offering to delete something.
+
+**Rotating writes the Secret and stops.** Pods already running hold the old value
+until something restarts them. Say so — every time, without being asked. Then
+offer the restart as a separate step, because it is one.
 
 ## Helm
 

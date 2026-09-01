@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { UserRound } from "lucide-react";
 import { updateUser } from "@/app/actions/mongo";
-import { FormField, Input } from "@/components/ui";
+import { FormField } from "@/components/ui";
+import { SecretInput } from "../../../_components/secret-input";
 import { CreatePanel } from "../../../_components/create-panel";
 import { RoleRows } from "./role-rows";
 import type { MongoRole, MongoUser } from "@/lib/api/types";
@@ -60,12 +61,11 @@ export function EditMongoUserPanel({
 			/>
 
 			<FormField label="New password" htmlFor="mongo-user-new-password">
-				<Input
+				<SecretInput
 					id="mongo-user-new-password"
-					type="password"
 					value={password}
-					onChange={(event) => setPassword(event.target.value)}
-					autoComplete="new-password"
+					onChange={setPassword}
+					generateLabel="Generate a password"
 					placeholder="Leave empty to keep the current one"
 				/>
 			</FormField>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import { createRole } from "@/app/actions/postgres";
 import { FormField, Input } from "@/components/ui";
+import { SecretInput } from "../../../_components/secret-input";
 import { CreatePanel } from "../../../_components/create-panel";
 import { InstallSecretFields } from "../../../_components/install-secret-fields";
 import { useCredentialInstall } from "../../../_components/use-credential-install";
@@ -83,12 +84,11 @@ export function CreateRolePanel({
 			</FormField>
 
 			<FormField label="Password" htmlFor="role-password">
-				<Input
+				<SecretInput
 					id="role-password"
-					type="password"
 					value={draft.password}
-					onChange={(event) => setDraft({ ...draft, password: event.target.value })}
-					autoComplete="new-password"
+					onChange={(password) => setDraft({ ...draft, password })}
+					generateLabel="Generate a password"
 					placeholder="Leave empty for a role that cannot authenticate"
 				/>
 			</FormField>

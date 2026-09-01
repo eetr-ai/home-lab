@@ -35,6 +35,7 @@ import (
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
+	"github.com/eetr-ai/home-lab/admin/api/internal/secretgen"
 )
 
 const (
@@ -97,6 +98,9 @@ func run(logger *slog.Logger) error {
 	// something each handler has to remember.
 	api := stdhttp.NewServeMux()
 	auth.NewHandler().Register(api)
+	// Always registered: it has nothing to configure and nothing to connect to,
+	// so there is no installation where it would be honest to answer 404.
+	secretgen.NewHandler().Register(api)
 
 	// Each managed service is registered only when it is configured. A panel with
 	// no PostgreSQL to administer answers 404 for those routes, which is the

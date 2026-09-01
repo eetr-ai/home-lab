@@ -68,6 +68,44 @@ export interface SecretRef {
 	keys: string[];
 }
 
+/**
+ * One Secret as a listing shows it.
+ *
+ * There is no field here that can hold a value, and that is the shape of the API
+ * rather than an omission — nothing reads a Secret's contents back, and there is
+ * no endpoint that would.
+ */
+export interface SecretSummary {
+	name: string;
+	/** Kubernetes' own type: "Opaque", "helm.sh/release.v1", "kubernetes.io/tls". */
+	type: string;
+	/** The data keys, sorted. Enough to point a chart at one, or to rotate it. */
+	keys: string[];
+	/** Kubernetes refuses every write to an immutable Secret. */
+	immutable: boolean;
+	/** Whether this is one the panel wrote, from the label it stamps. */
+	panelManaged: boolean;
+	/**
+	 * Whether delete and rotate are offered, and `reason` says why not. Decided by
+	 * the API from the namespace policy and the Secret's type — the panel renders
+	 * this answer rather than working one out, so the two cannot disagree.
+	 */
+	removable: boolean;
+	reason?: string;
+	createdAt: string;
+}
+
+/**
+ * A request to replace the values of keys a Secret already has.
+ *
+ * Only the keys being changed are named. The panel cannot read a value back, so
+ * it cannot resend a key it is not rotating; the API merges against the live
+ * object and the keys not named keep their values.
+ */
+export interface RotateSecret {
+	data: Record<string, string>;
+}
+
 export interface Workload {
 	name: string;
 	namespace: string;

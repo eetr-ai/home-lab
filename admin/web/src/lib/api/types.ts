@@ -124,7 +124,9 @@ export type {
 	PutSecret,
 	Resources,
 	Scale,
+	RotateSecret,
 	SecretRef,
+	SecretSummary,
 	Storage,
 	StorageSummary,
 	Volume,
@@ -206,3 +208,10 @@ export type {
 	HelmJob,
 	HelmJobPhase,
 } from "./helm-types";
+
+/** One minted credential. See admin/api/internal/secretgen. */
+export interface GeneratedValue {
+	shape: string;
+	value: string;
+	length: number;
+}

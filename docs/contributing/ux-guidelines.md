@@ -14,7 +14,14 @@ are how it is applied.
 `Button` · `IconButton` · `Banner` · `Card` · `SectionCard` · `PageHeader` ·
 `Table`/`THead`/`TBody`/`Th`/`Td` · `Input` · `Select` · `Label` · `FormField` ·
 `Spinner`/`FullPageSpinner` · `InlineDeleteConfirm` · `SidePanel` ·
-`ConfirmDialog` · `EmptyState`.
+`ConfirmDialog` · `Popover` · `CopyButton` · `EmptyState`.
+
+`CopyButton` renders **nothing** where `navigator.clipboard` is absent, which is
+every plain-HTTP origin that is not localhost — a real way to reach this panel.
+Put the text it copies somewhere selectable, because selecting it is what still
+works there. It reads the clipboard's existence through `useSyncExternalStore`
+with a server snapshot of `false`; consulting `navigator` during render is a
+hydration mismatch over a button.
 
 **How you import one depends on what is importing it**, and there is exactly one
 rule:
@@ -313,6 +320,30 @@ costs a reposition on scroll and resize, which it does for you.
 `SidePanel` is for **multi-field** create and edit forms. A single-field entity
 keeps a compact inline add-row; a full-screen overlay to capture one text input
 costs more screen than it saves.
+
+A `Popover` **may** be opened from inside a `SidePanel` — the credential
+generator is — and it works because the popover portals to the body rather than
+nesting inside the panel's containing block. Both run `useFocusTrap`, so check by
+hand that Escape closes the popover and leaves the panel open. Do not build a
+bespoke overlay to avoid the question.
+
+## Secret values
+
+Anywhere an operator would type a password, use `SecretInput`. It is a password
+field with reveal and a generator popover, and it lives in
+`app/(panel)/_components` rather than `components/ui` because it calls a server
+action — the primitives it is built from know nothing about this API, and keeping
+them that way is what makes them reusable.
+
+The generator itself is in Go, `admin/api/internal/secretgen`, reached through
+`app/actions/tools.ts`. It is not in the browser, and the reason is that the
+assistant needs the same generator: two implementations of rejection sampling
+would agree until they did not.
+
+**Never show a stored secret's value.** The API has no route that returns one, by
+construction — a listing carries key names — and a screen that appears to reveal
+one is a screen that is lying or a route that should not exist. Where an operator
+asks for a value they did not keep, the answer is to rotate it.
 
 **Controlled, always.** The consumer owns `open`. `onRequestClose` fires from the
 X, the scrim, and Escape, and the panel never closes itself — that is exactly what

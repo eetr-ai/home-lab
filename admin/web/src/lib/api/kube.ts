@@ -8,7 +8,9 @@ import type {
 	Namespace,
 	Pod,
 	PutSecret,
+	RotateSecret,
 	SecretRef,
+	SecretSummary,
 	Storage,
 	Workload,
 	WorkloadDetail,
@@ -71,6 +73,47 @@ export function putSecret(
 	return call<SecretRef>(
 		"PUT",
 		`/api/kubernetes/namespaces/${seg(namespace)}/secrets/${seg(name)}`,
+		request,
+	);
+}
+
+/**
+ * The Secrets in a namespace, without any of their contents.
+ *
+ * Names, types, keys and ages. Each row carries whether the panel will delete or
+ * rotate it, so the list and the buttons on it cannot disagree with what the API
+ * would answer.
+ */
+export function listSecrets(namespace: string): Promise<ActionResult<SecretSummary[]>> {
+	return call<SecretSummary[]>("GET", `/api/kubernetes/namespaces/${seg(namespace)}/secrets`);
+}
+
+/**
+ * Remove a Secret.
+ *
+ * Nothing checks whether a workload is using it. Deleting a Secret a running
+ * release reads will break it at the next restart, and that is the operator's
+ * call — which is why the confirmation is in front of this rather than inside it.
+ */
+export function deleteSecret(namespace: string, name: string): Promise<ActionResult<void>> {
+	return call<void>("DELETE", `/api/kubernetes/namespaces/${seg(namespace)}/secrets/${seg(name)}`);
+}
+
+/**
+ * Replace the values of keys a Secret already has.
+ *
+ * This writes the Secret and stops. Pods already running hold the old value until
+ * something restarts them, and the panel says so rather than reporting a rotation
+ * as though it had taken effect.
+ */
+export function rotateSecret(
+	namespace: string,
+	name: string,
+	request: RotateSecret,
+): Promise<ActionResult<SecretRef>> {
+	return call<SecretRef>(
+		"POST",
+		`/api/kubernetes/namespaces/${seg(namespace)}/secrets/${seg(name)}/rotate`,
 		request,
 	);
 }

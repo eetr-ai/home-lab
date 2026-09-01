@@ -13,6 +13,8 @@
  * Hence a result rather than a map. The caller cannot forget to check it.
  */
 
+import { secretKeyProblem } from "./keys";
+
 /** What the operator chose. Empty key names mean "do not include this". */
 export interface SecretLayout {
 	usernameKey: string;
@@ -37,32 +39,6 @@ export const DEFAULT_LAYOUT: SecretLayout = {
 	passwordKey: "password",
 	databaseKey: "",
 };
-
-/**
- * Kubernetes' rule for a Secret data key, which is three rules rather than one.
- *
- * The characters are the easy half. The other half is that a key becomes a
- * filename when the Secret is mounted as a volume, so `.` and `..` are refused
- * outright and so is anything starting with `..` — apimachinery's IsConfigMapKey
- * does exactly this, and matching it is the point: a key it would refuse is a 500
- * out of the API server, arriving after the credential has been created.
- */
-const KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
-const MAX_KEY_LENGTH = 253;
-
-/** Why this key is not one, or null when it is. */
-export function secretKeyProblem(key: string): string | null {
-	if (!KEY_PATTERN.test(key)) return `"${key}" is not a valid Secret key.`;
-	if (key.length > MAX_KEY_LENGTH) {
-		return `"${key}" is longer than the ${MAX_KEY_LENGTH} characters a Secret key may be.`;
-	}
-	// Spelled out rather than folded into the pattern, because the reason is not
-	// about characters and the message should say so.
-	if (key === "." || key === ".." || key.startsWith("..")) {
-		return `"${key}" is a path Kubernetes reserves, so it cannot be a Secret key.`;
-	}
-	return null;
-}
 
 export function credentialSecretData(
 	credential: Credential,

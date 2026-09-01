@@ -11,6 +11,7 @@ export {
 	type IconButtonVariant,
 } from "./icon-button";
 export { Banner, type BannerProps, type BannerVariant } from "./banner";
+export { CopyButton } from "./copy-button";
 export {
 	Card,
 	SectionCard,

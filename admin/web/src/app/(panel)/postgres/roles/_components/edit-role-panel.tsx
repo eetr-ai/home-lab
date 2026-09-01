@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import { updateRole } from "@/app/actions/postgres";
 import { FormField, Input } from "@/components/ui";
+import { SecretInput } from "../../../_components/secret-input";
 import { CreatePanel } from "../../../_components/create-panel";
 import type { PostgresRole } from "@/lib/api/types";
 
@@ -100,12 +101,11 @@ export function EditRolePanel({ role, onClose }: { role: PostgresRole | null; on
 			</FormField>
 
 			<FormField label="New password" htmlFor="role-new-password">
-				<Input
+				<SecretInput
 					id="role-new-password"
-					type="password"
 					value={draft.password}
-					onChange={(event) => setDraft({ ...draft, password: event.target.value })}
-					autoComplete="new-password"
+					onChange={(password) => setDraft({ ...draft, password })}
+					generateLabel="Generate a password"
 					placeholder="Leave empty to keep the current one"
 				/>
 			</FormField>
