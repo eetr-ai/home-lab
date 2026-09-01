@@ -14,7 +14,7 @@ are how it is applied.
 `Button` · `IconButton` · `Banner` · `Card` · `SectionCard` · `PageHeader` ·
 `Table`/`THead`/`TBody`/`Th`/`Td` · `Input` · `Select` · `Label` · `FormField` ·
 `Spinner`/`FullPageSpinner` · `InlineDeleteConfirm` · `SidePanel` ·
-`ConfirmDialog` · `Popover` · `CopyButton` · `EmptyState`.
+`ConfirmDialog` · `Popover` · `CopyButton` · `SecretField` · `EmptyState`.
 
 `CopyButton` renders **nothing** where `navigator.clipboard` is absent, which is
 every plain-HTTP origin that is not localhost — a real way to reach this panel.
@@ -329,11 +329,40 @@ bespoke overlay to avoid the question.
 
 ## Secret values
 
-Anywhere an operator would type a password, use `SecretInput`. It is a password
-field with reveal and a generator popover, and it lives in
-`app/(panel)/_components` rather than `components/ui` because it calls a server
-action — the primitives it is built from know nothing about this API, and keeping
-them that way is what makes them reusable.
+Anywhere an operator would type a password, use `SecretInput` from
+`app/(panel)/_components`. It is the ready-made composition: a field with reveal
+and a generator.
+
+Underneath it is `SecretField`, and the shape is worth copying when you next need
+a control with attachments. **The field publishes a React context and the
+accessories read it**, rather than each call site wiring buttons by props:
+
+```tsx
+<SecretField value={password} onChange={setPassword} label="the password">
+  <RevealAccessory />
+  <GenerateAccessory />
+</SecretField>
+
+<SecretField value={candidate} readOnly defaultRevealed label="the generated value">
+  <CopyAccessory />
+</SecretField>
+```
+
+That is not decoration. The version before it passed a `text` prop to each button
+at each call site, and the accessories drifted: reveal and generate sat inside
+the field's border while a copy button beside a generated value sat outside it,
+so one kind of thing looked like two. An accessory that reads its field from
+context is written once and cannot be placed inconsistently.
+
+The border and the focus ring belong to the **group**, via `focus-within`, which
+is what makes an accessory look like it is *in* the field rather than next to it.
+An accessory that renders nothing — `CopyAccessory` does exactly that where the
+clipboard is absent — leaves no gap, because the slot is `empty:hidden`.
+
+`SecretField`, `RevealAccessory` and `CopyAccessory` are primitives.
+`GenerateAccessory` is not: it calls a server action, so it lives beside
+`SecretInput` in `app/(panel)/_components`. The context is the seam that lets it,
+without `components/ui` knowing it exists.
 
 The generator itself is in Go, `admin/api/internal/secretgen`, reached through
 `app/actions/tools.ts`. It is not in the browser, and the reason is that the
