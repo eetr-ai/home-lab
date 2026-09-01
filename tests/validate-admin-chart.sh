@@ -958,7 +958,11 @@ fi
 # A path would be appended to by Auth.js and produce a callback nobody registered,
 # and a bare host would not be an origin at all. The schema refuses both, so the
 # mistake is a render failure rather than a sign-in that fails at the callback.
-for bad_auth_url in 'localhost:3000' 'http://localhost:3000/panel' 'not a url'; do
+#
+# A five-digit number is not the same thing as a port: `:99999` reads as one, gets
+# through any length check, renders fine, and fails only when a browser is asked
+# to open it. The pattern bounds it to 0-65535.
+for bad_auth_url in 'localhost:3000' 'http://localhost:3000/panel' 'not a url' 'http://localhost:99999'; do
   if render --set admin.web.authUrl="$bad_auth_url" >/dev/null 2>&1; then
     printf 'The chart accepted admin.web.authUrl=%s\n' "$bad_auth_url" >&2
     exit 1
