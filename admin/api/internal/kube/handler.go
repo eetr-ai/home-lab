@@ -48,8 +48,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.restartWorkload)
 	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/workloads/{kind}/{name}/scale",
 		h.scaleWorkload)
+	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/secrets",
+		h.listSecrets)
 	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/secrets/{name}",
 		h.putSecret)
+	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/secrets/{name}",
+		h.deleteSecret)
+	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/secrets/{name}/rotate",
+		h.rotateSecret)
 	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/helm-enrolment",
 		h.enrolNamespace)
 	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/helm-enrolment",
@@ -476,26 +482,24 @@ func respondError(w http.ResponseWriter, err error) {
 		// would let the second operator overwrite the first without either knowing.
 		httpx.Error(w, http.StatusConflict, "conflict",
 			"the workload changed while this request was in flight — try again")
-	case errors.Is(err, ErrProtected), errors.Is(err, nsenrol.ErrProtected):
-		// 403 rather than 409: this is a statement about the object, not a
-		// temporary condition, so there is nothing to retry. The reason travels
-		// with it because the panel shows it next to the namespace.
-		//
-		// nsenrol has a protection sentinel of its own, and it reaches here: the
-		// enrolment routes pass Reconcile's error straight through. Matched
-		// explicitly rather than folded into one sentinel, because the check that
-		// produces it is nsenrol's own defence and not this slice's -- and without
-		// this line it walked past every case and came out as a 500, on a route
-		// whose OpenAPI documents a 403.
+	// The three refusals that are statements about an object rather than
+	// temporary conditions: this namespace is protected, this Secret is Helm's,
+	// this namespace is not one the panel manages. 403 rather than 409 for all of
+	// them, because there is nothing to retry — what has to change is the
+	// namespace policy or the request, and each error already says which.
+	//
+	// Their messages travel through untouched. The panel shows them where it would
+	// otherwise have drawn a button, so a refusal with no reason leaves a blank.
+	//
+	// nsenrol's protection sentinel is here too, and it is a separate one: the
+	// enrolment routes pass Reconcile's error straight through, and without this
+	// it walked past every case and came out as a 500 on a route whose OpenAPI
+	// documents a 403.
+	case errors.Is(err, ErrProtected), errors.Is(err, nsenrol.ErrProtected),
+		errors.Is(err, ErrReserved), errors.Is(err, ErrNotManaged):
 		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
-	case errors.Is(err, ErrAlreadyExists):
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrNotEmpty):
 		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, ErrNotEmpty):
-		httpx.Error(w, http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, ErrNotManaged):
-		// 403, and it names the namespace: the fix is to manage it, which is an
-		// operator decision rather than something to retry.
-		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, ErrNotConfigured):
 		// 501, the same answer the Helm routes give when nothing is enrolled: the
 		// capability is built and this lab has not switched it on, which is
@@ -552,6 +556,102 @@ func (h *Handler) putSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, ref)
+}
+
+// listSecrets returns the Secrets in a namespace, and none of their contents.
+//
+//	@Summary		List a namespace's Secrets
+//	@Description	Names, types, keys and ages. No value is ever returned by this API,
+//	@Description	and there is no endpoint that reveals one — a credential written
+//	@Description	through the panel is visible once, in the browser, when it is made.
+//	@Description	Each row reports whether the panel will delete or rotate it, and why
+//	@Description	not: Helm's release storage and ServiceAccount tokens are refused
+//	@Description	whatever the namespace policy says.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace name"
+//	@Success		200			{array}		kube.SecretSummary
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/secrets [get]
+func (h *Handler) listSecrets(w http.ResponseWriter, r *http.Request) {
+	secrets, err := h.service.ListSecrets(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, secrets)
+}
+
+// deleteSecret removes a Secret from a namespace.
+//
+//	@Summary		Delete a Secret
+//	@Description	Refused for a protected namespace, for one the panel does not manage,
+//	@Description	and for a Secret whose type belongs to something else — Helm's release
+//	@Description	storage, which is the only copy of a release's history, and a
+//	@Description	ServiceAccount token. Nothing checks whether a workload is using it:
+//	@Description	deleting a Secret a running release reads will break it at the next
+//	@Description	restart, and that is the operator's call to make.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path	string	true	"Namespace name"
+//	@Param			name		path	string	true	"Secret name"
+//	@Success		204			"Deleted"
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/secrets/{name} [delete]
+func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) {
+	err := h.service.DeleteSecret(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// rotateSecret replaces the values of keys a Secret already has.
+//
+//	@Summary		Rotate a Secret's values
+//	@Description	Names only the keys to change; every other key keeps its value, which
+//	@Description	is why this is not a PUT — the caller cannot read a value back, so it
+//	@Description	cannot resend a key it is not rotating. A key the Secret does not
+//	@Description	already have is refused: rotation replaces a value, it does not add
+//	@Description	one. Refused for the same namespaces and Secret types as a delete, and
+//	@Description	for an immutable Secret. The response carries the keys and nothing
+//	@Description	else. NOTE that this writes the Secret and stops: pods already running
+//	@Description	hold the old value until something restarts them.
+//	@Tags			kubernetes
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string					true	"Namespace name"
+//	@Param			name		path		string					true	"Secret name"
+//	@Param			request		body		kube.SecretRotation		true	"The keys to replace"
+//	@Success		200			{object}	kube.SecretRef
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/secrets/{name}/rotate [post]
+func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
+	var rotation SecretRotation
+	if !httpx.DecodeJSON(w, r, &rotation) {
+		return
+	}
+
+	ref, err := h.service.RotateSecret(
+		r.Context(), r.PathValue("namespace"), r.PathValue("name"), rotation)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, ref)
 }
 
 // enrolNamespace creates or repairs the role bindings a Helm target needs.

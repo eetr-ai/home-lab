@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -328,5 +329,164 @@ func secretObject(namespace string, spec SecretSpec) *corev1.Secret {
 		},
 		Type:       corev1.SecretTypeOpaque,
 		StringData: spec.Data,
+	}
+}
+
+// ListSecrets reports every Secret in a namespace, carrying none of their values.
+//
+// The projection happens here rather than in the service, and that placement is
+// the guarantee: the live objects with their data never leave this function, so
+// no later layer can serialise one by adding a field. What comes out cannot hold
+// a value because SecretSummary has nowhere to put one.
+func (r *Repository) ListSecrets(ctx context.Context, namespace string) ([]SecretSummary, error) {
+	list, err := r.client.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, translate(err, "list secrets in "+namespace)
+	}
+
+	secrets := make([]SecretSummary, 0, len(list.Items))
+	for i := range list.Items {
+		secrets = append(secrets, summarizeSecret(&list.Items[i]))
+	}
+	// By name, because the API server's order is by nothing an operator can see
+	// and a list that reshuffles between reloads is a list you cannot scan.
+	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Name < secrets[j].Name })
+	return secrets, nil
+}
+
+// ReadSecret reports one Secret, again without its values. It exists for the
+// write paths, which have to know a Secret's type and keys before they can decide
+// whether they may touch it.
+func (r *Repository) ReadSecret(ctx context.Context, namespace, name string) (SecretSummary, error) {
+	secret, err := r.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return SecretSummary{}, translate(err, "read secret "+namespace+"/"+name)
+	}
+	return summarizeSecret(secret), nil
+}
+
+// DeleteSecret removes the Secret that was read and found deletable, and not
+// merely one of that name.
+//
+// The preconditions are what make that sentence true. The service reads a Secret,
+// checks its type against the deny-list, and then asks for it to be removed; in
+// between, that name could have come to mean a different object — a Helm release
+// Secret restored from a backup, say. Naming the UID and the resource version
+// turns that race into a 409 the operator sees instead of a deletion nobody
+// asked for. The window is narrow and the cost of closing it is two fields.
+func (r *Repository) DeleteSecret(ctx context.Context, namespace string, target SecretSummary) error {
+	uid := types.UID(target.uid)
+	err := r.client.CoreV1().Secrets(namespace).Delete(ctx, target.Name, metav1.DeleteOptions{
+		Preconditions: &metav1.Preconditions{
+			UID:             &uid,
+			ResourceVersion: &target.resourceVersion,
+		},
+	})
+	return translate(err, "delete secret "+namespace+"/"+target.Name)
+}
+
+// RotateSecretKeys replaces the values of the named keys and leaves the rest.
+//
+// A read-modify-write, which is the one place in this file that is deliberately
+// not the apply-style update UpdateSecret uses. The difference is what the caller
+// knows: an overwrite is somebody saying "make it say exactly this", while a
+// rotation is somebody who cannot see the other keys and must not disturb them.
+//
+// Under RetryOnConflict because the window between the read and the write is real
+// and the loss would be silent — the second writer's rotation would answer 409
+// and the operator would reasonably read that as "nothing happened", which is
+// true but leaves them holding a password that is not installed anywhere.
+//
+// Data rather than StringData, because the object read back has its values in
+// Data and setting both leaves StringData winning for the keys it names and Data
+// for the rest — which works, and is a rule nobody should have to know.
+func (r *Repository) RotateSecretKeys(
+	ctx context.Context, namespace, name string, values map[string]string,
+) error {
+	secrets := r.client.CoreV1().Secrets(namespace)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		live, err := secrets.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("read for rotation: %w", err)
+		}
+		// Re-checked against this read, not against the one the service made.
+		// Every trip round this loop is a fresh object, and a retry provoked by a
+		// conflict is precisely the case where the object changed under us — so
+		// the guards that decided this Secret was rotatable have to decide it
+		// again about the thing actually being written.
+		if err = rotatable(live, values); err != nil {
+			return err
+		}
+		if live.Data == nil {
+			live.Data = map[string][]byte{}
+		}
+		for key, value := range values {
+			live.Data[key] = []byte(value)
+		}
+		// StringData is cleared rather than trusted to be empty: a Secret written
+		// by an apply carries none, but this is the object the API server will
+		// take literally and leaving a field unexamined here is how a value from
+		// somewhere else wins.
+		live.StringData = nil
+		// Wrapped with %w rather than returned bare: RetryOnConflict decides
+		// whether to go round again with apierrors.IsConflict, which unwraps, so
+		// the retry still sees a conflict for what it is.
+		if _, err = secrets.Update(ctx, live, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("write for rotation: %w", err)
+		}
+		return nil
+	})
+	return translate(err, "rotate secret "+namespace+"/"+name)
+}
+
+// rotatable repeats the service's verdict about the object that is about to be
+// written, and returns an error RetryOnConflict will not retry.
+//
+// It duplicates three checks the service already made, and that duplication is
+// the point: the service made them about an object it read a moment ago, and the
+// only object whose type, mutability and keys matter is the one this Update is
+// going to replace.
+func rotatable(live *corev1.Secret, values map[string]string) error {
+	if reserved, reason := reservedSecret(string(live.Type)); reserved {
+		return fmt.Errorf("%w: %s is %s", ErrReserved, live.Name, reason)
+	}
+	if live.Immutable != nil && *live.Immutable {
+		return fmt.Errorf("%w: %s is immutable", ErrReserved, live.Name)
+	}
+	for key := range values {
+		if _, has := live.Data[key]; !has {
+			return fmt.Errorf("%w: %s has no key %q", ErrInvalidName, live.Name, key)
+		}
+	}
+	return nil
+}
+
+// summarizeSecret is the projection, and the only place a live Secret is turned
+// into something this API will send.
+func summarizeSecret(secret *corev1.Secret) SecretSummary {
+	keys := make([]string, 0, len(secret.Data)+len(secret.StringData))
+	for key := range secret.Data {
+		keys = append(keys, key)
+	}
+	// StringData is normally empty on a Secret read back — the API server folds it
+	// into Data — but it is checked so a key cannot go unreported on the one that
+	// has not been through a round trip yet.
+	for key := range secret.StringData {
+		if _, already := secret.Data[key]; !already {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	return SecretSummary{
+		Name:         secret.Name,
+		Type:         string(secret.Type),
+		Keys:         keys,
+		Immutable:    secret.Immutable != nil && *secret.Immutable,
+		PanelManaged: secret.Labels[labelManagedBy] == managedByValue,
+		CreatedAt:    secret.CreationTimestamp.Time,
+
+		uid:             string(secret.UID),
+		resourceVersion: secret.ResourceVersion,
 	}
 }

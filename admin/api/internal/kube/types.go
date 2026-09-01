@@ -362,3 +362,48 @@ type SecretRef struct {
 	Name      string   `json:"name"`
 	Keys      []string `json:"keys"`
 }
+
+// SecretSummary is one Secret as a listing shows it, and the shape of it is the
+// feature's central promise: there is no field here that can hold a value, and
+// adding one would be a change to what this API is for. See ListSecrets.
+type SecretSummary struct {
+	Name string `json:"name"`
+	// Type is Kubernetes' own — "Opaque", "helm.sh/release.v1",
+	// "kubernetes.io/tls". It is what decides whether the panel will touch it,
+	// so it is shown rather than kept for the refusal.
+	Type string `json:"type"`
+	// Keys are the data keys, sorted. Enough to point a chart's existingSecret at
+	// one, and to choose what a rotation replaces.
+	Keys []string `json:"keys"`
+	// Immutable Secrets refuse every write after creation, Kubernetes' own rule.
+	// Carried so the panel can say that rather than offering a rotation the API
+	// server will reject.
+	Immutable bool `json:"immutable"`
+	// PanelManaged is whether this Secret carries the label PutSecret stamps, so
+	// one the panel wrote is distinguishable from one an operator or a chart
+	// created. It changes nothing about what is permitted; it is context.
+	PanelManaged bool `json:"panelManaged"`
+	// Removable reports whether delete and rotate are offered, and Reason says why
+	// not. Decided by the service from the namespace policy and the Secret's type,
+	// never by the browser — the same answer the API would give if asked, computed
+	// once so the panel does not have to reimplement the rule.
+	Removable bool      `json:"removable"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	// Unexported, so they cannot be serialised by accident and cannot be sent by a
+	// caller. They exist so a write can name the object that was checked rather
+	// than a name that may since have come to mean something else -- see
+	// Repository.DeleteSecret.
+	uid             string
+	resourceVersion string
+}
+
+// SecretRotation is a request to replace the values of keys a Secret already has.
+//
+// Only the keys being changed are named. The rest of the Secret is left as it is,
+// which is the whole reason this is not a PutSecret with everything resent: the
+// panel cannot read a value back, so it cannot resend a key it is not rotating,
+// and a write built from what the browser knows would blank the others.
+type SecretRotation struct {
+	Data map[string]string `json:"data"`
+}

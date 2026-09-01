@@ -171,24 +171,40 @@ rules:
   #
   # NOT read-only, and that is why it is not called -read.
   #
-  # `create` and `update` are here for one route: PUT on
-  # /api/kubernetes/namespaces/{namespace}/secrets/{name}, which writes a
-  # database credential the panel has just issued into the namespace of the chart
-  # that will use it. Without it that credential leaves the panel by being typed
-  # into a `kubectl create secret`, which is worse in every way that matters.
+  # `create`, `update` and `delete` are the panel's Secret management: writing a
+  # database credential it has just issued into the namespace of the chart that
+  # will use it, rotating that credential later, and removing one that is no
+  # longer used. Without them a credential leaves the panel by being typed into a
+  # `kubectl create secret`, which is worse in every way that matters.
   #
-  # What is NOT here is as deliberate as what is. No `delete`: removing a Secret
-  # is not part of that workflow and the verb would be a way to break a running
-  # release. No `patch`: an update replaces the object with what the caller asked
-  # for, and a merge would leave a previous credential's keys beside the new
-  # one -- a Secret holding two passwords and no way to tell which is live.
+  # READ THIS BEFORE READING `delete` AS CONTAINED BY RBAC. IT IS NOT.
+  #
+  # `delete` here is delete on EVERY Secret in an enrolled namespace, Helm's own
+  # release storage included -- and a release's every revision lives in a Secret
+  # that nothing else has a copy of. RBAC cannot narrow that: there is no label
+  # selector in a Role, and no way to say "not this type".
+  #
+  # What actually confines it is one function in the Go code --
+  # `reservedSecret` in internal/kube/secrets.go -- which refuses
+  # helm.sh/release.v1 and kubernetes.io/service-account-token on the read of the
+  # live object, before anything is removed. That is the same shape as
+  # `restartPatch` and the `patch` grant in rbac.yaml: the role is broad, a named
+  # function is the boundary, and changing that function changes what this grant
+  # means. Do not weaken it without weighing this rule again.
+  #
+  # Still NOT here: `patch`. An update replaces the object with what the caller
+  # asked for, and a strategic merge would leave a previous credential's keys
+  # beside the new one -- a Secret holding two passwords and no way to tell which
+  # is live. Rotation does need to preserve the keys it was not asked about, and
+  # it does that as a read-modify-write of the live object through `update`, so
+  # every key still ends up with exactly one value.
   #
   # It is held by admin-api rather than by the Job, and that is a real change to
   # what the long-lived credential can do. Weigh it as: this account could
   # already READ every Secret in an enrolled namespace, so it could already learn
-  # every credential there; it can now also overwrite one, which breaks a
-  # workload rather than exposing anything new. It reaches only namespaces
-  # something enrolled, because that is what binds this grant at all.
+  # every credential there; it can now also overwrite one and remove one, which
+  # breaks a workload rather than exposing anything new. It reaches only
+  # namespaces something enrolled, because that is what binds this grant at all.
   #
   # Every other Helm mutation still runs in a Job holding the grant above, for the
   # length of one operation.
@@ -203,7 +219,7 @@ rules:
   - apiGroups: [""]
     resources:
       - secrets
-    verbs: ["get", "list", "watch", "create", "update"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
 ---
 {{- /*
 Enrolling a namespace, and the one grant in this file that IS bound cluster-wide.

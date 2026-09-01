@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,25 @@ type fakeRepo struct {
 	// secretErr is what the next Secret write answers with, so a test can put a
 	// conflict in front of the service without a cluster.
 	secretErr error
+	// live is what ReadSecret and ListSecrets answer with, keyed by name, holding
+	// the values as well so a rotation can be checked for leaving the other keys
+	// alone. Nothing the service can reach ever sees this map — that is the point
+	// of it being here and of SecretSummary having nowhere to put a value.
+	live map[string]liveSecret
+	// removed records the Secrets a delete reached the cluster with, as the
+	// service handed them over — so a test can assert the delete was bound to the
+	// object that was checked and not just to its name.
+	removed []SecretSummary
+	// rotated records each rotation as the fake merged it, so a test can assert
+	// the keys not named kept their values.
+	rotated []map[string]string
+}
+
+// liveSecret is a Secret as the cluster holds it: the projection the repository
+// would return, plus the values the repository never hands over.
+type liveSecret struct {
+	summary SecretSummary
+	data    map[string]string
 }
 
 // writtenSecret is one Secret write as the fake saw it.
@@ -137,6 +157,56 @@ func (f *fakeRepo) UpdateSecret(_ context.Context, namespace string, spec Secret
 		return f.secretErr
 	}
 	f.secrets = append(f.secrets, writtenSecret{namespace: namespace, spec: spec, overwrote: true})
+	return nil
+}
+
+func (f *fakeRepo) ListSecrets(_ context.Context, namespace string) ([]SecretSummary, error) {
+	f.asked = append(f.asked, "secrets:"+namespace)
+	if f.secretErr != nil {
+		return nil, f.secretErr
+	}
+	secrets := make([]SecretSummary, 0, len(f.live))
+	for _, secret := range f.live {
+		secrets = append(secrets, secret.summary)
+	}
+	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Name < secrets[j].Name })
+	return secrets, nil
+}
+
+func (f *fakeRepo) ReadSecret(_ context.Context, namespace, name string) (SecretSummary, error) {
+	f.asked = append(f.asked, "secret:"+namespace+"/"+name)
+	secret, ok := f.live[name]
+	if !ok {
+		return SecretSummary{}, ErrNotFound
+	}
+	return secret.summary, nil
+}
+
+func (f *fakeRepo) DeleteSecret(_ context.Context, _ string, target SecretSummary) error {
+	if f.secretErr != nil {
+		return f.secretErr
+	}
+	f.removed = append(f.removed, target)
+	return nil
+}
+
+// The merge is the repository's job in the real one, so the fake does it too —
+// otherwise a test asserting the untouched keys survived would be asserting
+// against nothing.
+func (f *fakeRepo) RotateSecretKeys(
+	_ context.Context, _, name string, values map[string]string,
+) error {
+	if f.secretErr != nil {
+		return f.secretErr
+	}
+	merged := map[string]string{}
+	for key, value := range f.live[name].data {
+		merged[key] = value
+	}
+	for key, value := range values {
+		merged[key] = value
+	}
+	f.rotated = append(f.rotated, merged)
 	return nil
 }
 
