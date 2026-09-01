@@ -61,8 +61,14 @@ spec:
             # must have registered. Auth.js builds the callback from it, so a
             # value that disagrees with the registered URI fails at the callback
             # rather than at sign-in, which is a confusing place to find out.
+            #
+            # https://<hostname> unless admin.web.authUrl overrides it. The
+            # override exists for a rig reached some other way than by its own
+            # hostname over TLS -- a local cluster behind a port-forward, where
+            # the origin the browser actually uses is http://localhost:3000 and
+            # the derived value is a URL nothing serves.
             - name: AUTH_URL
-              value: {{ printf "https://%s" (required "admin.web.hostname is required" .Values.admin.web.hostname) | quote }}
+              value: {{ .Values.admin.web.authUrl | default (printf "https://%s" (required "admin.web.hostname is required" .Values.admin.web.hostname)) | quote }}
             # Seals the session cookie (JWE), which carries the operator's access
             # and refresh tokens. Rotating it signs everybody out.
             - name: AUTH_SECRET

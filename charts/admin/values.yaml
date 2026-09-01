@@ -304,6 +304,21 @@ admin:
     # Put Cloudflare Access in front of it before pointing DNS here.
     hostname: admin.example.invalid
 
+    # The origin the browser actually reaches the panel on, when that is not
+    # https://<hostname>. Empty means derive it, which is what a real install
+    # wants.
+    #
+    # It exists for a local cluster reached through a port-forward, where the
+    # panel answers on http://localhost:3000 and the derived URL is a host
+    # nothing serves. Without it the only way to correct AUTH_URL is to patch the
+    # Deployment by hand, and the next `helm upgrade` puts it back -- which is a
+    # sign-in that breaks every time the chart is rolled forward, for a reason
+    # that is nowhere in the values.
+    #
+    # Whatever is set here must still be registered with eetr-auth as
+    # <authUrl>/api/auth/callback/eetr, matched exactly.
+    authUrl: ""
+
     # The confidential client registered in eetr-auth. Not a secret: it travels
     # in every authorization request the browser makes. Normally the same value
     # as admin.api.oidc.audience, which is what a token must name in `aud`.

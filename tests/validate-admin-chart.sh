@@ -931,10 +931,43 @@ web_pod=$(render --show-only templates/web/deployment.yaml)
 # would hold a cluster credential it has no use for.
 grep -q 'automountServiceAccountToken: false' <<<"$web_pod"
 
-# AUTH_URL is derived from the hostname rather than configured separately: Auth.js
-# builds the OAuth callback from it, and a value that disagrees with the hostname
+# AUTH_URL is derived from the hostname by default: Auth.js builds the OAuth
+# callback from it, and a value that disagrees with the registered redirect URI
 # fails at the callback — long after the mistake was made.
 grep -q 'value: "https://admin.example.invalid"' <<<"$web_pod"
+
+# ...and admin.web.authUrl overrides it, for a rig reached some other way than by
+# its own hostname over TLS. Asserted because the alternative is patching the
+# Deployment by hand, which the next upgrade silently reverts: a sign-in that
+# breaks every time the chart rolls forward, for a reason nowhere in the values.
+#
+# The override must WIN, so this checks the derived value is gone rather than
+# only that the override is present — both strings appearing would be a template
+# that emits AUTH_URL twice, where the last one silently decides.
+auth_override=$(render --set admin.web.authUrl=http://localhost:3000 |
+  awk '/^  name: admin-web$/,/^---$/')
+if ! grep -q 'value: "http://localhost:3000"' <<<"$auth_override"; then
+  printf 'admin.web.authUrl did not reach AUTH_URL.\n' >&2
+  exit 1
+fi
+if grep -q 'value: "https://admin.example.invalid"' <<<"$auth_override"; then
+  printf 'admin.web.authUrl did not override the derived AUTH_URL.\n' >&2
+  exit 1
+fi
+
+# A path would be appended to by Auth.js and produce a callback nobody registered,
+# and a bare host would not be an origin at all. The schema refuses both, so the
+# mistake is a render failure rather than a sign-in that fails at the callback.
+#
+# A five-digit number is not the same thing as a port: `:99999` reads as one, gets
+# through any length check, renders fine, and fails only when a browser is asked
+# to open it. The pattern bounds it to 0-65535.
+for bad_auth_url in 'localhost:3000' 'http://localhost:3000/panel' 'not a url' 'http://localhost:99999'; do
+  if render --set admin.web.authUrl="$bad_auth_url" >/dev/null 2>&1; then
+    printf 'The chart accepted admin.web.authUrl=%s\n' "$bad_auth_url" >&2
+    exit 1
+  fi
+done
 
 # Both halves of the chart are unusable without them, so each is a render failure
 # rather than a pod that starts and cannot sign anybody in.
