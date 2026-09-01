@@ -89,7 +89,10 @@ func TestCreateNamespaceEnrolsIt(t *testing.T) {
 // anything it fixed.
 func TestCreateNamespaceKeepsTheNamespaceWhenEnrolmentFails(t *testing.T) {
 	repo := &fakeRepo{}
-	enrol := &fakeEnrolment{err: errors.New("the api server said no")}
+	enrol := &fakeEnrolment{
+		states: map[string]nsenrol.State{"octo": nsenrol.StateMissing},
+		err:    errors.New("the api server said no"),
+	}
 
 	namespace, err := serviceWithEnrolment(repo, enrol).
 		CreateNamespace(t.Context(), NamespaceSpec{Name: "octo"})
@@ -99,9 +102,11 @@ func TestCreateNamespaceKeepsTheNamespaceWhenEnrolmentFails(t *testing.T) {
 	if len(repo.created) != 1 {
 		t.Fatalf("created = %v, want the namespace created", repo.created)
 	}
-	if namespace.HelmEnrolment == string(nsenrol.StateEnrolled) {
-		t.Errorf("HelmEnrolment = %q, want the namespace not to claim it is enrolled",
-			namespace.HelmEnrolment)
+	// The state it is really in, not silence. "missing" is what puts the repair
+	// action in front of the operator; an empty string renders as a namespace
+	// nobody ever asked to be a Helm target, which is the one thing it is not.
+	if namespace.HelmEnrolment != string(nsenrol.StateMissing) {
+		t.Errorf("HelmEnrolment = %q, want %q", namespace.HelmEnrolment, nsenrol.StateMissing)
 	}
 }
 

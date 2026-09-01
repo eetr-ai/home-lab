@@ -100,9 +100,16 @@ spec:
             - name: ADMIN_HELM_JOB_PULL_SECRETS
               value: {{ join "," $names | quote }}
             {{- end }}
-            {{- end }}
             # What the panel binds when it enrols a namespace, and which accounts
             # it binds them to. All of it names objects this chart renders.
+            #
+            # Inside the Helm block, with the Job's account it is checked against.
+            # The API treats a release name with no job account as a configuration
+            # error and refuses to start -- correctly, because a panel that can
+            # enrol a namespace and cannot name the account it would grant to is
+            # broken rather than merely limited. Rendered outside this block, that
+            # is exactly what a Kubernetes-only install produced: an admin-api
+            # that exited at startup.
             #
             # There is deliberately no list of managed namespaces here any more.
             # It used to be one, and it was the second reason enrolling a
@@ -114,6 +121,7 @@ spec:
               value: {{ .Release.Name | quote }}
             - name: ADMIN_API_SERVICE_ACCOUNT
               value: admin-api
+            {{- end }}
             {{- end }}
             {{- if and .Values.admin.api.kubernetes.enabled .Values.admin.api.helm.postgres.enabled }}
             # Where declared deployments and their values are kept. Absent, the

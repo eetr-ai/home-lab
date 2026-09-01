@@ -77,4 +77,11 @@ type Binding struct {
 	RoleRef     string
 	// Subjects are the ServiceAccounts it grants to, as "namespace/name".
 	Subjects []string
+	// OtherSubjects reports that it also grants to something that is not a
+	// ServiceAccount — a User, a Group, "system:authenticated". Carried as a flag
+	// rather than as more entries above because nothing here creates one and the
+	// only question worth asking is whether the binding is still exactly what this
+	// panel wrote. Without it such a subject was invisible: it was dropped on the
+	// way in, the binding looked right, and the grant it added stayed.
+	OtherSubjects bool
 }

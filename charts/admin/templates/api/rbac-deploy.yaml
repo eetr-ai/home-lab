@@ -235,7 +235,20 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources:
       - rolebindings
-    verbs: ["get", "list", "watch", "create", "delete"]
+    verbs: ["list", "watch", "create"]
+  # `get` and `delete` name the two bindings this creates, because neither verb
+  # needs to reach any other. `list` and `watch` cannot be narrowed this way --
+  # resourceNames does not apply to them, which is why the reading is done by
+  # listing the namespace and filtering by name in Go. `create` cannot be narrowed
+  # either; what bounds it is `bind` below, since a RoleBinding whose roleRef the
+  # creator may not bind is refused outright.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - rolebindings
+    resourceNames:
+      - {{ .Release.Name }}-helm
+      - {{ .Release.Name }}-secrets
+    verbs: ["get", "delete"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources:
       - clusterroles

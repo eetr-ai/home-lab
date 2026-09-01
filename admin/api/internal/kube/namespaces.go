@@ -116,7 +116,16 @@ func (s *Service) CreateNamespace(ctx context.Context, spec NamespaceSpec) (Name
 	// the only thing missing is two role bindings that the repair action creates
 	// on demand — so the namespace is returned carrying the state it is really in
 	// rather than being rolled back into nothing.
-	s.applyEnrolment(ctx, []Namespace{namespace})
+	// Decorated through a slice the result is read back out of, because
+	// applyEnrolment takes one and a fresh literal would be decorating a copy
+	// nothing looks at again. Getting that wrong is invisible while Reconcile
+	// succeeds -- the line below overwrites the state anyway -- and shows up only
+	// when it fails, as a namespace reporting no enrolment state at all rather
+	// than the "missing" or "wrong" that would tell an operator to repair it.
+	decorated := []Namespace{namespace}
+	s.applyEnrolment(ctx, decorated)
+	namespace = decorated[0]
+
 	if s.enrol != nil {
 		if state, err := s.enrol.Reconcile(ctx, namespace.Name, namespace.Labels); err == nil {
 			namespace.HelmEnrolment = string(state)

@@ -154,6 +154,7 @@ func bindingFrom(item *rbacv1.RoleBinding) Binding {
 	}
 	for _, subject := range item.Subjects {
 		if subject.Kind != rbacv1.ServiceAccountKind {
+			binding.OtherSubjects = true
 			continue
 		}
 		binding.Subjects = append(binding.Subjects, subject.Namespace+"/"+subject.Name)

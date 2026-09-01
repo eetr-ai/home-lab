@@ -787,6 +787,27 @@ if ! grep -A1 'name: ADMIN_HELM_JOB_RESOURCES' <<<"$helm_deploy_env" | grep -q '
   exit 1
 fi
 
+# The enrolment identity travels with the Job account it is checked against.
+#
+# main.go reads ADMIN_HELM_RELEASE_NAME to decide whether enrolment is configured
+# at all, and then requires ADMIN_HELM_JOB_SERVICE_ACCOUNT with it -- a panel that
+# can enrol a namespace and cannot name the account it would grant to is broken
+# rather than limited, so it refuses to start. These two used to render outside
+# the Helm block, so the shipped Kubernetes-only values produced an admin-api that
+# exited at startup. $output_file is that install.
+for enrolment_var in ADMIN_HELM_RELEASE_NAME ADMIN_API_SERVICE_ACCOUNT; do
+  if grep -q "name: $enrolment_var" "$output_file"; then
+    printf '%s renders with Helm switched off.\n' "$enrolment_var" >&2
+    printf 'It is only half of what main.go needs -- the other half lives in the\n' >&2
+    printf 'Helm block -- so the API would refuse to start.\n' >&2
+    exit 1
+  fi
+done
+if ! grep -q 'name: ADMIN_HELM_RELEASE_NAME' <<<"$helm_deploy_env"; then
+  printf 'ADMIN_HELM_RELEASE_NAME must render when Helm is on, or nothing can be enrolled\n' >&2
+  exit 1
+fi
+
 # The self-upgrade special case is gone, and so is the identity it needed.
 if grep -q 'ADMIN_RELEASE_NAME' "$output_file"; then
   printf 'ADMIN_RELEASE_NAME is gone: nothing recognises its own release any more,\n' >&2
@@ -831,11 +852,33 @@ if [[ $enrol_pairs != "$expected_enrol_pairs" ]]; then
   exit 1
 fi
 
+# `delete` on RoleBindings is scoped by name, and that has to be asserted per
+# rule rather than per document: the pair list above cannot tell a delete on two
+# named objects from a delete on every RoleBinding in the cluster, and the second
+# is what this account used to hold. nsenrol only ever deletes the two bindings it
+# creates -- Revoke walks Config.Names(), and a repair deletes what a filtered
+# list returned -- so nothing is given up by narrowing it.
+unscoped_delete=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-enrol |
+  awk '/^  - apiGroups:/ { named = 0 }
+       /^    resourceNames:/ { named = 1 }
+       /^    verbs:/ && /delete/ && !named { print "unscoped" }')
+if [[ -n $unscoped_delete ]]; then
+  printf 'The enrolment grant deletes RoleBindings it has not named.\n' >&2
+  printf 'That is delete on every RoleBinding in every namespace, which is a way\n' >&2
+  printf 'to revoke anybody. Name the two this chart creates.\n' >&2
+  exit 1
+fi
+
 # The resourceNames are what make `bind` safe. Without them it is bind on every
 # ClusterRole in the cluster, which is cluster-admin one RoleBinding later.
+#
+# Deduplicated because the same two names appear twice now: once for `bind` on the
+# ClusterRoles, and once for `get`/`delete` on the RoleBindings this creates,
+# which are named after them. Asserting the set rather than the occurrences is the
+# stronger claim anyway -- no rule in this grant may name a third object.
 enrol_names=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-enrol |
   awk '/^    resourceNames:/ { grab = 1; next } grab && /^      - / { print $2; next }
-       grab { grab = 0 }' | LC_ALL=C sort)
+       grab { grab = 0 }' | LC_ALL=C sort -u)
 if [[ $enrol_names != "$(printf 'home-lab-admin-helm\nhome-lab-admin-secrets')" ]]; then
   printf 'The bind verb must name exactly the two ClusterRoles this chart renders.\n' >&2
   printf 'Got: [%s]\n' "$enrol_names" >&2

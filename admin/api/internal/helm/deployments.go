@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 )
 
 // DeclareRequest asks this lab to remember a chart for a namespace.
@@ -66,6 +67,18 @@ func (s *Service) ListDeployments(ctx context.Context, namespace string) ([]Depl
 	if err != nil {
 		return nil, err
 	}
+	if namespace == "" {
+		// The scoped branch above has had checkNamespace run on it; this one has
+		// had nothing, and the store outlives enrolment. A namespace that was
+		// revoked, or that the policy blocks from deploying, keeps its declared
+		// records — and without this they came back in the unscoped listing, with
+		// their live release status read out of a namespace every other route
+		// about them answers 403 for.
+		deployments, err = s.deployable(ctx, deployments)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	summaries := make([]DeploymentSummary, 0, len(deployments))
 	for _, deployment := range deployments {
@@ -76,6 +89,38 @@ func (s *Service) ListDeployments(ctx context.Context, namespace string) ([]Depl
 		summaries = append(summaries, summary)
 	}
 	return summaries, nil
+}
+
+// deployable drops the records whose namespace the panel may not deploy into now.
+//
+// The same two questions checkNamespace asks, asked once for the whole listing
+// rather than once per record: enrolment is one cluster read and there is no
+// reason to make it per row.
+//
+// Nothing enrolled is an empty list rather than the 501 checkNamespace would
+// raise. A caller who asked what is declared everywhere has been answered — the
+// answer is nothing they may see — and a 501 would say the capability is switched
+// off, which is a different and untrue thing.
+func (s *Service) deployable(ctx context.Context, deployments []Deployment) ([]Deployment, error) {
+	managed, err := s.managed(ctx)
+	if errors.Is(err, ErrNotConfigured) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	kept := make([]Deployment, 0, len(deployments))
+	for _, deployment := range deployments {
+		if blocked, _ := s.policy.DeployBlocked(deployment.Namespace, nil); blocked {
+			continue
+		}
+		if !slices.Contains(managed, deployment.Namespace) {
+			continue
+		}
+		kept = append(kept, deployment)
+	}
+	return kept, nil
 }
 
 // ReadDeployment returns one deployment, its versions, and its live release.

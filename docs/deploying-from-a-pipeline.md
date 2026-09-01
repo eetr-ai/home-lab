@@ -40,6 +40,10 @@ to be reinstalled, which is the point: enrolment used to be a values list
 rendered at install time, so adding a namespace meant a chart release and a pod
 restart.
 
+All of that is conditional on `admin.api.helm.enabled`, which is off by default.
+With it off the chart renders none of these grants, nothing is enrolled — a
+namespace created from the panel included — and the enrolment routes answer 501.
+
 `admin.api.helm.namespaces` still exists, and is now only a bootstrap list — the
 namespaces enrolled at install time, for the ones that cannot be enrolled from a
 panel that is not running yet. Read the comment at the top of

@@ -540,3 +540,37 @@ func TestReadDeploymentReportsAFailedReleaseRead(t *testing.T) {
 // see. What replaces it is a live check, recorded on the pull request: upgrade
 // the admin release from the panel and watch the Job outlive both Deployments
 // rolling.
+
+// The unscoped listing is checked too, and it is the one that had nothing
+// checking it.
+//
+// A declared deployment outlives the enrolment that made its namespace
+// deployable — revoking removes role bindings and leaves the record — so the
+// store holds rows for namespaces this panel may no longer touch. Asked for one
+// of them by name, every other route answers 403; the listing used to hand them
+// over anyway, with the live release status read out of the namespace beside it.
+func TestUnscopedDeploymentListingDropsNamespacesTheStackMayNotReach(t *testing.T) {
+	store := newFakeStore()
+	seededDeployment(store, "replicaCount: 1")
+	store.seed(Deployment{
+		ID:          "d2",
+		Namespace:   "revoked",
+		ReleaseName: "whoami",
+		ChartRef:    "oci://ghcr.io/example/whoami",
+	}, DeploymentVersion{Version: 1, ChartVersion: "1.0.0", Source: SourcePanel})
+
+	summaries, err := newDeploymentService(newFakeRepo(), store).ListDeployments(t.Context(), "")
+	if err != nil {
+		t.Fatalf("ListDeployments() error = %v", err)
+	}
+
+	for _, summary := range summaries {
+		if summary.Namespace == "revoked" {
+			t.Errorf("the listing carried %s/%s, whose namespace is not enrolled",
+				summary.Namespace, summary.ReleaseName)
+		}
+	}
+	if len(summaries) != 1 {
+		t.Errorf("listed %d deployments, want only the enrolled one", len(summaries))
+	}
+}

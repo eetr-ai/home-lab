@@ -74,10 +74,18 @@ func (c Config) Names() []string {
 // same name as the ClusterRole, and Kubernetes would accept that happily — it
 // would grant whatever that Role happens to say, which is not this chart's
 // decision. So a ClusterRole reference is required rather than assumed.
+//
+// The subject list has to be exactly the one wanted, not merely to contain it.
+// This used to ask whether the account was among the subjects, which is true of a
+// binding that grants the same ClusterRole to somebody else as well — and a
+// binding reported as enrolled is one Reconcile leaves alone, so the extra grant
+// stayed for as long as the enrolment did. Anything else in there makes it wrong,
+// which is a state with a repair action attached to it.
 func (w wanted) matches(live Binding) bool {
 	return live.RoleRefKind == "ClusterRole" &&
 		live.RoleRef == w.role &&
-		slices.Contains(live.Subjects, w.subject)
+		!live.OtherSubjects &&
+		slices.Equal(live.Subjects, []string{w.subject})
 }
 
 // Describe renders a state as the sentence the panel shows.

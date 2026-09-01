@@ -252,3 +252,48 @@ func TestStatesCoversOnlyTheCandidates(t *testing.T) {
 		}
 	}
 }
+
+// A binding that grants what this panel wrote, and something else besides.
+//
+// The roleRef is right and the panel's account is in the subject list, so this
+// used to read as enrolled — and an enrolled binding is one Reconcile leaves
+// alone, so the extra grant stayed for as long as the enrolment did, with the
+// panel reporting the namespace as correctly set up the whole time.
+//
+// Both shapes are covered because they failed differently. An extra
+// ServiceAccount was visible and accepted; a Group was not even visible, because
+// the projection dropped every subject that was not a ServiceAccount.
+func TestReconcileReplacesABindingThatGrantsSomebodyElseToo(t *testing.T) {
+	tests := map[string]Binding{
+		"an extra ServiceAccount": {
+			Name: "home-lab-admin-helm", RoleRefKind: "ClusterRole", RoleRef: "home-lab-admin-helm",
+			Subjects: []string{"admin/admin-helm-job", "elsewhere/somebody"},
+		},
+		"a Group": {
+			Name: "home-lab-admin-helm", RoleRefKind: "ClusterRole", RoleRef: "home-lab-admin-helm",
+			Subjects: []string{"admin/admin-helm-job"}, OtherSubjects: true,
+		},
+	}
+
+	for name, live := range tests {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepo{bindings: map[string][]Binding{"apps": {live}}}
+
+			state, err := newService(repo).Reconcile(t.Context(), "apps",
+				map[string]string{nspolicy.LabelManaged: "true"})
+			if err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if state != StateEnrolled {
+				t.Fatalf("state = %q, want the namespace enrolled once repaired", state)
+			}
+			if !slices.Equal(repo.deleted, []string{"apps/home-lab-admin-helm"}) {
+				t.Errorf("deleted = %v, want the over-broad binding removed", repo.deleted)
+			}
+			if !slices.Contains(repo.created, "apps/home-lab-admin-helm") {
+				t.Errorf("created = %v, want it recreated with only this panel's account",
+					repo.created)
+			}
+		})
+	}
+}
