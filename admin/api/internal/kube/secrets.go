@@ -92,9 +92,14 @@ func secretRef(namespace string, spec SecretSpec) SecretRef {
 	return SecretRef{Namespace: namespace, Name: spec.Name, Keys: keys}
 }
 
-// validateSecretName checks the name against the same rule a namespace uses: a
-// Secret name is a DNS subdomain, which is what validateNamespace already tests
-// for.
+// validateSecretName checks the name against the rule a namespace uses.
+//
+// Kubernetes allows a Secret a DNS *subdomain*, which is longer than this and may
+// contain dots. The stricter rule is applied deliberately: reusing the check that
+// already exists here means one place to be wrong about DNS labels rather than
+// two, and a Secret this panel writes is one somebody has to type into a values
+// file. If a chart ever needs a dotted name, the fix is a check of its own, not a
+// relaxed one shared with namespaces.
 func validateSecretName(name string) error {
 	if err := validateNamespace(name); err != nil {
 		return fmt.Errorf("%w: %q is not a valid Secret name", ErrInvalidName, name)
