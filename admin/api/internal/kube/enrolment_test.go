@@ -210,3 +210,24 @@ func TestEnrolNamespaceRefusesAMissingNamespace(t *testing.T) {
 		t.Errorf("a missing namespace was reconciled: %v", enrol.reconciled)
 	}
 }
+
+// Reading one namespace carries its enrolment, the same as the listing does.
+//
+// This is a regression test with a live failure behind it: applyEnrolment
+// decorates the slice it is given, and passing it a one-element literal built
+// from a local variable decorated a copy — so every single-namespace read
+// reported no enrolment while the listing beside it was correct.
+func TestReadNamespaceCarriesEnrolment(t *testing.T) {
+	repo := &fakeRepo{namespaces: map[string]Namespace{
+		"octo": {Name: "octo", Labels: map[string]string{nspolicy.LabelManaged: "true"}},
+	}}
+	enrol := &fakeEnrolment{states: map[string]nsenrol.State{"octo": nsenrol.StatePartial}}
+
+	namespace, err := serviceWithEnrolment(repo, enrol).ReadNamespace(t.Context(), "octo")
+	if err != nil {
+		t.Fatalf("ReadNamespace() error = %v", err)
+	}
+	if namespace.HelmEnrolment != string(nsenrol.StatePartial) {
+		t.Errorf("HelmEnrolment = %q, want %q", namespace.HelmEnrolment, nsenrol.StatePartial)
+	}
+}

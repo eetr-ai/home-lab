@@ -78,6 +78,35 @@ rendered_chart=$(helm template "$release" "$chart_dir" \
   --namespace "$namespace" \
   --values "$values_file")
 
+# Bootstrap-enrolled namespaces need the label as well as the bindings.
+#
+# Enrolment has two keys and they live in different places: the RoleBindings,
+# which this chart renders for every namespace in admin.api.helm.namespaces, and
+# the home-lab.example/helm-managed label, which says the namespace asked to be a
+# target. The panel applies both when it enrols one itself. Nothing applied the
+# label to a namespace the CHART enrolled, so the release namespace came up with
+# its bindings in place and the panel reporting no enrolment at all -- which also
+# means refusing to deploy into it, and deploying the panel's own chart from a
+# pipeline is what the whole feature was asked for.
+#
+# Read out of the rendered chart rather than out of the values file, for the same
+# reason the Secret checks below are: the chart is what the cluster acts on. A
+# namespace that got a binding gets the label, and the two cannot drift.
+bootstrap_namespaces=$(printf '%s\n' "$rendered_chart" | awk -v release="$release" '
+  /^kind: RoleBinding$/ { in_binding = 1; name = ""; ns = ""; next }
+  /^kind: / { in_binding = 0 }
+  in_binding && $1 == "name:" && name == "" { name = $2; next }
+  in_binding && $1 == "namespace:" && ns == "" { ns = $2 }
+  in_binding && name == release "-secrets" && ns != "" { print ns; in_binding = 0 }
+' | sort -u)
+
+while read -r bootstrap_namespace; do
+  [[ -n $bootstrap_namespace ]] || continue
+  kubectl label namespace "$bootstrap_namespace" \
+    home-lab.example/helm-managed=true \
+    --overwrite
+done <<<"$bootstrap_namespaces"
+
 # Say out loud which images this will run.
 #
 # The tag is normally not in the values file at all now: it defaults to the

@@ -58,8 +58,15 @@ func (s *Service) ReadNamespace(ctx context.Context, name string) (Namespace, er
 		return Namespace{}, err
 	}
 	s.applyPolicy(&namespace)
-	s.applyEnrolment(ctx, []Namespace{namespace})
-	return namespace, nil
+
+	// The slice is what gets decorated, so read the answer back out of it. Passing
+	// `[]Namespace{namespace}` hands applyEnrolment a COPY, and a version of this
+	// that returned `namespace` returned the undecorated one — every single-
+	// namespace read reported no enrolment at all while the listing beside it was
+	// correct.
+	decorated := []Namespace{namespace}
+	s.applyEnrolment(ctx, decorated)
+	return decorated[0], nil
 }
 
 // CreateNamespace brings a namespace into existence with the labels this lab
