@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // The rules PutSecret enforces, and the one property that matters most: a
@@ -542,6 +545,15 @@ func TestSecretWritesRefuseBeforeTheyReachTheCluster(t *testing.T) {
 				if wantErr == nil && len(repo.removed) != 1 {
 					t.Errorf("DeleteSecret() removed %d, want 1", len(repo.removed))
 				}
+				// The identity, not just the name. It is what the repository turns
+				// into a precondition, and without it a delete would be free to
+				// land on whatever holds that name by the time it arrives.
+				if wantErr == nil && len(repo.removed) == 1 {
+					if got := repo.removed[0]; got.uid == "" || got.resourceVersion == "" {
+						t.Errorf("DeleteSecret() passed uid %q version %q, want the live ones",
+							got.uid, got.resourceVersion)
+					}
+				}
 			})
 		})
 	}
@@ -558,6 +570,9 @@ func liveSecretsForTests() map[string]liveSecret {
 				Type:         "Opaque",
 				Keys:         []string{"database", "password", "username"},
 				PanelManaged: true,
+
+				uid:             "6f0b2a1e-0000-4000-8000-000000000001",
+				resourceVersion: "4711",
 			},
 			data: map[string]string{"username": "octo", "password": "hunter2", "database": "octo"},
 		},
@@ -566,6 +581,9 @@ func liveSecretsForTests() map[string]liveSecret {
 				Name: "sh.helm.release.v1.octo.v3",
 				Type: "helm.sh/release.v1",
 				Keys: []string{"release"},
+
+				uid:             "6f0b2a1e-0000-4000-8000-000000000002",
+				resourceVersion: "4712",
 			},
 			data: map[string]string{"release": "a base64 gzip of the whole release"},
 		},
@@ -574,6 +592,9 @@ func liveSecretsForTests() map[string]liveSecret {
 				Name: "octo-token",
 				Type: "kubernetes.io/service-account-token",
 				Keys: []string{"ca.crt", "namespace", "token"},
+
+				uid:             "6f0b2a1e-0000-4000-8000-000000000003",
+				resourceVersion: "4713",
 			},
 			data: map[string]string{"token": "an issued token"},
 		},
@@ -583,8 +604,96 @@ func liveSecretsForTests() map[string]liveSecret {
 				Type:      "Opaque",
 				Keys:      []string{"password"},
 				Immutable: true,
+
+				uid:             "6f0b2a1e-0000-4000-8000-000000000004",
+				resourceVersion: "4714",
 			},
 			data: map[string]string{"password": "hunter2"},
 		},
+	}
+}
+
+// The service's verdict is about a Secret it read; the write lands on whatever
+// holds that name a moment later. These two guard that gap.
+//
+// rotatable is the repository's re-check, made inside the retry loop against the
+// object the Update is about to replace. The cases below are the three ways that
+// object could have become one nobody may rotate between the read and the write.
+func TestRotatableJudgesTheObjectBeingWritten(t *testing.T) {
+	pinned := true
+	tests := []struct {
+		name    string
+		live    *corev1.Secret
+		values  map[string]string
+		wantErr error
+	}{
+		{
+			name: "the Secret that was checked",
+			live: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"password": []byte("hunter2")},
+			},
+			values: map[string]string{"password": "new-password"},
+		},
+		{
+			name: "replaced by Helm's release storage",
+			live: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+				Type:       corev1.SecretType(helmReleaseSecretType),
+				Data:       map[string][]byte{"password": []byte("hunter2")},
+			},
+			values:  map[string]string{"password": "new-password"},
+			wantErr: ErrReserved,
+		},
+		{
+			name: "made immutable since the read",
+			live: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+				Type:       corev1.SecretTypeOpaque,
+				Immutable:  &pinned,
+				Data:       map[string][]byte{"password": []byte("hunter2")},
+			},
+			values:  map[string]string{"password": "new-password"},
+			wantErr: ErrReserved,
+		},
+		{
+			name: "no longer has the key being rotated",
+			live: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"username": []byte("octo")},
+			},
+			values:  map[string]string{"password": "new-password"},
+			wantErr: ErrInvalidName,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := rotatable(test.live, test.values); !errors.Is(err, test.wantErr) {
+				t.Errorf("rotatable() error = %v, want %v", err, test.wantErr)
+			}
+		})
+	}
+}
+
+// And the identity a delete is bound to has to survive the projection, because
+// the projection is the only thing the service ever sees. Empty preconditions
+// would be refused by the API server rather than ignored, so this failing would
+// be loud — but it would be loud in a cluster rather than here.
+func TestSummarizeSecretCarriesTheIdentityAWriteIsBoundTo(t *testing.T) {
+	summary := summarizeSecret(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "octo-database",
+			UID:             "6f0b2a1e-0000-4000-8000-000000000001",
+			ResourceVersion: "4711",
+		},
+		Type: corev1.SecretTypeOpaque,
+	})
+
+	if summary.uid != "6f0b2a1e-0000-4000-8000-000000000001" || summary.resourceVersion != "4711" {
+		t.Errorf("summarizeSecret() uid = %q version = %q, want the live ones",
+			summary.uid, summary.resourceVersion)
 	}
 }

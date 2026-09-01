@@ -222,10 +222,13 @@ func removable(secret SecretSummary, protected bool, protectedReason string) (bo
 // Secret is not evidence about what it is, and the whole point of the deny-list
 // is to hold against a caller who would rather it did not.
 func (s *Service) DeleteSecret(ctx context.Context, namespace, name string) error {
-	if _, err := s.writableSecret(ctx, namespace, name); err != nil {
+	target, err := s.writableSecret(ctx, namespace, name)
+	if err != nil {
 		return err
 	}
-	return s.repo.DeleteSecret(ctx, namespace, name)
+	// The Secret that was checked, not its name: the repository binds the delete
+	// to the object this verdict was reached about.
+	return s.repo.DeleteSecret(ctx, namespace, target)
 }
 
 // RotateSecret replaces the values of keys the Secret already has.

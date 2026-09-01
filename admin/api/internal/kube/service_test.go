@@ -45,8 +45,10 @@ type fakeRepo struct {
 	// alone. Nothing the service can reach ever sees this map — that is the point
 	// of it being here and of SecretSummary having nowhere to put a value.
 	live map[string]liveSecret
-	// removed records the Secrets a delete reached the cluster with.
-	removed []string
+	// removed records the Secrets a delete reached the cluster with, as the
+	// service handed them over — so a test can assert the delete was bound to the
+	// object that was checked and not just to its name.
+	removed []SecretSummary
 	// rotated records each rotation as the fake merged it, so a test can assert
 	// the keys not named kept their values.
 	rotated []map[string]string
@@ -180,11 +182,11 @@ func (f *fakeRepo) ReadSecret(_ context.Context, namespace, name string) (Secret
 	return secret.summary, nil
 }
 
-func (f *fakeRepo) DeleteSecret(_ context.Context, _, name string) error {
+func (f *fakeRepo) DeleteSecret(_ context.Context, _ string, target SecretSummary) error {
 	if f.secretErr != nil {
 		return f.secretErr
 	}
-	f.removed = append(f.removed, name)
+	f.removed = append(f.removed, target)
 	return nil
 }
 

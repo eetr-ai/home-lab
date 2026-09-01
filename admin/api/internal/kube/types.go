@@ -390,6 +390,12 @@ type SecretSummary struct {
 	Removable bool      `json:"removable"`
 	Reason    string    `json:"reason,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Unexported, so they cannot be serialised by accident and cannot be sent by a
+	// caller. They exist so a write can name the object that was checked rather
+	// than a name that may since have come to mean something else -- see
+	// Repository.DeleteSecret.
+	uid             string
+	resourceVersion string
 }
 
 // SecretRotation is a request to replace the values of keys a Secret already has.

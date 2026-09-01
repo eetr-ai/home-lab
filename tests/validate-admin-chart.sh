@@ -556,9 +556,22 @@ for reserved_type in 'helm.sh/release.v1' 'kubernetes.io/service-account-token';
     exit 1
   fi
 done
-if ! grep -q 'reservedSecret(secret.Type)' "$reserved_rule"; then
-  printf 'Nothing consults reservedSecret() on the live object any more.\n' >&2
+# Scoped to writableSecret rather than to the file. A file-wide grep passes as
+# long as *something* consults the deny-list, so it would still be green if the
+# call moved to a path a delete does not take -- which is the one arrangement this
+# assertion exists to catch.
+writable_secret=$(awk '/^func \(s \*Service\) writableSecret\(/,/^}/' "$reserved_rule")
+if ! grep -q 'reservedSecret(secret.Type)' <<<"$writable_secret"; then
+  printf 'writableSecret() no longer consults reservedSecret() on the live object.\n' >&2
   printf 'A deny-list nothing calls does not bound the delete grant above.\n' >&2
+  exit 1
+fi
+
+# ...and the delete path still goes through it.
+delete_secret=$(awk '/^func \(s \*Service\) DeleteSecret\(/,/^}/' "$reserved_rule")
+if ! grep -q 'writableSecret(' <<<"$delete_secret"; then
+  printf 'DeleteSecret() no longer goes through writableSecret().\n' >&2
+  printf 'It is the only thing that checks the type before the delete is issued.\n' >&2
   exit 1
 fi
 

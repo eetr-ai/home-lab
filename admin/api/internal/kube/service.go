@@ -44,7 +44,7 @@ type secretRepository interface {
 	UpdateSecret(ctx context.Context, namespace string, spec SecretSpec) error
 	ListSecrets(ctx context.Context, namespace string) ([]SecretSummary, error)
 	ReadSecret(ctx context.Context, namespace, name string) (SecretSummary, error)
-	DeleteSecret(ctx context.Context, namespace, name string) error
+	DeleteSecret(ctx context.Context, namespace string, target SecretSummary) error
 	RotateSecretKeys(ctx context.Context, namespace, name string, values map[string]string) error
 }
 

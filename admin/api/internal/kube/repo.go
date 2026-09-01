@@ -365,10 +365,24 @@ func (r *Repository) ReadSecret(ctx context.Context, namespace, name string) (Se
 	return summarizeSecret(secret), nil
 }
 
-// DeleteSecret removes a Secret.
-func (r *Repository) DeleteSecret(ctx context.Context, namespace, name string) error {
-	err := r.client.CoreV1().Secrets(namespace).Delete(ctx, name, metav1.DeleteOptions{})
-	return translate(err, "delete secret "+namespace+"/"+name)
+// DeleteSecret removes the Secret that was read and found deletable, and not
+// merely one of that name.
+//
+// The preconditions are what make that sentence true. The service reads a Secret,
+// checks its type against the deny-list, and then asks for it to be removed; in
+// between, that name could have come to mean a different object — a Helm release
+// Secret restored from a backup, say. Naming the UID and the resource version
+// turns that race into a 409 the operator sees instead of a deletion nobody
+// asked for. The window is narrow and the cost of closing it is two fields.
+func (r *Repository) DeleteSecret(ctx context.Context, namespace string, target SecretSummary) error {
+	uid := types.UID(target.uid)
+	err := r.client.CoreV1().Secrets(namespace).Delete(ctx, target.Name, metav1.DeleteOptions{
+		Preconditions: &metav1.Preconditions{
+			UID:             &uid,
+			ResourceVersion: &target.resourceVersion,
+		},
+	})
+	return translate(err, "delete secret "+namespace+"/"+target.Name)
 }
 
 // RotateSecretKeys replaces the values of the named keys and leaves the rest.
@@ -395,6 +409,14 @@ func (r *Repository) RotateSecretKeys(
 		if err != nil {
 			return fmt.Errorf("read for rotation: %w", err)
 		}
+		// Re-checked against this read, not against the one the service made.
+		// Every trip round this loop is a fresh object, and a retry provoked by a
+		// conflict is precisely the case where the object changed under us — so
+		// the guards that decided this Secret was rotatable have to decide it
+		// again about the thing actually being written.
+		if err = rotatable(live, values); err != nil {
+			return err
+		}
 		if live.Data == nil {
 			live.Data = map[string][]byte{}
 		}
@@ -415,6 +437,28 @@ func (r *Repository) RotateSecretKeys(
 		return nil
 	})
 	return translate(err, "rotate secret "+namespace+"/"+name)
+}
+
+// rotatable repeats the service's verdict about the object that is about to be
+// written, and returns an error RetryOnConflict will not retry.
+//
+// It duplicates three checks the service already made, and that duplication is
+// the point: the service made them about an object it read a moment ago, and the
+// only object whose type, mutability and keys matter is the one this Update is
+// going to replace.
+func rotatable(live *corev1.Secret, values map[string]string) error {
+	if reserved, reason := reservedSecret(string(live.Type)); reserved {
+		return fmt.Errorf("%w: %s is %s", ErrReserved, live.Name, reason)
+	}
+	if live.Immutable != nil && *live.Immutable {
+		return fmt.Errorf("%w: %s is immutable", ErrReserved, live.Name)
+	}
+	for key := range values {
+		if _, has := live.Data[key]; !has {
+			return fmt.Errorf("%w: %s has no key %q", ErrInvalidName, live.Name, key)
+		}
+	}
+	return nil
 }
 
 // summarizeSecret is the projection, and the only place a live Secret is turned
@@ -441,5 +485,8 @@ func summarizeSecret(secret *corev1.Secret) SecretSummary {
 		Immutable:    secret.Immutable != nil && *secret.Immutable,
 		PanelManaged: secret.Labels[labelManagedBy] == managedByValue,
 		CreatedAt:    secret.CreationTimestamp.Time,
+
+		uid:             string(secret.UID),
+		resourceVersion: secret.ResourceVersion,
 	}
 }
