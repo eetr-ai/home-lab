@@ -534,6 +534,10 @@
                     "createdAt": {
                         "type": "string"
                     },
+                    "helmManaged": {
+                        "description": "HelmManaged reports whether this panel may write into the namespace at all\n-- install a release, or put a Secret there. It is the same verdict the\nwrite endpoints reach, computed once so the panel can stop offering a\ndestination that would be refused.\n\nIt cannot be worked out in the browser. Half the rule is a label, which the\npanel can see, and the other half is a list in a values file, which it\ncannot. Sending only the label half would be a filter that is right in one\ndeployment mode and wrong in the other.",
+                        "type": "boolean"
+                    },
                     "labels": {
                         "additionalProperties": {
                             "type": "string"
@@ -746,6 +750,44 @@
                     "replicas": {
                         "description": "A pointer so absent can be told from zero. int32 would make `{}` decode to\n0, and 0 is a legitimate replica count — so a request that named no count\nat all would scale the workload down to nothing. Scaling to zero has to be\nsomething the caller asked for.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.SecretRef": {
+                "properties": {
+                    "keys": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.SecretSpec": {
+                "properties": {
+                    "data": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "overwrite": {
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -3657,6 +3699,122 @@
                     }
                 ],
                 "summary": "Stream a pod's log",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/secrets/{name}": {
+            "put": {
+                "description": "Creates an Opaque Secret so a credential the panel just issued can\nreach the chart that will use it. Refused for a protected namespace,\nand refused with 409 when a Secret of that name is already there\nunless overwrite is set — replacing one is how a running release\nloses the credential it started with. The values are never readable\nback through this API: the response carries the keys and nothing else.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Secret name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kube.SecretSpec",
+                                        "summary": "request",
+                                        "description": "The Secret contents"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The Secret contents",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.SecretRef"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Write a Secret",
                 "tags": [
                     "kubernetes"
                 ]

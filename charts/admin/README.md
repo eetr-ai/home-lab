@@ -101,16 +101,25 @@ story of the Helm feature.
 | File | Identity | Reach |
 | --- | --- | --- |
 | `rbac.yaml` | `admin-api` | Cluster-wide, almost entirely read-only. Reading the cluster; two write verbs for restart and scale. |
-| `rbac-deploy.yaml` | `admin-api` **and** `admin-helm-job` | Split in two. The API gets `secrets` `get`/`list`/`watch` in each managed namespace, which is all a *read* of a Helm release needs. The Job gets everything a deploy needs. |
+| `rbac-deploy.yaml` | `admin-api` **and** `admin-helm-job` | Split in two. The API gets `secrets` `get`/`list`/`watch` in each managed namespace, which is all a *read* of a Helm release needs, plus `create`/`update` for writing a database credential into one. The Job gets everything a deploy needs. |
 | `rbac-jobs.yaml` | `admin-api` | `batch/jobs` `get`/`list`/`watch`/`create`, in the release namespace only. |
 
 Every Helm mutation runs as a Kubernetes Job in the panel's own namespace, so the
 deploy grant belongs to `admin-helm-job` and exists for the lifetime of one
-operation. The API can no longer create, update, or delete a Secret in any
-namespace — or anything else in a Helm-managed one. Its only remaining writes are the ones
-in `rbac.yaml` — `patch` on Deployments and StatefulSets, which is how a workload
-is restarted, and `update` on their `scale` subresource, which is how its replica
-count changes. This change does not touch either.
+operation. The API cannot delete a Secret anywhere, and can create or update one
+only in a Helm-managed namespace — that is the credential-installing route, and
+it is the only thing the API writes to a Secret. It can write nothing else in a
+Helm-managed namespace at all. Its other writes are the two in `rbac.yaml` —
+`patch` on Deployments and StatefulSets, which is how a workload is restarted,
+and `update` on their `scale` subresource, which is how its replica count
+changes.
+
+The Secret write is worth weighing on its own, since it is the one grant here
+that the API holds rather than the Job. It reaches only namespaces this panel
+already manages, where it could already *read* every Secret and therefore already
+knew every credential; what it adds is the ability to overwrite one, which breaks
+a workload rather than exposing anything new. There is no `delete` and no
+`patch`.
 
 **Read the warning at the top of `rbac-jobs.yaml` before treating that as
 containment.** Kubernetes does not check whether the creator of a Job may run as

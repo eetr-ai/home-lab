@@ -5,18 +5,61 @@ import { Users } from "lucide-react";
 import { createRole } from "@/app/actions/postgres";
 import { FormField, Input } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
+import { InstallSecretFields } from "../../../_components/install-secret-fields";
+import { useCredentialInstall } from "../../../_components/use-credential-install";
+import { EMPTY_INSTALL } from "@/lib/secrets/install-draft";
+import type { Namespace } from "@/lib/api/types";
 
 const EMPTY = { name: "", password: "", canLogin: true, canCreateDatabase: false, canCreateRole: false };
 
-export function CreateRolePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreateRolePanel({
+	open,
+	namespaces,
+	namespacesError,
+	onClose,
+}: {
+	open: boolean;
+	namespaces: Namespace[];
+	namespacesError: string | null;
+	onClose: () => void;
+}) {
 	const [draft, setDraft] = useState(EMPTY);
+	const secret = useCredentialInstall("role");
 
 	function reset() {
 		setDraft(EMPTY);
+		secret.reset();
 		onClose();
 	}
 
-	const dirty = JSON.stringify(draft) !== JSON.stringify(EMPTY);
+	const dirty =
+		JSON.stringify(draft) !== JSON.stringify(EMPTY) ||
+		JSON.stringify(secret.install) !== JSON.stringify(EMPTY_INSTALL);
+
+	// A role that cannot log in has a password nothing will ever accept, so
+	// installing it as a Secret would produce a credential that looks complete and
+	// fails at connection time — in a workload, a long way from this form. Refused
+	// before the role is created, so there is nothing half-finished to undo.
+	async function submit() {
+		if (secret.install.enabled && !draft.canLogin) {
+			return {
+				ok: false as const,
+				error:
+					"This role cannot log in, so its password would authenticate nothing. " +
+					"Give it the login privilege, or do not install it as a Secret.",
+			};
+		}
+
+		return secret.submit({ username: draft.name, password: draft.password }, () =>
+			createRole({
+				name: draft.name,
+				...(draft.password ? { password: draft.password } : {}),
+				canLogin: draft.canLogin,
+				canCreateDatabase: draft.canCreateDatabase,
+				canCreateRole: draft.canCreateRole,
+			}),
+		);
+	}
 
 	return (
 		<CreatePanel
@@ -26,15 +69,7 @@ export function CreateRolePanel({ open, onClose }: { open: boolean; onClose: () 
 			description="The password never reaches PostgreSQL: the API derives a SCRAM-SHA-256 verifier from it and sends that instead."
 			dirty={dirty}
 			onClose={reset}
-			onSubmit={() =>
-				createRole({
-					name: draft.name,
-					...(draft.password ? { password: draft.password } : {}),
-					canLogin: draft.canLogin,
-					canCreateDatabase: draft.canCreateDatabase,
-					canCreateRole: draft.canCreateRole,
-				})
-			}
+			onSubmit={submit}
 		>
 			<FormField label="Name" htmlFor="role-name">
 				<Input
@@ -82,6 +117,14 @@ export function CreateRolePanel({ open, onClose }: { open: boolean; onClose: () 
 					))}
 				</div>
 			</fieldset>
+
+			<InstallSecretFields
+				draft={secret.install}
+				username={draft.name}
+				namespaces={namespaces}
+				namespacesError={namespacesError}
+				onChange={secret.setInstall}
+			/>
 		</CreatePanel>
 	);
 }

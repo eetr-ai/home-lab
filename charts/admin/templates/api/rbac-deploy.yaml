@@ -183,7 +183,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ .Release.Name }}-helm-read
+  name: {{ .Release.Name }}-secrets
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 rules:
@@ -191,9 +191,26 @@ rules:
   # endpoint: Helm keeps a release in a Secret in the namespace it was installed
   # into -- the chart, the values, the rendered manifests, every revision.
   #
-  # Read-only, and note what that changes. This used to be the same grant that
-  # wrote. The API can no longer create, update or delete a Secret anywhere, in
-  # any namespace, because nothing in its process writes to the cluster at all.
+  # THIS GRANT IS NO LONGER READ-ONLY, WHICH IS WHY IT IS NO LONGER CALLED -read.
+  #
+  # `create` and `update` are here for one route: PUT on
+  # /api/kubernetes/namespaces/{namespace}/secrets/{name}, which writes a
+  # database credential the panel has just issued into the namespace of the chart
+  # that will use it. Without it that credential leaves the panel by being typed
+  # into a `kubectl create secret`, which is worse in every way that matters.
+  #
+  # What is NOT here is as deliberate as what is. No `delete`: removing a Secret
+  # is not part of that workflow and the verb would be a way to break a running
+  # release. No `patch`: an update replaces the object with what the caller asked
+  # for, and a merge would leave a previous credential's keys beside the new
+  # one -- a Secret holding two passwords and no way to tell which is live.
+  #
+  # It is held by admin-api rather than by the Job, and that is a real change to
+  # what the long-lived credential can do. Weigh it as: this account could
+  # already READ every Secret in a managed namespace, so it could already learn
+  # every credential there; it can now also overwrite one, which breaks a
+  # workload rather than exposing anything new. That is the honest shape of it,
+  # and it is bounded to managed namespaces because this grant is.
   #
   # The warning at the top still applies to the `get` half unchanged:
   #
@@ -205,18 +222,18 @@ rules:
   - apiGroups: [""]
     resources:
       - secrets
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ .Release.Name }}-helm-read
+  name: {{ .Release.Name }}-secrets
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Release.Name }}-helm-read
+  name: {{ .Release.Name }}-secrets
 subjects:
   - kind: ServiceAccount
     name: admin-api
@@ -332,7 +349,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ $.Release.Name }}-helm-read
+  name: {{ $.Release.Name }}-secrets
   namespace: {{ $namespace }}
   labels:
     {{- include "home-lab-admin.labels" $ | nindent 4 }}
@@ -341,9 +358,26 @@ rules:
   # endpoint: Helm keeps a release in a Secret in the namespace it was installed
   # into -- the chart, the values, the rendered manifests, every revision.
   #
-  # Read-only, and note what that changes. This used to be the same grant that
-  # wrote. The API can no longer create, update or delete a Secret anywhere, in
-  # any namespace, because nothing in its process writes to the cluster at all.
+  # THIS GRANT IS NO LONGER READ-ONLY, WHICH IS WHY IT IS NO LONGER CALLED -read.
+  #
+  # `create` and `update` are here for one route: PUT on
+  # /api/kubernetes/namespaces/{namespace}/secrets/{name}, which writes a
+  # database credential the panel has just issued into the namespace of the chart
+  # that will use it. Without it that credential leaves the panel by being typed
+  # into a `kubectl create secret`, which is worse in every way that matters.
+  #
+  # What is NOT here is as deliberate as what is. No `delete`: removing a Secret
+  # is not part of that workflow and the verb would be a way to break a running
+  # release. No `patch`: an update replaces the object with what the caller asked
+  # for, and a merge would leave a previous credential's keys beside the new
+  # one -- a Secret holding two passwords and no way to tell which is live.
+  #
+  # It is held by admin-api rather than by the Job, and that is a real change to
+  # what the long-lived credential can do. Weigh it as: this account could
+  # already READ every Secret in a managed namespace, so it could already learn
+  # every credential there; it can now also overwrite one, which breaks a
+  # workload rather than exposing anything new. That is the honest shape of it,
+  # and it is bounded to managed namespaces because this grant is.
   #
   # The warning at the top still applies to the `get` half unchanged:
   #
@@ -355,19 +389,19 @@ rules:
   - apiGroups: [""]
     resources:
       - secrets
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ $.Release.Name }}-helm-read
+  name: {{ $.Release.Name }}-secrets
   namespace: {{ $namespace }}
   labels:
     {{- include "home-lab-admin.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ $.Release.Name }}-helm-read
+  name: {{ $.Release.Name }}-secrets
 subjects:
   - kind: ServiceAccount
     name: admin-api

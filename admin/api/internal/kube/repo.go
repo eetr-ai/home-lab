@@ -289,3 +289,44 @@ func translate(err error, what string) error {
 		return fmt.Errorf("%s: %w", what, err)
 	}
 }
+
+// CreateSecret writes a new Opaque Secret, and fails if one of that name is
+// already there.
+//
+// StringData rather than Data: client-go base64-encodes it on the way out, so
+// nothing here has to, and a value cannot be stored double-encoded by mistake.
+func (r *Repository) CreateSecret(ctx context.Context, namespace string, spec SecretSpec) error {
+	_, err := r.client.CoreV1().Secrets(namespace).Create(ctx, secretObject(namespace, spec),
+		metav1.CreateOptions{})
+	return translate(err, "create secret "+namespace+"/"+spec.Name)
+}
+
+// UpdateSecret writes the Secret whether or not it is there.
+//
+// An apply-style update rather than a read-modify-write: the caller asked for
+// this exact content, and merging it with whatever is already in the object would
+// leave keys from a previous credential beside the new one — which is a Secret
+// holding two passwords and no way to tell which is live.
+func (r *Repository) UpdateSecret(ctx context.Context, namespace string, spec SecretSpec) error {
+	object := secretObject(namespace, spec)
+	_, err := r.client.CoreV1().Secrets(namespace).Update(ctx, object, metav1.UpdateOptions{})
+	if apierrors.IsNotFound(err) {
+		// Overwrite means "make it say this", and there being nothing to replace
+		// is not a failure to report to somebody who asked for that.
+		_, err = r.client.CoreV1().Secrets(namespace).Create(ctx, object, metav1.CreateOptions{})
+	}
+	return translate(err, "write secret "+namespace+"/"+spec.Name)
+}
+
+// secretObject builds the object both writes send.
+func secretObject(namespace string, spec SecretSpec) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      spec.Name,
+			Namespace: namespace,
+			Labels:    spec.Labels,
+		},
+		Type:       corev1.SecretTypeOpaque,
+		StringData: spec.Data,
+	}
+}

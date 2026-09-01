@@ -20,6 +20,12 @@ export interface Namespace {
 	protected: boolean;
 	/** Why, when it is. Shown next to the namespace in place of a delete action. */
 	protectedReason?: string;
+	/**
+	 * Whether the panel may write into it — install a release, or put a Secret
+	 * there. Half the rule is a label and half is a list in a values file the
+	 * browser cannot see, so the API answers it rather than the panel guessing.
+	 */
+	helmManaged: boolean;
 }
 
 /** POST /api/kubernetes/namespaces */
@@ -31,6 +37,29 @@ export interface CreateNamespace {
 	 * or k8s.io.
 	 */
 	labels?: Record<string, string>;
+}
+
+/** PUT /api/kubernetes/namespaces/{namespace}/secrets/{name} */
+export interface PutSecret {
+	/**
+	 * The Secret's contents in plaintext. Every value is required to be non-empty:
+	 * a Secret whose password key holds "" starts the workload and fails to
+	 * authenticate, which reads as a broken database rather than a missing write.
+	 */
+	data: Record<string, string>;
+	labels?: Record<string, string>;
+	/**
+	 * Replace a Secret that is already there. Off unless asked for — overwriting
+	 * one is how a running release loses the credential it was started with.
+	 */
+	overwrite?: boolean;
+}
+
+/** What was written, and deliberately not what is in it. */
+export interface SecretRef {
+	namespace: string;
+	name: string;
+	keys: string[];
 }
 
 export interface Workload {

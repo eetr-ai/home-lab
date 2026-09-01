@@ -28,16 +28,24 @@ type repository interface {
 	PodLogs(ctx context.Context, namespace, pod string, options LogOptions) (io.ReadCloser, error)
 	RestartWorkload(ctx context.Context, kind, namespace, name string, at time.Time) error
 	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
+	CreateSecret(ctx context.Context, namespace string, spec SecretSpec) error
+	UpdateSecret(ctx context.Context, namespace string, spec SecretSpec) error
 }
 
 // Service reads the cluster, and rolls or resizes what is already on it.
 //
-// Reads are the bulk of it. The two writes — a rollout restart and a replica
-// count — are deliberately the only ones: both are reversible, both are things
-// that already happen without the panel, and neither can bring something into
-// existence or take it away. What a workload *is* still comes from this
-// repository's Helm releases; this changes only how many of it there are and
-// when it last started.
+// Reads are the bulk of it. Two of the writes — a rollout restart and a replica
+// count — are reversible, are things that already happen without the panel, and
+// neither can bring something into existence or take it away. What a workload
+// *is* still comes from this repository's Helm releases; those two change only
+// how many of it there are and when it last started.
+//
+// The third is different and worth naming: PutSecret creates a Secret. It is here
+// because a database credential the panel just created has to reach the chart
+// that will use it, and every other route to that ends in a `kubectl create
+// secret` typed by hand. It writes nothing else — no delete, no type but Opaque,
+// and an existing Secret is left alone unless the caller asks for it to be
+// replaced.
 //
 // Note that the API itself does not decide who may do this. Every verified caller
 // can, the same as for the database slices; the panel gates writes on

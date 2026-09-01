@@ -6,7 +6,7 @@ import { dropRole } from "@/app/actions/postgres";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
 import { useRowDelete } from "../../../_components/use-row-delete";
-import type { PostgresRole } from "@/lib/api/types";
+import type { Namespace, PostgresRole } from "@/lib/api/types";
 import { CreateRolePanel } from "./create-role-panel";
 import { EditRolePanel } from "./edit-role-panel";
 
@@ -22,9 +22,13 @@ function Flag({ on, label }: { on: boolean; label: string }) {
 export function RoleList({
 	roles,
 	loadError,
+	namespaces,
+	namespacesError,
 }: {
 	roles: PostgresRole[];
 	loadError: string | null;
+	namespaces: Namespace[];
+	namespacesError: string | null;
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
@@ -113,7 +117,12 @@ export function RoleList({
 				))}
 			/>
 
-			<CreateRolePanel open={creating} onClose={() => setCreating(false)} />
+			<CreateRolePanel
+				open={creating}
+				namespaces={namespaces}
+				namespacesError={namespacesError}
+				onClose={() => setCreating(false)}
+			/>
 			{/* Keyed by role, so opening a different one starts from its own values
 			    rather than from whatever was last edited. */}
 			<EditRolePanel key={editing?.name} role={editing} onClose={() => setEditing(null)} />

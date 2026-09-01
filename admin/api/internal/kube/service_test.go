@@ -32,6 +32,20 @@ type fakeRepo struct {
 	// deletedUID is the precondition the delete carried, so a test can assert the
 	// object deleted is the one that was read.
 	deletedUID string
+	// secrets records the Secret writes that reached the cluster, and whether each
+	// was a create or an overwriting update — the difference is what stops a
+	// running release having its credential replaced by accident.
+	secrets []writtenSecret
+	// secretErr is what the next Secret write answers with, so a test can put a
+	// conflict in front of the service without a cluster.
+	secretErr error
+}
+
+// writtenSecret is one Secret write as the fake saw it.
+type writtenSecret struct {
+	namespace string
+	spec      SecretSpec
+	overwrote bool
 }
 
 func (f *fakeRepo) ReadNamespace(_ context.Context, name string) (Namespace, error) {
@@ -107,6 +121,22 @@ func (f *fakeRepo) RestartWorkload(_ context.Context, kind, namespace, name stri
 
 func (f *fakeRepo) ScaleWorkload(_ context.Context, kind, namespace, name string, replicas int32) error {
 	f.asked = append(f.asked, fmt.Sprintf("scale:%s/%s/%s=%d", kind, namespace, name, replicas))
+	return nil
+}
+
+func (f *fakeRepo) CreateSecret(_ context.Context, namespace string, spec SecretSpec) error {
+	if f.secretErr != nil {
+		return f.secretErr
+	}
+	f.secrets = append(f.secrets, writtenSecret{namespace: namespace, spec: spec})
+	return nil
+}
+
+func (f *fakeRepo) UpdateSecret(_ context.Context, namespace string, spec SecretSpec) error {
+	if f.secretErr != nil {
+		return f.secretErr
+	}
+	f.secrets = append(f.secrets, writtenSecret{namespace: namespace, spec: spec, overwrote: true})
 	return nil
 }
 

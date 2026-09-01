@@ -19,6 +19,16 @@ type Namespace struct {
 	// by internal/nspolicy from the name and the labels above, not by the cluster.
 	Protected       bool   `json:"protected"`
 	ProtectedReason string `json:"protectedReason,omitempty"`
+	// HelmManaged reports whether this panel may write into the namespace at all
+	// -- install a release, or put a Secret there. It is the same verdict the
+	// write endpoints reach, computed once so the panel can stop offering a
+	// destination that would be refused.
+	//
+	// It cannot be worked out in the browser. Half the rule is a label, which the
+	// panel can see, and the other half is a list in a values file, which it
+	// cannot. Sending only the label half would be a filter that is right in one
+	// deployment mode and wrong in the other.
+	HelmManaged bool `json:"helmManaged"`
 }
 
 // NamespaceSpec is a request to create a namespace.
@@ -320,4 +330,25 @@ type ScaleRequest struct {
 	// at all would scale the workload down to nothing. Scaling to zero has to be
 	// something the caller asked for.
 	Replicas *int32 `json:"replicas"`
+}
+
+// SecretSpec is a request to write an Opaque Secret into a namespace.
+//
+// Data is plaintext on the way in and is never read back out: no response in this
+// slice carries a value, and nothing stores one. Overwrite has to be said,
+// because replacing a Secret is how a running release loses the credential it
+// was started with.
+type SecretSpec struct {
+	Name      string            `json:"-"`
+	Data      map[string]string `json:"data"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Overwrite bool              `json:"overwrite,omitempty"`
+}
+
+// SecretRef says what was written, and deliberately not what is in it. The keys
+// are enough for an operator to point a chart's existingSecret at it.
+type SecretRef struct {
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`
+	Keys      []string `json:"keys"`
 }

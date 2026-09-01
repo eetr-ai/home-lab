@@ -7,7 +7,7 @@ import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui
 import { ActionsHeader, Directory } from "../../../_components/directory";
 import { ScopePicker } from "../../../_components/scope-picker";
 import { useRowDelete } from "../../../_components/use-row-delete";
-import type { MongoUser } from "@/lib/api/types";
+import type { MongoUser, Namespace } from "@/lib/api/types";
 import { CreateMongoUserPanel } from "./create-mongo-user-panel";
 import { EditMongoUserPanel } from "./edit-mongo-user-panel";
 
@@ -16,11 +16,15 @@ export function MongoUserList({
 	selected,
 	users,
 	loadError,
+	namespaces,
+	namespacesError,
 }: {
 	databases: string[];
 	selected: string;
 	users: MongoUser[];
 	loadError: string | null;
+	namespaces: Namespace[];
+	namespacesError: string | null;
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
@@ -103,6 +107,8 @@ export function MongoUserList({
 				open={creating}
 				database={selected}
 				databases={databases}
+				namespaces={namespaces}
+				namespacesError={namespacesError}
 				onClose={() => setCreating(false)}
 			/>
 			{/* Keyed by user, so opening a different one starts from its own roles
