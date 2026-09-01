@@ -139,10 +139,21 @@ export function Popover({
 			aria-labelledby={titleId}
 			tabIndex={-1}
 			style={{
-				top: position?.top ?? 0,
-				left: position?.left ?? 0,
+				// Off-screen until measured, and hidden as well.
+				//
+				// `visibility: hidden` alone was the guard, and it is not enough: a
+				// popover opened from inside a SidePanel is seen for a frame in the
+				// top-left corner before it lands on its anchor. It reproduces in a
+				// production build, so it is not StrictMode's double-invoke, and the
+				// React render log shows no visible unpositioned render — which says
+				// the frame being painted is not one React thinks it asked for.
+				//
+				// Rather than keep hunting the mechanism, put the unmeasured panel
+				// somewhere a stray paint cannot be seen. Costs nothing and does not
+				// depend on being right about the cause.
+				top: position?.top ?? -9999,
+				left: position?.left ?? -9999,
 				width: popoverWidth[width],
-				// Hidden until measured, so it cannot flash in the corner.
 				visibility: position ? "visible" : "hidden",
 			}}
 			className={cn(
