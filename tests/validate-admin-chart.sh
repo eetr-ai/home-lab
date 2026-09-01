@@ -506,12 +506,17 @@ if grep -q 'name: admin-api' <<<"$deploy_subjects"; then
   exit 1
 fi
 
-# The API keeps exactly enough to read a release and to write one credential into
-# an enrolled namespace: Secrets, and only Secrets. create and update are the whole
-# of the write half -- no delete, which would be a way to break a running release,
-# and no patch, which would merge a new credential into an old one's keys. Any
-# other resource here would put the deploy grant back on the long-lived
-# credential one line at a time.
+# The API keeps exactly enough to read a release and to manage a credential in an
+# enrolled namespace: Secrets, and only Secrets. Any other resource here would put
+# the deploy grant back on the long-lived credential one line at a time.
+#
+# `delete` is in this list and is not contained by RBAC -- it reaches Helm's own
+# release storage too. What confines it is reservedSecret() in
+# internal/kube/secrets.go, and the assertion below this one is what keeps that
+# function from being quietly deleted.
+#
+# Still no `patch`: an update replaces the object, while a strategic merge would
+# leave a previous credential's keys beside the new one.
 helm_secret_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-secrets | extract_pairs)
 expected_secret_pairs=$(LC_ALL=C sort <<'SECRETPAIRS'
 core/secrets get
@@ -519,11 +524,41 @@ core/secrets list
 core/secrets watch
 core/secrets create
 core/secrets update
+core/secrets delete
 SECRETPAIRS
 )
 if [[ $helm_secret_pairs != "$expected_secret_pairs" ]]; then
-  printf 'The API Secret grant must be Secrets get/list/watch/create/update and nothing else.\n' >&2
+  printf 'The API Secret grant must be Secrets get/list/watch/create/update/delete and nothing else.\n' >&2
   diff <(printf '%s\n' "$expected_secret_pairs") <(printf '%s\n' "$helm_secret_pairs") >&2 || true
+  exit 1
+fi
+
+# The `delete` verb above is granted on every Secret in an enrolled namespace,
+# Helm's release storage included, and RBAC has no way to narrow it. The only
+# thing standing between that grant and a deleted release history is one function
+# in the Go source, so this checks the function is still there and still names
+# both types it must refuse.
+#
+# It is a grep over source rather than a Go test because the Go test could be
+# deleted in the same change as the rule; this assertion lives beside the grant it
+# is protecting, which is where somebody widening the grant will be looking.
+reserved_rule="$repo_root/admin/api/internal/kube/secrets.go"
+if [[ ! -f $reserved_rule ]]; then
+  printf 'The Secret deny-list source is missing: %s\n' "$reserved_rule" >&2
+  printf 'The chart grants delete on every Secret in an enrolled namespace, and that\n' >&2
+  printf 'function is the whole of what stops it reaching Helm release storage.\n' >&2
+  exit 1
+fi
+for reserved_type in 'helm.sh/release.v1' 'kubernetes.io/service-account-token'; do
+  if ! grep -q "\"$reserved_type\"" "$reserved_rule"; then
+    printf 'reservedSecret() no longer refuses %s.\n' "$reserved_type" >&2
+    printf 'That type is reachable by the delete grant asserted just above.\n' >&2
+    exit 1
+  fi
+done
+if ! grep -q 'reservedSecret(secret.Type)' "$reserved_rule"; then
+  printf 'Nothing consults reservedSecret() on the live object any more.\n' >&2
+  printf 'A deny-list nothing calls does not bound the delete grant above.\n' >&2
   exit 1
 fi
 

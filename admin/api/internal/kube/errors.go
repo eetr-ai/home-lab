@@ -36,4 +36,15 @@ var (
 	// working exactly as configured, and what has to change is which namespaces
 	// the panel manages — not its role binding.
 	ErrNotManaged = errors.New("not a managed namespace")
+	// ErrReserved reports a Secret this panel will not delete or rotate whatever
+	// the namespace policy says, because of what the Secret is rather than where
+	// it lives. Helm's release storage and a ServiceAccount's token are both
+	// objects something else owns and rebuilds from; changing one from here
+	// destroys history or breaks an identity, and neither is what an operator
+	// managing a credential meant to do.
+	//
+	// This is the containment for the `delete` grant, and it is in Go rather than
+	// in RBAC because RBAC has no way to express "not this type" — the same
+	// reason restartPatch, not the role, is what confines the `patch` grant.
+	ErrReserved = errors.New("reserved secret")
 )

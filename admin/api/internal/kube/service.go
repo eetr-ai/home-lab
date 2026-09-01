@@ -29,8 +29,23 @@ type repository interface {
 	PodLogs(ctx context.Context, namespace, pod string, options LogOptions) (io.ReadCloser, error)
 	RestartWorkload(ctx context.Context, kind, namespace, name string, at time.Time) error
 	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
+	secretRepository
+}
+
+// secretRepository is the Secret half, split out rather than listed above.
+//
+// Not a second port: the same Repository satisfies both and they share a client
+// and a lifetime, so there is no seam here. It is a heading. Secrets arrived as a
+// concern of their own — six operations whose rules live in secrets.go and whose
+// guards are not the guards anything else in this slice uses — and a flat list of
+// twenty methods stops saying which of them belong together.
+type secretRepository interface {
 	CreateSecret(ctx context.Context, namespace string, spec SecretSpec) error
 	UpdateSecret(ctx context.Context, namespace string, spec SecretSpec) error
+	ListSecrets(ctx context.Context, namespace string) ([]SecretSummary, error)
+	ReadSecret(ctx context.Context, namespace, name string) (SecretSummary, error)
+	DeleteSecret(ctx context.Context, namespace, name string) error
+	RotateSecretKeys(ctx context.Context, namespace, name string, values map[string]string) error
 }
 
 // Enrolment is the Helm enrolment this service reports and repairs. Declared
