@@ -145,16 +145,20 @@ func (s *Service) Managed(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
+	// One binding list for all of them rather than one per candidate. This is on
+	// the path of every Helm read, so a request per namespace would be a request
+	// per namespace on every page of the section.
+	grouped, err := s.repo.ListAllBindings(ctx, s.config.Names())
+	if err != nil {
+		return nil, err
+	}
+
 	managed := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !s.policy.Managed(candidate.Name, candidate.Labels) {
 			continue
 		}
-		live, err := s.repo.ListBindings(ctx, candidate.Name, s.config.Names())
-		if err != nil {
-			return nil, err
-		}
-		if s.config.Decide(live).State != StateEnrolled {
+		if s.config.Decide(grouped[candidate.Name]).State != StateEnrolled {
 			continue
 		}
 		managed = append(managed, candidate.Name)
