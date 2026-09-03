@@ -126,6 +126,21 @@ func TestBuildBrowseSQL(t *testing.T) {
 	})
 }
 
+// A uuid decodes to a raw [16]byte, and rendering it as a list of numbers is the
+// difference between a readable primary-key column and an unreadable one.
+func TestRenderValueFormatsUUID(t *testing.T) {
+	id := [16]byte{0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8}
+	if got, want := renderValue(id), "6ba7b810-9dad-11d1-80b4-00c04fd430c8"; got != want {
+		t.Errorf("renderValue(uuid) = %q, want %q", got, want)
+	}
+	if got := renderValue(nil); got != "NULL" {
+		t.Errorf("renderValue(nil) = %q, want NULL", got)
+	}
+	if got := renderValue(int64(42)); got != "42" {
+		t.Errorf("renderValue(42) = %q, want 42", got)
+	}
+}
+
 func mustContain(t *testing.T, haystack, needle string) {
 	t.Helper()
 	if !strings.Contains(haystack, needle) {

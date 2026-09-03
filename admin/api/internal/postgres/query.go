@@ -193,13 +193,31 @@ func collectRows(rows pgx.Rows) (QueryResult, error) {
 func renderRow(values []any) []string {
 	rendered := make([]string, 0, len(values))
 	for _, value := range values {
-		if value == nil {
-			// Distinguishable from the empty string, which is a different value and
-			// looks identical once both are rendered as text.
-			rendered = append(rendered, "NULL")
-			continue
-		}
-		rendered = append(rendered, fmt.Sprintf("%v", value))
+		rendered = append(rendered, renderValue(value))
 	}
 	return rendered
+}
+
+// renderValue turns one value into the text the panel shows.
+func renderValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		// Distinguishable from the empty string, which is a different value and
+		// looks identical once both are rendered as text.
+		return "NULL"
+	case [16]byte:
+		// pgx decodes a uuid to a raw 16-byte array, which %v prints as a list of
+		// numbers — "[6 81 241 …]" for what is really a uuid. A uuid is the one type
+		// that decodes to exactly [16]byte (bytea is a slice, not an array), so this
+		// is safe to special-case, and it is far and away the commonest primary key
+		// here, so leaving it as a number list would make most tables unreadable.
+		return formatUUID(v)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatUUID renders 16 bytes as the canonical hyphenated uuid.
+func formatUUID(b [16]byte) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
