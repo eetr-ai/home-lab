@@ -22,14 +22,15 @@ export function ResultsTable({
 	rows: string[][];
 	emptyDescription: string;
 }) {
-	// The value being read in the popover, and the cell it is anchored to. Null
-	// when the popover is closed.
-	const [value, setValue] = useState<string | null>(null);
+	// The cell being read in the popover — its value and grid position, so the
+	// open cell can be highlighted — and the element it is anchored to. Null when
+	// the popover is closed.
+	const [open, setOpen] = useState<{ value: string; row: number; column: number } | null>(null);
 	const anchor = useRef<HTMLElement | null>(null);
 
-	function openCell(cell: HTMLElement, cellValue: string) {
+	function openCell(cell: HTMLElement, value: string, row: number, column: number) {
 		anchor.current = cell;
-		setValue(cellValue);
+		setOpen({ value, row, column });
 	}
 
 	return (
@@ -51,8 +52,10 @@ export function ResultsTable({
 						{row.map((cellValue, at) => (
 							<Td
 								key={at}
-								onDoubleClick={(event) => openCell(event.currentTarget, cellValue)}
-								className="align-top font-mono text-xs"
+								onDoubleClick={(event) => openCell(event.currentTarget, cellValue, index, at)}
+								className={`align-top font-mono text-xs ${
+									open?.row === index && open?.column === at ? "bg-accent-bg" : ""
+								}`}
 							>
 								{/* NULL arrives as the literal string, which is how it is told
 								    apart from an empty one once both are text. */}
@@ -76,8 +79,8 @@ export function ResultsTable({
 			/>
 
 			<Popover
-				open={value !== null}
-				onRequestClose={() => setValue(null)}
+				open={open !== null}
+				onRequestClose={() => setOpen(null)}
 				anchor={anchor}
 				title="Cell value"
 				width="md"
@@ -86,12 +89,12 @@ export function ResultsTable({
 					<textarea
 						readOnly
 						autoFocus
-						value={value ?? ""}
+						value={open?.value ?? ""}
 						rows={10}
 						className="w-full resize-none rounded-control border border-border bg-background px-3 py-2 font-mono text-xs text-foreground focus:outline-none"
 					/>
 					<div className="flex justify-end">
-						<CopyButton text={value ?? ""} label="Copy value" />
+						<CopyButton text={open?.value ?? ""} label="Copy value" />
 					</div>
 				</div>
 			</Popover>

@@ -109,6 +109,9 @@ export function QueryConsole({
 	function commit() {
 		setConfirmingExecute(false);
 		setError(null);
+		// The table open before the write, if any — its rows are about to change,
+		// so it is re-browsed once the write lands rather than left stale.
+		const reopen = browse.browsing;
 		browse.leave();
 		const ran = database;
 		const token = (request.current += 1);
@@ -119,10 +122,15 @@ export function QueryConsole({
 				setError(answer.error);
 				return;
 			}
-			setResult({ ...answer.data });
-			// The statement may have changed data or the schema, so re-run the server
-			// page to refetch the tree it renders from.
+			// A write can change data and schema, so refetch the tree the server page
+			// renders; and if a table was open, re-browse it from the first page so
+			// its rows reflect the change. Otherwise show the command's own result.
 			router.refresh();
+			if (reopen) {
+				browse.select(reopen);
+			} else {
+				setResult({ ...answer.data });
+			}
 		});
 	}
 

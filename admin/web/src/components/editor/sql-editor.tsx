@@ -3,7 +3,15 @@
 import { useEffect, useRef } from "react";
 import { sql } from "@codemirror/lang-sql";
 import { EditorState, Prec } from "@codemirror/state";
-import { EditorView, keymap, highlightActiveLine, lineNumbers, placeholder } from "@codemirror/view";
+import {
+	EditorView,
+	drawSelection,
+	dropCursor,
+	highlightActiveLine,
+	keymap,
+	lineNumbers,
+	placeholder,
+} from "@codemirror/view";
 import { bracketMatching } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { panelTheme } from "./yaml-editor-theme";
@@ -58,6 +66,10 @@ export function SqlEditor({
 				extensions: [
 					lineNumbers(),
 					history(),
+					// Draws the cursor and selection into the theme's own layer — without
+					// it the editor falls back to a native caret that renders inconsistently.
+					drawSelection(),
+					dropCursor(),
 					bracketMatching(),
 					highlightActiveLine(),
 					placeholder(placeholderText),
