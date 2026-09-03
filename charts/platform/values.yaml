@@ -9,6 +9,19 @@ platform:
     routeNamespaceLabel:
       key: home-lab.example/gateway-access
       value: "true"
+    # Extra domains this Gateway serves, beyond baseDomain. One entry per
+    # application that publishes under a domain of its own:
+    #
+    #   - name: example-app                    # prefixes the listener names
+    #     tlsSecretName: example-app-tls       # one certificate for the whole entry
+    #     hostnames:
+    #       - app.example.invalid
+    #       - "*.apps.app.example.invalid"
+    #
+    # Empty by default: a listener is a public name, and which ones this cluster
+    # answers to belongs in the operator's ignored values file rather than in a
+    # committed default.
+    additionalDomains: []
 
   issuers:
     enabled: false

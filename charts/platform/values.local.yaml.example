@@ -2,6 +2,17 @@
 platform:
   baseDomain: example.com
   acmeEmail: operator@example.com
+  # Domains served beside baseDomain, one entry per application publishing under
+  # a zone of its own. Uncomment and adapt; the DNS-01 token below has to be able
+  # to edit every zone named here.
+  # gateway:
+  #   additionalDomains:
+  #     - name: example-app
+  #       tlsSecretName: example-app-tls
+  #       hostnames:
+  #         - app.example.invalid
+  #         - "*.apps.app.example.invalid"
+
   issuers:
     enabled: true
     cloudflareApiTokenSecret:
