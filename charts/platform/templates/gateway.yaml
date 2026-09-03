@@ -1,3 +1,36 @@
+{{- /*
+  additionalDomains is checked here, before anything renders, because every
+  mistake it can hold is one the API server reports against the Gateway rather
+  than against the values file that caused it.
+
+  Duplicate names collide once the hostname index is appended: listener names
+  must be unique within a Gateway, and the CEL rule enforcing that rejects the
+  whole object, so one repeated name takes the working listeners down with it.
+  A hostname repeated across entries is the worse version of the same thing --
+  two HTTPS listeners identical but for the certificate they point at, which
+  resolves to whichever the implementation happens to pick.
+
+  Sixty-two is 64 minus the two listeners above: `listeners` is capped at 64 by
+  the CRD, and a Gateway over the cap is rejected in full rather than truncated.
+*/ -}}
+{{- $seenNames := list }}
+{{- $seenHostnames := list }}
+{{- range $domain := .Values.platform.gateway.additionalDomains }}
+{{- $name := required "platform.gateway.additionalDomains[].name is required -- it prefixes the listener names" $domain.name }}
+{{- if has $name $seenNames }}
+{{- fail (printf "platform.gateway.additionalDomains has two entries named %s, and listener names must be unique within a Gateway" $name) }}
+{{- end }}
+{{- $seenNames = append $seenNames $name }}
+{{- range $hostname := $domain.hostnames }}
+{{- if has $hostname $seenHostnames }}
+{{- fail (printf "platform.gateway.additionalDomains serves %s more than once, and two listeners for one hostname differ only in the certificate they present" $hostname) }}
+{{- end }}
+{{- $seenHostnames = append $seenHostnames $hostname }}
+{{- end }}
+{{- end }}
+{{- if gt (len $seenHostnames) 62 }}
+{{- fail (printf "platform.gateway.additionalDomains asks for %d listeners on top of the two for baseDomain, and a Gateway holds at most 64" (len $seenHostnames)) }}
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
