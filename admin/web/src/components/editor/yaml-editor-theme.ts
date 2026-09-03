@@ -19,7 +19,9 @@ const appearance = EditorView.theme({
 	},
 	"&.cm-focused": { outline: "none" },
 	".cm-scroller": {
-		fontFamily: "var(--font-mono)",
+		// A real fallback stack after the token, so the editor is monospaced even
+		// where the Geist Mono variable has not resolved.
+		fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)",
 		lineHeight: "1.6",
 	},
 	".cm-content": { padding: "0.75rem 0" },
@@ -62,19 +64,24 @@ const appearance = EditorView.theme({
 });
 
 /**
- * YAML's tokens, mapped onto the same three or four colours the rest of the panel
- * uses.
+ * The tokens both editors highlight, mapped onto the handful of colours the rest
+ * of the panel uses.
  *
- * Deliberately sparse. A values file is read to answer "what did I set", so keys
- * and their values want to be distinguishable and nothing else wants to compete;
- * a full rainbow theme would be louder than every other surface here.
+ * Deliberately sparse. A values file is read to answer "what did I set", and a
+ * query to see its shape, so keywords, keys and literals want to be
+ * distinguishable and nothing else wants to compete; a full rainbow theme would
+ * be louder than every other surface here. SQL keywords ride the same accent as
+ * YAML keys — the emphasised token in each — so one style serves both languages.
  */
 const highlighting = HighlightStyle.define([
+	{ tag: [tags.keyword, tags.operatorKeyword, tags.modifier], color: "var(--editor-key)", fontWeight: "600" },
 	{ tag: [tags.propertyName, tags.definition(tags.propertyName)], color: "var(--editor-key)" },
+	{ tag: [tags.typeName, tags.className, tags.namespace], color: "var(--editor-number)" },
+	{ tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "var(--editor-string)" },
 	{ tag: [tags.string, tags.special(tags.string)], color: "var(--editor-string)" },
 	{ tag: [tags.number, tags.bool, tags.null], color: "var(--editor-number)" },
 	{ tag: tags.comment, color: "var(--editor-comment)", fontStyle: "italic" },
-	{ tag: [tags.punctuation, tags.separator, tags.meta], color: "var(--editor-punctuation)" },
+	{ tag: [tags.operator, tags.punctuation, tags.separator, tags.meta], color: "var(--editor-punctuation)" },
 	{ tag: tags.invalid, color: "var(--danger-fg)" },
 ]);
 

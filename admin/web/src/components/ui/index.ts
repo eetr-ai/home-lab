@@ -29,6 +29,7 @@ export {
 	type SecretFieldContextValue,
 } from "./secret-field";
 export { Select, selectClass, type SelectProps } from "./select";
+export { Combobox, type ComboboxProps } from "./combobox";
 export { Checkbox, type CheckboxProps } from "./checkbox";
 export { Label, type LabelProps } from "./label";
 export { FormField, type FormFieldProps } from "./form-field";

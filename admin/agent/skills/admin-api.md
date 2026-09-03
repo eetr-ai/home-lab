@@ -46,6 +46,7 @@ as "disk used".
 | Path | What it answers |
 | --- | --- |
 | `/api/postgres/databases` | The databases, with owner and size. |
+| `/api/postgres/databases/{db}/tables` | The tables and views in one, with columns, types and primary keys. |
 | `/api/postgres/databases/{db}/extensions` | Which extensions are installed in one. |
 | `/api/postgres/roles` | The roles, and what each may do. |
 | `/api/mongo/databases` | The databases, with their sizes. |
@@ -65,6 +66,7 @@ choose. A verb says nothing about whether a call changes anything:
 | Path | |
 | --- | --- |
 | `POST /api/postgres/databases/{db}/query` | Run a read-only statement. Body `{"sql": "..."}`. It runs as the panel's own superuser, inside a read-only transaction that is rolled back. |
+| `POST /api/postgres/databases/{db}/browse` | One keyset page of a table. Body `{"schema", "table", "pageSize"?, "cursor"?}`. Omit `cursor` for the first page, then pass back the `nextCursor` from the response to get the next; when the response has no `nextCursor` there are no more pages. A view or a keyless table has no key to page over, so it returns a single capped page (and reports `truncated` if more rows exist). |
 | `POST /api/mongo/databases/{db}/find` | Read documents from a collection. |
 
 ## What changes something
@@ -78,6 +80,7 @@ identifier for a destructive call.
 | `POST /api/kubernetes/namespaces/{ns}/workloads/{kind}/{name}/restart` | Roll the pods. |
 | `PUT /api/kubernetes/namespaces/{ns}/workloads/{kind}/{name}/scale` | Set the replica count. |
 | `POST` / `PUT` / `DELETE` on `/api/postgres/databases`, `/api/postgres/roles` | Create, alter the owner, drop. |
+| `POST /api/postgres/databases/{db}/execute` | Run a statement that **commits**. Body `{"sql": "..."}`. This — not `/query` — is how you seed rows or run an `INSERT`/`UPDATE`/`DELETE`/DDL; `/query` would refuse the write. Returns the command tag and rows affected. |
 | `POST /api/postgres/databases/{db}/extensions` | Install an extension. |
 | `POST` / `PUT` / `DELETE` on `/api/mongo/databases`, its collections and users | The same, for MongoDB. |
 | `PUT /api/kubernetes/namespaces/{ns}/secrets/{name}` | Write a Secret. Refused if one of that name is there, unless you send `overwrite`. |

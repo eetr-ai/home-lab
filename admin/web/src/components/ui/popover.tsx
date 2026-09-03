@@ -199,7 +199,12 @@ export function Popover({
 				// where the panel actually is. The exit animation needs no such guard:
 				// by then it has been placed.
 				position && open && "animate-in fade-in zoom-in-95",
-				!open && "animate-out fade-out zoom-out-95",
+				// fill-mode-forwards holds the exit's end frame (invisible) until the
+				// node unmounts. Without it tw-animate-css defaults to fill-mode none,
+				// so the moment the fade-out finishes the panel snaps back to fully
+				// visible for the frames before unmount — the "reappear on dismiss"
+				// blink. The same fix is on ConfirmDialog and SidePanel.
+				!open && "animate-out fade-out zoom-out-95 fill-mode-forwards",
 			)}
 		>
 			<h2 id={titleId} className="sr-only">

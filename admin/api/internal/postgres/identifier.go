@@ -3,6 +3,7 @@ package postgres
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // maxIdentifierLength is PostgreSQL's NAMEDATALEN - 1. A longer name is not
@@ -39,6 +40,30 @@ func quoteExtensionName(name string) (string, error) {
 			ErrInvalidName)
 	}
 	return `"` + name + `"`, nil
+}
+
+// quoteName quotes an identifier read from the catalog — a schema, table, or
+// column the panel is browsing — for interpolation into a statement.
+//
+// Unlike quoteIdentifier's allowlist, it accepts any name PostgreSQL itself
+// allows, because these names are not invented by a caller: they are the names of
+// objects the tree already listed, so refusing a capitalised, spaced, or quoted
+// one would simply make a real table un-browsable. Injection is handled the way
+// PostgreSQL's own quote_ident does — double every embedded quote and wrap — which
+// is sound regardless of standard_conforming_strings, since that setting governs
+// string literals, not identifiers. A null byte cannot appear in an identifier and
+// is refused rather than escaped.
+func quoteName(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("%w: an identifier may not be empty", ErrInvalidName)
+	}
+	if len(name) > maxIdentifierLength {
+		return "", fmt.Errorf("%w: names may be at most %d characters", ErrInvalidName, maxIdentifierLength)
+	}
+	if strings.ContainsRune(name, 0) {
+		return "", fmt.Errorf("%w: an identifier may not contain a null byte", ErrInvalidName)
+	}
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`, nil
 }
 
 // quoteIdentifier validates a database or role name and returns it

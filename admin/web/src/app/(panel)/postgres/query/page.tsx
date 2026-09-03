@@ -1,4 +1,4 @@
-import { listDatabases } from "@/app/actions/postgres";
+import { listDatabases, listTables } from "@/app/actions/postgres";
 import { Banner } from "@/components/ui/banner";
 import { QueryConsole } from "./_components/query-console";
 
@@ -7,15 +7,14 @@ export const dynamic = "force-dynamic";
 /**
  * The read-only SQL console.
  *
- * The databases are fetched here so the console can offer them; everything else
- * is a browser concern.
+ * The databases are fetched here so the console can offer them, and the selected
+ * database's tables so it can show a schema tree; everything else is a browser
+ * concern.
  *
- * Which one is selected comes from the query string, as it does on every other
- * page here that is scoped to a database. It used to be component state, which
- * made this the one such page that could not be linked to: a reload lost the
- * choice, the back button stepped over it, and the assistant — which can only
- * hand somebody a URL — could open the console but not open it on the database
- * it had just been talking about.
+ * Which database is selected comes from the query string, as it does on every
+ * other page here that is scoped to a database — so the console can be linked to,
+ * survives a reload, and steps through the back button. Changing the selection
+ * re-runs this page, which is what re-fetches the tree for the new database.
  */
 export default async function PostgresQueryPage({
 	searchParams,
@@ -33,5 +32,17 @@ export default async function PostgresQueryPage({
 	// rather than showing an error: the link is stale, not wrong.
 	const selected = requested && names.includes(requested) ? requested : (names[0] ?? "");
 
-	return <QueryConsole databases={names} selected={selected} />;
+	// The tree is scoped to the selected database. A failure to read it is the
+	// tree's problem alone — the console still runs statements — so it is passed
+	// down as the tree's own error rather than replacing the whole page.
+	const tables = selected ? await listTables(selected) : null;
+
+	return (
+		<QueryConsole
+			databases={names}
+			selected={selected}
+			relations={tables?.ok ? tables.data : []}
+			relationsError={tables && !tables.ok ? tables.error : null}
+		/>
+	);
 }

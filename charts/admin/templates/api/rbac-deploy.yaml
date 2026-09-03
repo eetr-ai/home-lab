@@ -98,6 +98,33 @@ rules:
       - serviceaccounts
       - persistentvolumeclaims
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Pods, and the reason is escalation rather than anything this Job creates
+  # itself -- a Deployment's pods are made by its controller, not by Helm. A
+  # chart may ship a Role granting pod permissions to the workload it installs:
+  # octo's orchestrator runs each integration as a pod it creates. Kubernetes
+  # refuses to let this Job create a Role holding more than the Job holds, and
+  # the block below withholds `escalate` on purpose, so the only way to install
+  # such a chart is to hold the grant. Without it the install fails at the
+  # chart's own Role with "attempting to grant RBAC permissions not currently
+  # held", which reads like a bug in the chart rather than a gap here.
+  #
+  # pods/log is a subresource and needs a rule of its own; get is all a log
+  # stream requires.
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs: ["get"]
+  # Leader election inside an installed workload, held for the same escalation
+  # reason and for nothing this Job does: octo's runtime Role grants leases to
+  # its replicas, so this must hold them to be allowed to pass them on.
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # What a chart runs.
   - apiGroups: ["apps"]
     resources:
