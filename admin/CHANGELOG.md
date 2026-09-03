@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.6.0...admin-v1.7.0) (2026-09-03)
+
+
+### Features
+
+* **admin:** schema tree and stable table browsing in the SQL console ([#94](https://github.com/eetr-ai/home-lab/issues/94)) ([e87ea72](https://github.com/eetr-ai/home-lab/commit/e87ea728c5eb2a01f2113d943a9f0b6c2c7c9bf7))
+
 ## [1.6.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.5.3...admin-v1.6.0) (2026-09-01)
 
 
