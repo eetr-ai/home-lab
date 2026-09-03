@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { browseTable, runQuery } from "@/app/actions/postgres";
 import { Banner, Button, IconButton } from "@/components/ui";
+import { SqlEditor } from "@/components/editor/sql-editor";
 import { describeResult } from "@/lib/query/console";
 import {
 	advance,
@@ -149,7 +150,7 @@ export function QueryConsole({
 				onSelectRelation={selectRelation}
 			/>
 
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-auto">
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
 				<div className="flex items-center gap-3">
 					<span className="text-sm text-muted-foreground">
 						{browsing ? `Browsing ${relationKey(browsing)}` : "Run a read-only statement"}
@@ -159,22 +160,12 @@ export function QueryConsole({
 					</Button>
 				</div>
 
-				<textarea
-					aria-label="SQL"
+				<SqlEditor
 					value={sql}
-					onChange={(event) => setSql(event.target.value)}
-					onKeyDown={(event) => {
-						// Ctrl+Enter, or Cmd+Enter on a Mac — the run shortcut every SQL
-						// console shares.
-						if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-							event.preventDefault();
-							if (canRun) run();
-						}
+					onChange={setSql}
+					onRun={() => {
+						if (canRun) run();
 					}}
-					spellCheck={false}
-					rows={6}
-					placeholder="SELECT * FROM users ORDER BY created_at DESC LIMIT 20"
-					className="w-full rounded-control border border-border bg-background px-3 py-2 font-mono text-sm text-foreground focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
 				/>
 
 				<Banner variant="error" message={error} />

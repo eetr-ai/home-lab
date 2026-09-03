@@ -16,14 +16,18 @@ const tabs = [
  */
 export default function PostgresLayout({ children }: { children: React.ReactNode }) {
 	return (
-		<main className="flex min-h-screen flex-col p-6">
+		// Bounded to the viewport, not min-h-screen: the header and tabs stay put
+		// while the tab below them owns its own scrolling. The query console needs
+		// that — its schema tree pins and scrolls on its own, the way the nav does —
+		// and the list tabs simply scroll their table inside the same frame.
+		<main className="flex h-dvh flex-col p-6">
 			<PageHeader
 				icon={Database}
 				title="PostgreSQL"
 				description="The databases, roles, and extensions on the host's PostgreSQL server."
 			/>
 			<SectionTabs tabs={tabs} />
-			{children}
+			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
 		</main>
 	);
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Eye, KeyRound, Search, Table2 } from "lucide-react";
-import { Banner, FormField, Input, Select, Spinner } from "@/components/ui";
+import { Banner, Combobox, FormField, IconButton, Input, Spinner } from "@/components/ui";
 import type { PostgresRelation } from "@/lib/api/types";
 
 /** A relation's stable key across a re-fetch: schema and name together. */
@@ -43,7 +43,16 @@ export function SchemaTree({
 	onSelectRelation: (relation: PostgresRelation) => void;
 }) {
 	const [filter, setFilter] = useState("");
+	const [filterOpen, setFilterOpen] = useState(false);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+	function toggleFilter() {
+		setFilterOpen((open) => {
+			// Closing clears it, so a hidden filter is never silently narrowing the tree.
+			if (open) setFilter("");
+			return !open;
+		});
+	}
 
 	function toggle(key: string) {
 		setExpanded((current) => {
@@ -62,32 +71,44 @@ export function SchemaTree({
 	return (
 		<div className="flex min-h-0 w-72 shrink-0 flex-col gap-3">
 			<FormField label="Database" htmlFor="schema-database">
-				<Select
+				<Combobox
 					id="schema-database"
-					value={selected}
+					label="Database"
+					items={databases}
+					selected={selected === "" ? null : selected}
+					onSelect={onChooseDatabase}
+					toKey={(name) => name}
+					toText={(name) => name}
+					placeholder="Select a database"
+					empty="No databases."
 					disabled={switching || databases.length === 0}
-					onChange={(event) => onChooseDatabase(event.target.value)}
-				>
-					{databases.map((name) => (
-						<option key={name} value={name}>
-							{name}
-						</option>
-					))}
-				</Select>
+				/>
 			</FormField>
 
-			<div className="relative">
-				<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+			<div className="flex items-center justify-between px-0.5">
+				<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					Tables
+				</span>
+				<IconButton
+					aria-label={filterOpen ? "Hide table filter" : "Filter tables"}
+					onClick={toggleFilter}
+					className={filter ? "text-brand" : undefined}
+				>
+					<Search className="h-4 w-4" />
+				</IconButton>
+			</div>
+
+			{filterOpen ? (
 				<Input
+					autoFocus
 					aria-label="Filter tables"
 					placeholder="Filter tables"
 					value={filter}
 					onChange={(event) => setFilter(event.target.value)}
-					className="pl-8"
 				/>
-			</div>
+			) : null}
 
-			<div className="min-h-0 flex-1 overflow-auto rounded-card border border-border bg-surface">
+			<div className="min-h-0 flex-1 overflow-y-auto rounded-card border border-border bg-surface">
 				{relationsError ? (
 					<div className="p-3">
 						<Banner variant="error" message={relationsError} />

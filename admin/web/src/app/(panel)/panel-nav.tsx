@@ -2,10 +2,53 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, Database, LayoutDashboard, Leaf, LogOut, ServerCog, ShipWheel } from "lucide-react";
+import { useSyncExternalStore } from "react";
+import {
+	Boxes,
+	Database,
+	LayoutDashboard,
+	Leaf,
+	LogOut,
+	PanelLeftClose,
+	PanelLeftOpen,
+	ServerCog,
+	ShipWheel,
+} from "lucide-react";
 import { endSession } from "@/app/actions/session";
 import { ThemeSwitcher } from "@/app/theme-switcher";
 import { activeHref, type NavItem } from "@/lib/nav/active";
+
+// Remembered per browser so the choice survives a reload. A convenience, so a
+// read that throws (private mode) or comes back empty just leaves the nav open.
+//
+// Read through useSyncExternalStore rather than an effect: the server has no
+// localStorage, so it renders open, and this reconciles to the stored value on
+// the client without a setState-in-effect and without a hydration warning.
+const collapsedKey = "panel-nav-collapsed";
+
+const collapseListeners = new Set<() => void>();
+
+function readCollapsed(): boolean {
+	try {
+		return localStorage.getItem(collapsedKey) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function subscribeCollapsed(onChange: () => void): () => void {
+	collapseListeners.add(onChange);
+	return () => collapseListeners.delete(onChange);
+}
+
+function writeCollapsed(next: boolean): void {
+	try {
+		localStorage.setItem(collapsedKey, next ? "1" : "0");
+	} catch {
+		/* the preference just will not persist */
+	}
+	collapseListeners.forEach((listener) => listener());
+}
 
 const navItems: NavItem[] = [
 	{ href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -25,19 +68,44 @@ export function PanelNav({ email }: { email: string }) {
 		pathname,
 	);
 
-	return (
-		<aside className="sticky top-0 flex h-screen max-h-dvh w-56 shrink-0 flex-col self-start overflow-hidden border-r border-border bg-background">
-			<div className="shrink-0 border-b border-border p-4">
-				<Link
-					href="/overview"
-					className="flex items-center gap-3 rounded-card outline-none ring-brand focus-visible:ring-2"
-				>
-					<ServerCog className="h-7 w-7 shrink-0 text-brand" />
-					<span className="truncate font-semibold text-foreground">Home Lab</span>
-				</Link>
-			</div>
+	// Open on the server; reconciles to the remembered choice on the client.
+	const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, () => false);
 
-			<nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-4">
+	function toggle() {
+		writeCollapsed(!collapsed);
+	}
+
+	return (
+		<>
+			<aside
+				// Collapsing to w-0 hands the width back to the content rather than
+				// covering it. `inert` while collapsed keeps its links out of the tab
+				// order — a zero-width column full of focusable controls is otherwise a
+				// tab stop into nothing, the same trap the assistant drawer avoids.
+				inert={collapsed}
+				className={`sticky top-0 flex h-screen max-h-dvh shrink-0 flex-col self-start overflow-hidden bg-background transition-[width] duration-200 ${
+					collapsed ? "w-0 border-r-0" : "w-56 border-r border-border"
+				}`}
+			>
+				<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border p-4">
+					<Link
+						href="/overview"
+						className="flex min-w-0 items-center gap-3 rounded-card outline-none ring-brand focus-visible:ring-2"
+					>
+						<ServerCog className="h-7 w-7 shrink-0 text-brand" />
+						<span className="truncate font-semibold text-foreground">Home Lab</span>
+					</Link>
+					<button
+						type="button"
+						onClick={toggle}
+						aria-label="Collapse navigation"
+						className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+					>
+						<PanelLeftClose className="h-4 w-4" />
+					</button>
+				</div>
+
+				<nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-4">
 				{navItems.map(({ href, label, icon: Icon }) => (
 					<Link
 						key={href}
@@ -74,6 +142,18 @@ export function PanelNav({ email }: { email: string }) {
 					</button>
 				</form>
 			</div>
-		</aside>
+			</aside>
+
+			{collapsed ? (
+				<button
+					type="button"
+					onClick={toggle}
+					aria-label="Open navigation"
+					className="fixed left-3 top-3 z-40 rounded-full border border-border bg-surface p-2 text-muted-foreground shadow-sm hover:bg-surface-hover hover:text-foreground"
+				>
+					<PanelLeftOpen className="h-5 w-5" />
+				</button>
+			) : null}
+		</>
 	);
 }
