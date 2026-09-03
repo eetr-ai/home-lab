@@ -129,6 +129,9 @@ type BrowseRequest struct {
 	// Cursor is the opaque NextCursor from the previous page. Empty starts at the
 	// first page.
 	Cursor string `json:"cursor,omitempty"`
+	// PageSize is how many rows a page holds. Zero means the default; larger than
+	// the cap is clamped down to it.
+	PageSize int `json:"pageSize,omitempty"`
 }
 
 // BrowseResult is one page of a table.
@@ -148,6 +151,10 @@ type BrowseResult struct {
 	// it stays the same across pages and is a statement the operator can run and
 	// edit for themselves.
 	SQL string `json:"sql"`
+	// EstimatedRows is PostgreSQL's own estimate of the relation's live row count
+	// (pg_class.reltuples), so the pager can show an approximate page total without
+	// a COUNT(*) scan. Zero when it is unknown — a view, or a table never analyzed.
+	EstimatedRows int64 `json:"estimatedRows"`
 	// ElapsedMs is how long the server took to return the page.
 	ElapsedMs int64 `json:"elapsedMs"`
 }
@@ -157,6 +164,25 @@ type QueryRequest struct {
 	// SQL is a single read-only statement. It is not parsed or filtered here —
 	// PostgreSQL enforces the read-only part itself. See Service.Query.
 	SQL string `json:"sql"`
+}
+
+// ExecuteResult is what a modifying statement did.
+//
+// It carries the same rendered rows a query does — a statement with a RETURNING
+// clause has some — plus what a read never has: the command tag and the number of
+// rows it changed, which is the whole answer for an INSERT, UPDATE or DELETE that
+// returns nothing.
+type ExecuteResult struct {
+	Columns []string   `json:"columns"`
+	Rows    [][]string `json:"rows"`
+	// Truncated reports RETURNING rows cut at the cap. The statement still ran in
+	// full and RowsAffected is exact; only the rows shown back are capped.
+	Truncated bool `json:"truncated"`
+	// Command is PostgreSQL's own tag, e.g. "UPDATE 3" or "CREATE TABLE".
+	Command string `json:"command"`
+	// RowsAffected is how many rows the statement changed, from the command tag.
+	RowsAffected int64 `json:"rowsAffected"`
+	ElapsedMs    int64 `json:"elapsedMs"`
 }
 
 // QueryResult is what a query returned.

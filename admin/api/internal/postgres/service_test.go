@@ -29,14 +29,16 @@ type fakeRepo struct {
 	lastExtension     string
 	lastRoleUpdate    UpdateRoleRequest
 	lastQuery         string
+	lastExecute       string
 	lastRelations     string
 	lastBrowse        string
 
 	// What a query returns, so a test can check the service passes it through
 	// rather than reshaping it.
-	queryResult  QueryResult
-	relations    []Relation
-	browseResult BrowseResult
+	queryResult   QueryResult
+	executeResult ExecuteResult
+	relations     []Relation
+	browseResult  BrowseResult
 }
 
 func newFakeRepo() *fakeRepo {
@@ -72,9 +74,14 @@ func (f *fakeRepo) ListRelations(_ context.Context, database string) ([]Relation
 	return f.relations, f.err
 }
 
-func (f *fakeRepo) Browse(_ context.Context, database, schema, table, cursor string) (BrowseResult, error) {
+func (f *fakeRepo) Browse(_ context.Context, database, schema, table, cursor string, _ int) (BrowseResult, error) {
 	f.lastBrowse = database + ":" + schema + "." + table + ":" + cursor
 	return f.browseResult, f.err
+}
+
+func (f *fakeRepo) Execute(_ context.Context, database, sql string) (ExecuteResult, error) {
+	f.lastExecute = database + ":" + sql
+	return f.executeResult, f.err
 }
 
 func (f *fakeRepo) ListDatabases(context.Context) ([]Database, error) {
@@ -586,6 +593,47 @@ func TestQueryValidation(t *testing.T) {
 			}
 			if repo.lastQuery != test.database+":"+test.sql {
 				t.Errorf("the statement was reshaped: %q", repo.lastQuery)
+			}
+		})
+	}
+}
+
+// Execute is the write twin of Query and shares its shape checks: a statement
+// must be present and not oversized, and an unsafe database name is refused before
+// a connection opens.
+func TestExecuteValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		database string
+		sql      string
+		wantErr  bool
+	}{
+		{name: "an ordinary update", database: "app", sql: "UPDATE users SET active = true"},
+		{name: "an empty statement", database: "app", sql: "", wantErr: true},
+		{name: "whitespace only", database: "app", sql: "   \n ", wantErr: true},
+		{name: "an oversized statement", database: "app", sql: strings.Repeat("a", maxQueryLength+1), wantErr: true},
+		{name: "an unsafe database name", database: `x"; --`, sql: "UPDATE users SET active = true", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			_, err := NewService(repo).Execute(t.Context(), test.database, test.sql)
+
+			if test.wantErr {
+				if !errors.Is(err, ErrInvalidName) {
+					t.Fatalf("error = %v, want %v", err, ErrInvalidName)
+				}
+				if repo.lastExecute != "" {
+					t.Errorf("a refused statement still reached the server: %q", repo.lastExecute)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if repo.lastExecute != test.database+":"+test.sql {
+				t.Errorf("the statement was reshaped: %q", repo.lastExecute)
 			}
 		})
 	}

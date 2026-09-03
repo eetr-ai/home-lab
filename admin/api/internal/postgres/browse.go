@@ -13,9 +13,24 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// browsePageSize is how many rows one browse page holds. The same cap the query
-// console uses, so a page and a `SELECT * LIMIT 200` show the same amount.
+// browsePageSize is the largest page the console may ask for — the same cap the
+// query console uses, so no page ever returns more than a `SELECT * LIMIT 200`.
 const browsePageSize = maxQueryRows
+
+// defaultBrowsePageSize is the page used when the request names none.
+const defaultBrowsePageSize = 100
+
+// resolvePageSize turns a requested size into one this endpoint will serve:
+// the default when none is asked for, and never more than the cap.
+func resolvePageSize(requested int) int {
+	if requested <= 0 {
+		return defaultBrowsePageSize
+	}
+	if requested > browsePageSize {
+		return browsePageSize
+	}
+	return requested
+}
 
 // pkColumn is one column of a primary key, with the type its cursor value is cast
 // back to. Both come from the catalog, never from the caller.
@@ -32,10 +47,14 @@ type pkColumn struct {
 // seen or skip rows never seen, which is exactly what OFFSET does. A relation with
 // no primary key — every view, and the rare keyless table — has no such order to
 // page over, so it returns a single capped page instead.
-func (r *Repository) Browse(ctx context.Context, database, schema, table, cursor string) (BrowseResult, error) {
+func (r *Repository) Browse(
+	ctx context.Context, database, schema, table, cursor string, pageSize int,
+) (BrowseResult, error) {
+	size := resolvePageSize(pageSize)
 	var result BrowseResult
 	err := r.inReadOnlyTx(ctx, database, func(ctx context.Context, tx pgx.Tx) error {
-		if err := ensureRelationExists(ctx, tx, schema, table); err != nil {
+		estimate, err := relationEstimate(ctx, tx, schema, table)
+		if err != nil {
 			return err
 		}
 		pk, err := primaryKeyColumns(ctx, tx, schema, table)
@@ -56,16 +75,17 @@ func (r *Repository) Browse(ctx context.Context, database, schema, table, cursor
 			}
 		}
 
-		execSQL, displaySQL, err := buildBrowseSQL(schema, table, pk, len(cursorValues) > 0)
+		execSQL, displaySQL, err := buildBrowseSQL(schema, table, pk, len(cursorValues) > 0, size)
 		if err != nil {
 			return err
 		}
 
-		page, err := browsePage(ctx, tx, execSQL, cursorValues, len(pk))
+		page, err := browsePage(ctx, tx, execSQL, cursorValues, len(pk), size)
 		if err != nil {
 			return err
 		}
 		page.SQL = displaySQL
+		page.EstimatedRows = estimate
 		result = page
 		return nil
 	})
@@ -79,7 +99,9 @@ func (r *Repository) Browse(ctx context.Context, database, schema, table, cursor
 // primary-key columns ride along at the end of each row as text (the ::text casts
 // in buildBrowseSQL), and those become the next cursor — kept out of the visible
 // columns, which are only the relation's own.
-func browsePage(ctx context.Context, tx pgx.Tx, sql string, cursorValues []string, pkLen int) (BrowseResult, error) {
+func browsePage(
+	ctx context.Context, tx pgx.Tx, sql string, cursorValues []string, pkLen, pageSize int,
+) (BrowseResult, error) {
 	// The cursor values are bound as parameters after the exec-mode marker; the
 	// statement casts each back to its key column's type. See query.go for why the
 	// mode is named rather than inherited.
@@ -108,7 +130,7 @@ func browsePage(ctx context.Context, tx pgx.Tx, sql string, cursorValues []strin
 	var lastCursor []string
 	extra := false
 	for rows.Next() {
-		if len(result.Rows) == browsePageSize {
+		if len(result.Rows) == pageSize {
 			// The one row past the page. Its existence is the whole reason it was
 			// fetched: it says there is a next page. It is not shown, and reading no
 			// further cancels the rest at the server when the statement is closed.
@@ -171,7 +193,9 @@ func cursorFromRow(values []any) []string {
 // quoted. They come from format_type on the catalog, never from the caller, and
 // binding the cursor values as text without the cast would make the comparison
 // text-against-key and fail on the first non-text key.
-func buildBrowseSQL(schema, table string, pk []pkColumn, hasCursor bool) (execSQL, displaySQL string, err error) {
+func buildBrowseSQL(
+	schema, table string, pk []pkColumn, hasCursor bool, pageSize int,
+) (execSQL, displaySQL string, err error) {
 	quotedSchema, err := quoteIdentifier(schema)
 	if err != nil {
 		return "", "", err
@@ -183,11 +207,12 @@ func buildBrowseSQL(schema, table string, pk []pkColumn, hasCursor bool) (execSQ
 	relation := quotedSchema + "." + quotedTable
 
 	// One past the page, so a full page signals a next one. See browsePage.
-	fetch := strconv.Itoa(browsePageSize + 1)
+	fetch := strconv.Itoa(pageSize + 1)
+	limit := strconv.Itoa(pageSize)
 
 	if len(pk) == 0 {
 		exec := "SELECT * FROM " + relation + " LIMIT " + fetch
-		display := "SELECT * FROM " + relation + " LIMIT " + strconv.Itoa(browsePageSize)
+		display := "SELECT * FROM " + relation + " LIMIT " + limit
 		return exec, display, nil
 	}
 
@@ -219,33 +244,42 @@ func buildBrowseSQL(schema, table string, pk []pkColumn, hasCursor bool) (execSQ
 	exec := "SELECT t.*, " + strings.Join(cursorCols, ", ") +
 		" FROM " + relation + " t" + where +
 		" ORDER BY " + orderBy + " LIMIT " + fetch
-	display := "SELECT * FROM " + relation + " ORDER BY " + orderBy + " LIMIT " + strconv.Itoa(browsePageSize)
+	display := "SELECT * FROM " + relation + " ORDER BY " + orderBy + " LIMIT " + limit
 	return exec, display, nil
 }
 
-// ensureRelationExists refuses a schema and name that is not a browsable relation,
+// relationEstimate refuses a schema and name that is not a browsable relation —
 // so the caller gets a not-found rather than an empty page that reads as "the
-// table is empty" when the table simply is not there.
-func ensureRelationExists(ctx context.Context, tx pgx.Tx, schema, table string) error {
-	var relkind string
+// table is empty" when it is simply not there — and returns PostgreSQL's own
+// estimate of its live row count for the pager.
+func relationEstimate(ctx context.Context, tx pgx.Tx, schema, table string) (int64, error) {
+	var (
+		relkind   string
+		reltuples float64
+	)
 	err := tx.QueryRow(ctx,
-		`SELECT c.relkind
+		`SELECT c.relkind, c.reltuples
 		 FROM pg_catalog.pg_class c
 		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		 WHERE n.nspname = $1 AND c.relname = $2`,
-		pgx.QueryExecModeExec, schema, table).Scan(&relkind)
+		pgx.QueryExecModeExec, schema, table).Scan(&relkind, &reltuples)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("%w: no table or view named %q.%q", ErrNotFound, schema, table)
+		return 0, fmt.Errorf("%w: no table or view named %q.%q", ErrNotFound, schema, table)
 	}
 	if err != nil {
-		return fmt.Errorf("look up %q.%q: %w", schema, table, err)
+		return 0, fmt.Errorf("look up %q.%q: %w", schema, table, err)
 	}
 	switch relkind {
 	case "r", "p", "v", "m":
-		return nil
 	default:
-		return fmt.Errorf("%w: %q.%q is not a table or view", ErrNotFound, schema, table)
+		return 0, fmt.Errorf("%w: %q.%q is not a table or view", ErrNotFound, schema, table)
 	}
+	// reltuples is -1 before the first ANALYZE and a float estimate afterwards; a
+	// negative or fractional value is reported as "unknown" (0) rather than guessed.
+	if reltuples < 0 {
+		return 0, nil
+	}
+	return int64(reltuples), nil
 }
 
 // primaryKeyColumns reads a relation's primary key in key order — the order the

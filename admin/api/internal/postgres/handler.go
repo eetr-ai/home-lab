@@ -33,6 +33,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/postgres/roles/{role}", h.updateRole)
 	mux.HandleFunc("PUT /api/postgres/databases/{database}", h.updateDatabase)
 	mux.HandleFunc("POST /api/postgres/databases/{database}/query", h.query)
+	mux.HandleFunc("POST /api/postgres/databases/{database}/execute", h.execute)
 	mux.HandleFunc("GET /api/postgres/databases/{database}/tables", h.listTables)
 	mux.HandleFunc("POST /api/postgres/databases/{database}/browse", h.browse)
 }
@@ -184,6 +185,39 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.service.Browse(r.Context(), r.PathValue("database"), request)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// execute runs one statement that may modify the database, and commits it.
+//
+//	@Summary		Run a modifying statement
+//	@Description	The read-only console's twin: the statement runs in a transaction that is
+//	@Description	committed rather than rolled back, so an INSERT, UPDATE, DELETE or DDL
+//	@Description	persists. Still one statement per request, capped at 15 seconds, run as the
+//	@Description	panel's own account. Write access is enforced by the panel before the request
+//	@Description	is made. Returns any RETURNING rows plus the command tag and rows affected.
+//	@Tags			postgres
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string					true	"Database to run against"
+//	@Param			request		body		postgres.QueryRequest	true	"The statement"
+//	@Success		200			{object}	postgres.ExecuteResult
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		422			{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database}/execute [post]
+func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
+	var request QueryRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	result, err := h.service.Execute(r.Context(), r.PathValue("database"), request.SQL)
 	if err != nil {
 		respondError(w, err)
 		return

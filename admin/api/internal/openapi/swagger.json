@@ -1242,6 +1242,10 @@
                         "description": "Cursor is the opaque NextCursor from the previous page. Empty starts at the\nfirst page.",
                         "type": "string"
                     },
+                    "pageSize": {
+                        "description": "PageSize is how many rows a page holds. Zero means the default; larger than\nthe cap is clamped down to it.",
+                        "type": "integer"
+                    },
                     "schema": {
                         "type": "string"
                     },
@@ -1263,6 +1267,10 @@
                     },
                     "elapsedMs": {
                         "description": "ElapsedMs is how long the server took to return the page.",
+                        "type": "integer"
+                    },
+                    "estimatedRows": {
+                        "description": "EstimatedRows is PostgreSQL's own estimate of the relation's live row count\n(pg_class.reltuples), so the pager can show an approximate page total without\na COUNT(*) scan. Zero when it is unknown — a view, or a table never analyzed.",
                         "type": "integer"
                     },
                     "nextCursor": {
@@ -1369,6 +1377,43 @@
                     "sizeBytes": {
                         "description": "SizeBytes is the on-disk size. Absent (0) when the connecting role cannot\nread it, which is not an error worth failing a listing over.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.ExecuteResult": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "command": {
+                        "description": "Command is PostgreSQL's own tag, e.g. \"UPDATE 3\" or \"CREATE TABLE\".",
+                        "type": "string"
+                    },
+                    "elapsedMs": {
+                        "type": "integer"
+                    },
+                    "rows": {
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "rowsAffected": {
+                        "description": "RowsAffected is how many rows the statement changed, from the command tag.",
+                        "type": "integer"
+                    },
+                    "truncated": {
+                        "description": "Truncated reports RETURNING rows cut at the cap. The statement still ran in\nfull and RowsAffected is exact; only the rows shown back are capped.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -6132,6 +6177,93 @@
                     }
                 ],
                 "summary": "Browse a table with stable paging",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}/execute": {
+            "post": {
+                "description": "The read-only console's twin: the statement runs in a transaction that is\ncommitted rather than rolled back, so an INSERT, UPDATE, DELETE or DDL\npersists. Still one statement per request, capped at 15 seconds, run as the\npanel's own account. Write access is enforced by the panel before the request\nis made. Returns any RETURNING rows plus the command tag and rows affected.",
+                "parameters": [
+                    {
+                        "description": "Database to run against",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.QueryRequest",
+                                        "summary": "request",
+                                        "description": "The statement"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The statement",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.ExecuteResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Run a modifying statement",
                 "tags": [
                     "postgres"
                 ]

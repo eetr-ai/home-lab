@@ -68,7 +68,7 @@ func TestBuildBrowseSQL(t *testing.T) {
 	composite := []pkColumn{{Name: "tenant", Type: "uuid"}, {Name: "seq", Type: "integer"}}
 
 	t.Run("first page orders by the key and fetches one past the page", func(t *testing.T) {
-		exec, display, err := buildBrowseSQL("public", "users", single, false)
+		exec, display, err := buildBrowseSQL("public", "users", single, false, 200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +90,7 @@ func TestBuildBrowseSQL(t *testing.T) {
 	})
 
 	t.Run("a later page compares the whole key against the cursor", func(t *testing.T) {
-		exec, _, err := buildBrowseSQL("public", "events", composite, true)
+		exec, _, err := buildBrowseSQL("public", "events", composite, true, 200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestBuildBrowseSQL(t *testing.T) {
 	})
 
 	t.Run("a keyless relation is a single capped page", func(t *testing.T) {
-		exec, display, err := buildBrowseSQL("public", "audit_log", nil, false)
+		exec, display, err := buildBrowseSQL("public", "audit_log", nil, false, 200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,14 +113,14 @@ func TestBuildBrowseSQL(t *testing.T) {
 	})
 
 	t.Run("an unsafe identifier is refused before it reaches a statement", func(t *testing.T) {
-		if _, _, err := buildBrowseSQL(`public"; DROP`, "users", single, false); !errors.Is(err, ErrInvalidName) {
+		if _, _, err := buildBrowseSQL(`public"; DROP`, "users", single, false, 200); !errors.Is(err, ErrInvalidName) {
 			t.Errorf("a schema with a quote should be refused: %v", err)
 		}
-		if _, _, err := buildBrowseSQL("public", `users"; DROP`, single, false); !errors.Is(err, ErrInvalidName) {
+		if _, _, err := buildBrowseSQL("public", `users"; DROP`, single, false, 200); !errors.Is(err, ErrInvalidName) {
 			t.Errorf("a table with a quote should be refused: %v", err)
 		}
 		badKey := []pkColumn{{Name: `id"`, Type: "bigint"}}
-		if _, _, err := buildBrowseSQL("public", "users", badKey, false); !errors.Is(err, ErrInvalidName) {
+		if _, _, err := buildBrowseSQL("public", "users", badKey, false, 200); !errors.Is(err, ErrInvalidName) {
 			t.Errorf("a key column with a quote should be refused: %v", err)
 		}
 	})
@@ -138,6 +138,25 @@ func TestRenderValueFormatsUUID(t *testing.T) {
 	}
 	if got := renderValue(int64(42)); got != "42" {
 		t.Errorf("renderValue(42) = %q, want 42", got)
+	}
+}
+
+func TestResolvePageSize(t *testing.T) {
+	tests := []struct {
+		requested int
+		want      int
+	}{
+		{requested: 0, want: defaultBrowsePageSize},
+		{requested: -5, want: defaultBrowsePageSize},
+		{requested: 25, want: 25},
+		{requested: browsePageSize, want: browsePageSize},
+		{requested: browsePageSize + 1, want: browsePageSize},
+		{requested: 10_000, want: browsePageSize},
+	}
+	for _, test := range tests {
+		if got := resolvePageSize(test.requested); got != test.want {
+			t.Errorf("resolvePageSize(%d) = %d, want %d", test.requested, got, test.want)
+		}
 	}
 }
 

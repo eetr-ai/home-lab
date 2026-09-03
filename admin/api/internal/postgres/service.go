@@ -39,6 +39,12 @@ const reservedPrefix = "pg_"
 // Declared here, where it is consumed, so the service can be tested against a
 // fake without a PostgreSQL server. The pgx-backed implementation in repo.go
 // satisfies it without importing it.
+//
+// It is wide on purpose: this is the whole persistence surface of the slice —
+// databases, roles, extensions, and the two consoles — and the fake in the test
+// implements all of it. Splitting it would only scatter one seam across several.
+//
+//nolint:interfacebloat // the persistence surface is genuinely this wide.
 type repository interface {
 	ListDatabases(ctx context.Context) ([]Database, error)
 	CreateDatabase(ctx context.Context, name, owner string) error
@@ -58,8 +64,9 @@ type repository interface {
 	CreateExtension(ctx context.Context, database, name string) error
 
 	Query(ctx context.Context, database, sql string) (QueryResult, error)
+	Execute(ctx context.Context, database, sql string) (ExecuteResult, error)
 	ListRelations(ctx context.Context, database string) ([]Relation, error)
-	Browse(ctx context.Context, database, schema, table, cursor string) (BrowseResult, error)
+	Browse(ctx context.Context, database, schema, table, cursor string, pageSize int) (BrowseResult, error)
 }
 
 // Service manages the databases and roles on the PostgreSQL server.
@@ -400,7 +407,29 @@ func (s *Service) Browse(ctx context.Context, database string, req BrowseRequest
 	if err := validateName(req.Table); err != nil {
 		return BrowseResult{}, fmt.Errorf("table: %w", err)
 	}
-	return s.repo.Browse(ctx, database, req.Schema, req.Table, req.Cursor)
+	return s.repo.Browse(ctx, database, req.Schema, req.Table, req.Cursor, req.PageSize)
+}
+
+// Execute runs one statement that may change the database and commits it.
+//
+// The read-only console's twin, and the reason they are two methods rather than a
+// flag: the difference between them is the whole safety story. Query runs in a
+// transaction that is always rolled back; Execute runs in one that commits. Both
+// gates are checked here — that there is a statement, and that it is not
+// oversized — but nothing inspects what it does, the same as Query: PostgreSQL is
+// what runs it, and the caller has already been authorized to write by the panel.
+func (s *Service) Execute(ctx context.Context, database, sql string) (ExecuteResult, error) {
+	if err := validateName(database); err != nil {
+		return ExecuteResult{}, err
+	}
+	if strings.TrimSpace(sql) == "" {
+		return ExecuteResult{}, fmt.Errorf("%w: there is no statement to run", ErrInvalidName)
+	}
+	if len(sql) > maxQueryLength {
+		return ExecuteResult{}, fmt.Errorf("%w: a statement may be at most %d characters",
+			ErrInvalidName, maxQueryLength)
+	}
+	return s.repo.Execute(ctx, database, sql)
 }
 
 // validateRoleUpdate checks everything about an update that needs no server.
