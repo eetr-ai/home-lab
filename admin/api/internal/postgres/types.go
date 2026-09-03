@@ -93,6 +93,65 @@ type UpdateDatabaseRequest struct {
 	Owner string `json:"owner"`
 }
 
+// Column is one column of a table or view.
+type Column struct {
+	Name string `json:"name"`
+	// Type is the type as PostgreSQL renders it — format_type output, e.g.
+	// "integer" or "character varying(255)" — so the panel shows the declared type
+	// rather than an OID it would have to map itself.
+	Type string `json:"type"`
+	// Nullable is false for a NOT NULL column.
+	Nullable bool `json:"nullable"`
+	// PrimaryKey marks a column that is part of the table's primary key, which is
+	// what makes stable keyset paging possible when browsing it.
+	PrimaryKey bool `json:"primaryKey"`
+}
+
+// Relation is a table or view the console can list and browse.
+type Relation struct {
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+	// Kind is "table", "view", or "matview". A view has no primary key, so it
+	// browses as a single capped page rather than paginating.
+	Kind    string   `json:"kind"`
+	Columns []Column `json:"columns"`
+}
+
+// BrowseRequest asks for one page of a table or view.
+//
+// The schema and table name the relation; the cursor continues from a previous
+// page. The primary key it pages over is not carried here — the server reads it
+// from the catalog, so a caller cannot ask to order by a column that is not the
+// key and quietly get an unstable page.
+type BrowseRequest struct {
+	Schema string `json:"schema"`
+	Table  string `json:"table"`
+	// Cursor is the opaque NextCursor from the previous page. Empty starts at the
+	// first page.
+	Cursor string `json:"cursor,omitempty"`
+}
+
+// BrowseResult is one page of a table.
+type BrowseResult struct {
+	// Columns and Rows are the page's data, rendered the same way a query's are.
+	Columns []string   `json:"columns"`
+	Rows    [][]string `json:"rows"`
+	// NextCursor continues from the last row of this page. Empty when there is no
+	// next page, or when the relation has no primary key to page over.
+	NextCursor string `json:"nextCursor,omitempty"`
+	// Truncated reports a relation with no primary key whose rows did not all fit
+	// in one page — it cannot be paged, so the extra rows are simply not shown,
+	// the same as the query console's row cap.
+	Truncated bool `json:"truncated"`
+	// SQL is the readable statement this page corresponds to, for the console to
+	// show in its editor. It is the base query without the cursor bookkeeping, so
+	// it stays the same across pages and is a statement the operator can run and
+	// edit for themselves.
+	SQL string `json:"sql"`
+	// ElapsedMs is how long the server took to return the page.
+	ElapsedMs int64 `json:"elapsedMs"`
+}
+
 // QueryRequest asks for rows from one database.
 type QueryRequest struct {
 	// SQL is a single read-only statement. It is not parsed or filtered here —

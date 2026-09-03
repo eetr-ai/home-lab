@@ -1236,6 +1236,80 @@
                 },
                 "type": "object"
             },
+            "postgres.BrowseRequest": {
+                "properties": {
+                    "cursor": {
+                        "description": "Cursor is the opaque NextCursor from the previous page. Empty starts at the\nfirst page.",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "type": "string"
+                    },
+                    "table": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.BrowseResult": {
+                "properties": {
+                    "columns": {
+                        "description": "Columns and Rows are the page's data, rendered the same way a query's are.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "elapsedMs": {
+                        "description": "ElapsedMs is how long the server took to return the page.",
+                        "type": "integer"
+                    },
+                    "nextCursor": {
+                        "description": "NextCursor continues from the last row of this page. Empty when there is no\nnext page, or when the relation has no primary key to page over.",
+                        "type": "string"
+                    },
+                    "rows": {
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sql": {
+                        "description": "SQL is the readable statement this page corresponds to, for the console to\nshow in its editor. It is the base query without the cursor bookkeeping, so\nit stays the same across pages and is a statement the operator can run and\nedit for themselves.",
+                        "type": "string"
+                    },
+                    "truncated": {
+                        "description": "Truncated reports a relation with no primary key whose rows did not all fit\nin one page — it cannot be paged, so the extra rows are simply not shown,\nthe same as the query console's row cap.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.Column": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "nullable": {
+                        "description": "Nullable is false for a NOT NULL column.",
+                        "type": "boolean"
+                    },
+                    "primaryKey": {
+                        "description": "PrimaryKey marks a column that is part of the table's primary key, which is\nwhat makes stable keyset paging possible when browsing it.",
+                        "type": "boolean"
+                    },
+                    "type": {
+                        "description": "Type is the type as PostgreSQL renders it — format_type output, e.g.\n\"integer\" or \"character varying(255)\" — so the panel shows the declared type\nrather than an OID it would have to map itself.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "postgres.CreateDatabaseRequest": {
                 "properties": {
                     "name": {
@@ -1347,6 +1421,28 @@
                     "truncated": {
                         "description": "Truncated reports that the result was cut at the row cap, so the panel can\nsay so rather than presenting a partial answer as the whole one.",
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.Relation": {
+                "properties": {
+                    "columns": {
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.Column"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kind": {
+                        "description": "Kind is \"table\", \"view\", or \"matview\". A view has no primary key, so it\nbrowses as a single capped page rather than paginating.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "schema": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -5944,6 +6040,103 @@
                 ]
             }
         },
+        "/api/postgres/databases/{database}/browse": {
+            "post": {
+                "description": "One page of rows, ordered by the relation's primary key and continued with a\ncursor rather than an OFFSET, so inserts and deletes elsewhere cannot shift the\npage. A relation with no primary key returns a single capped page. Runs under\nthe same read-only guarantees as the query console.",
+                "parameters": [
+                    {
+                        "description": "Database to browse in",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.BrowseRequest",
+                                        "summary": "request",
+                                        "description": "The relation and page cursor"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The relation and page cursor",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.BrowseResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Browse a table with stable paging",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
         "/api/postgres/databases/{database}/extensions": {
             "get": {
                 "parameters": [
@@ -6180,6 +6373,76 @@
                     }
                 ],
                 "summary": "Run a read-only query",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}/tables": {
+            "get": {
+                "description": "Each relation carries its columns, their types, and which are part of the\nprimary key — enough for the console to show a schema tree and to browse a\ntable with stable keyset paging.",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/postgres.Relation"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a database's tables and views",
                 "tags": [
                     "postgres"
                 ]

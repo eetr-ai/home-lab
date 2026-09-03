@@ -29,10 +29,14 @@ type fakeRepo struct {
 	lastExtension     string
 	lastRoleUpdate    UpdateRoleRequest
 	lastQuery         string
+	lastRelations     string
+	lastBrowse        string
 
 	// What a query returns, so a test can check the service passes it through
 	// rather than reshaping it.
-	queryResult QueryResult
+	queryResult  QueryResult
+	relations    []Relation
+	browseResult BrowseResult
 }
 
 func newFakeRepo() *fakeRepo {
@@ -61,6 +65,16 @@ func (f *fakeRepo) AlterDatabaseOwner(_ context.Context, name, owner string) err
 func (f *fakeRepo) Query(_ context.Context, database, sql string) (QueryResult, error) {
 	f.lastQuery = database + ":" + sql
 	return f.queryResult, f.err
+}
+
+func (f *fakeRepo) ListRelations(_ context.Context, database string) ([]Relation, error) {
+	f.lastRelations = database
+	return f.relations, f.err
+}
+
+func (f *fakeRepo) Browse(_ context.Context, database, schema, table, cursor string) (BrowseResult, error) {
+	f.lastBrowse = database + ":" + schema + "." + table + ":" + cursor
+	return f.browseResult, f.err
 }
 
 func (f *fakeRepo) ListDatabases(context.Context) ([]Database, error) {
@@ -572,6 +586,48 @@ func TestQueryValidation(t *testing.T) {
 			}
 			if repo.lastQuery != test.database+":"+test.sql {
 				t.Errorf("the statement was reshaped: %q", repo.lastQuery)
+			}
+		})
+	}
+}
+
+// Browse interpolates the schema and table into the statement, so the allowlist
+// has to gate them before a connection is opened — the same as every other name
+// in this slice.
+func TestBrowseValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		database string
+		schema   string
+		table    string
+		wantErr  bool
+	}{
+		{name: "an ordinary table", database: "app", schema: "public", table: "users"},
+		{name: "an unsafe database name", database: `x"; --`, schema: "public", table: "users", wantErr: true},
+		{name: "an unsafe schema name", database: "app", schema: `public"; DROP`, table: "users", wantErr: true},
+		{name: "an unsafe table name", database: "app", schema: "public", table: `users"; DROP`, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			_, err := NewService(repo).Browse(t.Context(), test.database,
+				BrowseRequest{Schema: test.schema, Table: test.table})
+
+			if test.wantErr {
+				if !errors.Is(err, ErrInvalidName) {
+					t.Fatalf("error = %v, want %v", err, ErrInvalidName)
+				}
+				if repo.lastBrowse != "" {
+					t.Errorf("a refused browse still reached the server: %q", repo.lastBrowse)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if repo.lastBrowse == "" {
+				t.Error("a valid browse did not reach the server")
 			}
 		})
 	}

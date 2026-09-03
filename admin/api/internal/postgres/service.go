@@ -58,6 +58,8 @@ type repository interface {
 	CreateExtension(ctx context.Context, database, name string) error
 
 	Query(ctx context.Context, database, sql string) (QueryResult, error)
+	ListRelations(ctx context.Context, database string) ([]Relation, error)
+	Browse(ctx context.Context, database, schema, table, cursor string) (BrowseResult, error)
 }
 
 // Service manages the databases and roles on the PostgreSQL server.
@@ -369,6 +371,36 @@ func (s *Service) Query(ctx context.Context, database, sql string) (QueryResult,
 			ErrInvalidName, maxQueryLength)
 	}
 	return s.repo.Query(ctx, database, sql)
+}
+
+// ListRelations returns the tables and views in one database, each with its
+// columns, so the console can show a schema tree rather than leaving an operator
+// to guess table names.
+func (s *Service) ListRelations(ctx context.Context, database string) ([]Relation, error) {
+	if err := validateName(database); err != nil {
+		return nil, err
+	}
+	return s.repo.ListRelations(ctx, database)
+}
+
+// Browse returns one keyset-paginated page of a table or view.
+//
+// The schema and table are validated here, before a connection is opened, for the
+// same reason every other name in this slice is: they are interpolated into the
+// statement, so the allowlist is what stands between the caller and an injection.
+// The cursor is not validated here — it is opaque, and the repository is what
+// knows whether it decodes and matches the key.
+func (s *Service) Browse(ctx context.Context, database string, req BrowseRequest) (BrowseResult, error) {
+	if err := validateName(database); err != nil {
+		return BrowseResult{}, err
+	}
+	if err := validateName(req.Schema); err != nil {
+		return BrowseResult{}, fmt.Errorf("schema: %w", err)
+	}
+	if err := validateName(req.Table); err != nil {
+		return BrowseResult{}, fmt.Errorf("table: %w", err)
+	}
+	return s.repo.Browse(ctx, database, req.Schema, req.Table, req.Cursor)
 }
 
 // validateRoleUpdate checks everything about an update that needs no server.

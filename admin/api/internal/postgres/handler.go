@@ -33,6 +33,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/postgres/roles/{role}", h.updateRole)
 	mux.HandleFunc("PUT /api/postgres/databases/{database}", h.updateDatabase)
 	mux.HandleFunc("POST /api/postgres/databases/{database}/query", h.query)
+	mux.HandleFunc("GET /api/postgres/databases/{database}/tables", h.listTables)
+	mux.HandleFunc("POST /api/postgres/databases/{database}/browse", h.browse)
 }
 
 // updateRole sets a role's flags, connection limit, and optionally its password.
@@ -125,6 +127,63 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.service.Query(r.Context(), r.PathValue("database"), request.SQL)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
+}
+
+// listTables returns the tables and views in one database, each with its columns.
+//
+//	@Summary		List a database's tables and views
+//	@Description	Each relation carries its columns, their types, and which are part of the
+//	@Description	primary key — enough for the console to show a schema tree and to browse a
+//	@Description	table with stable keyset paging.
+//	@Tags			postgres
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string	true	"Database name"
+//	@Success		200			{array}		postgres.Relation
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		500			{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database}/tables [get]
+func (h *Handler) listTables(w http.ResponseWriter, r *http.Request) {
+	relations, err := h.service.ListRelations(r.Context(), r.PathValue("database"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, relations)
+}
+
+// browse returns one keyset-paginated page of a table or view.
+//
+//	@Summary		Browse a table with stable paging
+//	@Description	One page of rows, ordered by the relation's primary key and continued with a
+//	@Description	cursor rather than an OFFSET, so inserts and deletes elsewhere cannot shift the
+//	@Description	page. A relation with no primary key returns a single capped page. Runs under
+//	@Description	the same read-only guarantees as the query console.
+//	@Tags			postgres
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string					true	"Database to browse in"
+//	@Param			request		body		postgres.BrowseRequest	true	"The relation and page cursor"
+//	@Success		200			{object}	postgres.BrowseResult
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Failure		422			{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database}/browse [post]
+func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
+	var request BrowseRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	result, err := h.service.Browse(r.Context(), r.PathValue("database"), request)
 	if err != nil {
 		respondError(w, err)
 		return
