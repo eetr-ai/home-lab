@@ -47,6 +47,9 @@ ansible/artifacts/
 # Generated and local files
 .DS_Store
 **/values.local.yaml
+# Local values for a standalone upstream chart, holding the credentials the
+# committed helm-values/<chart>.yaml beside it deliberately does not.
+helm-values/*.local.yaml
 **/charts/*.tgz
 rendered-*.yaml
 *.swp
