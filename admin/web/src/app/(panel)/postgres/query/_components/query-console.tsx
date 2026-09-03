@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { executeQuery, runQuery } from "@/app/actions/postgres";
 import { Banner } from "@/components/ui";
 import { SqlEditor } from "@/components/editor/sql-editor";
+import { classifyStatement } from "@/lib/query/classify";
 import { describeResult } from "@/lib/query/console";
 import type { PostgresRelation } from "@/lib/api/types";
 import { ConsoleToolbar } from "./console-toolbar";
@@ -78,9 +79,18 @@ export function QueryConsole({
 
 	const busy = running || executing || browse.paging || switching;
 	const canRun = !busy && sql.trim() !== "" && database !== "";
+	const willWrite = sql.trim() !== "" && classifyStatement(sql) === "write";
 
+	// One Run for both. A read runs at once; a modifying statement stops for the
+	// confirmation first — the routing is a convenience, and the server is what
+	// enforces read-only or commit on each path. See lib/query/classify.
 	function run() {
+		if (!canRun) return;
 		setError(null);
+		if (willWrite) {
+			setConfirmingExecute(true);
+			return;
+		}
 		browse.leave();
 		const ran = database;
 		const token = (request.current += 1);
@@ -96,7 +106,7 @@ export function QueryConsole({
 		});
 	}
 
-	function execute() {
+	function commit() {
 		setConfirmingExecute(false);
 		setError(null);
 		browse.leave();
@@ -138,7 +148,11 @@ export function QueryConsole({
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
 				<ConsoleToolbar
 					context={
-						browse.browsing ? `Browsing ${relationKey(browse.browsing)}` : "Run reads; Execute commits changes"
+						browse.browsing
+							? `Browsing ${relationKey(browse.browsing)}`
+							: willWrite
+								? "This statement modifies the database"
+								: "Read-only query"
 					}
 					canRun={canRun}
 					running={running}
@@ -146,24 +160,18 @@ export function QueryConsole({
 					confirming={confirmingExecute}
 					database={database}
 					onRun={run}
-					onExecute={() => {
-						setError(null);
-						setConfirmingExecute(true);
-					}}
-					onConfirmExecute={execute}
-					onCancelExecute={() => setConfirmingExecute(false)}
+					onConfirm={commit}
+					onCancel={() => setConfirmingExecute(false)}
 				/>
 
 				<SqlEditor
 					value={sql}
 					onChange={(value) => {
 						setSql(value);
-						// Editing the statement withdraws a pending Execute confirmation.
+						// Editing the statement withdraws a pending commit confirmation.
 						if (confirmingExecute) setConfirmingExecute(false);
 					}}
-					onRun={() => {
-						if (canRun) run();
-					}}
+					onRun={run}
 				/>
 
 				<Banner variant="error" message={error} />
