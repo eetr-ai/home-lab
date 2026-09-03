@@ -392,19 +392,22 @@ func (s *Service) ListRelations(ctx context.Context, database string) ([]Relatio
 
 // Browse returns one keyset-paginated page of a table or view.
 //
-// The schema and table are validated here, before a connection is opened, for the
-// same reason every other name in this slice is: they are interpolated into the
-// statement, so the allowlist is what stands between the caller and an injection.
-// The cursor is not validated here — it is opaque, and the repository is what
-// knows whether it decodes and matches the key.
+// The database is validated with the strict allowlist, the same as everywhere: it
+// names the connection, and the lab's databases are created through this panel, so
+// there is no reason for one to carry an exotic name. The schema and table are
+// validated more leniently, with quoteName, because they name an object the tree
+// already listed — a real table may legitimately be capitalised, spaced, or
+// keyword-named, and refusing to browse it would be a bug, not a defence. quoteName
+// is the injection defence for those two, by escaping rather than by allowlist.
+// The cursor is opaque; the repository is what knows whether it decodes.
 func (s *Service) Browse(ctx context.Context, database string, req BrowseRequest) (BrowseResult, error) {
 	if err := validateName(database); err != nil {
 		return BrowseResult{}, err
 	}
-	if err := validateName(req.Schema); err != nil {
+	if _, err := quoteName(req.Schema); err != nil {
 		return BrowseResult{}, fmt.Errorf("schema: %w", err)
 	}
-	if err := validateName(req.Table); err != nil {
+	if _, err := quoteName(req.Table); err != nil {
 		return BrowseResult{}, fmt.Errorf("table: %w", err)
 	}
 	return s.repo.Browse(ctx, database, req.Schema, req.Table, req.Cursor, req.PageSize)

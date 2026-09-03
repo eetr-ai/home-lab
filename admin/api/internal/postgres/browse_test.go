@@ -112,16 +112,23 @@ func TestBuildBrowseSQL(t *testing.T) {
 		mustContain(t, display, `SELECT * FROM "public"."audit_log" LIMIT 200`)
 	})
 
-	t.Run("an unsafe identifier is refused before it reaches a statement", func(t *testing.T) {
-		if _, _, err := buildBrowseSQL(`public"; DROP`, "users", single, false, 200); !errors.Is(err, ErrInvalidName) {
-			t.Errorf("a schema with a quote should be refused: %v", err)
+	t.Run("an embedded quote is escaped, not refused, so a real name still browses", func(t *testing.T) {
+		exec, _, err := buildBrowseSQL(`we"ird`, "My Orders", single, false, 200)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if _, _, err := buildBrowseSQL("public", `users"; DROP`, single, false, 200); !errors.Is(err, ErrInvalidName) {
-			t.Errorf("a table with a quote should be refused: %v", err)
+		// The quote is doubled and the whole name wrapped — quote_ident semantics —
+		// so the identifier cannot break out of its quotes into the statement.
+		mustContain(t, exec, `FROM "we""ird"."My Orders"`)
+	})
+
+	t.Run("a null byte in an identifier is refused", func(t *testing.T) {
+		if _, _, err := buildBrowseSQL("public", "a\x00b", single, false, 200); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("a table with a null byte should be refused: %v", err)
 		}
-		badKey := []pkColumn{{Name: `id"`, Type: "bigint"}}
+		badKey := []pkColumn{{Name: "", Type: "bigint"}}
 		if _, _, err := buildBrowseSQL("public", "users", badKey, false, 200); !errors.Is(err, ErrInvalidName) {
-			t.Errorf("a key column with a quote should be refused: %v", err)
+			t.Errorf("an empty key column name should be refused: %v", err)
 		}
 	})
 }

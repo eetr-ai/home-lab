@@ -9,6 +9,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// commitTimeout bounds the COMMIT alone, separately from the statement's deadline,
+// so acknowledging a commit always has time even after a long statement.
+const commitTimeout = 10 * time.Second
+
 // Execute runs one statement in a read-write transaction and commits it.
 //
 // This is where the read-only console's guarantee is deliberately dropped: the
@@ -71,7 +75,15 @@ func (r *Repository) Execute(ctx context.Context, database, sql string) (Execute
 	rows.Close()
 	tag := rows.CommandTag()
 
-	if err := tx.Commit(ctx); err != nil {
+	// Commit under its own deadline, detached from the statement's. A statement
+	// that used most of queryDeadline must not leave the commit without time to be
+	// acknowledged: a COMMIT PostgreSQL applied but pgx could not confirm — because
+	// the shared deadline expired waiting for the ack — comes back as an error, and
+	// a retry of a non-idempotent statement would then apply it twice. WithoutCancel
+	// keeps the connection's context values while dropping the spent deadline.
+	commitCtx, cancelCommit := context.WithTimeout(context.WithoutCancel(ctx), commitTimeout)
+	defer cancelCommit()
+	if err := tx.Commit(commitCtx); err != nil {
 		return ExecuteResult{}, fmt.Errorf("commit the statement: %w", err)
 	}
 	committed = true

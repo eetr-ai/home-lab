@@ -196,11 +196,11 @@ func cursorFromRow(values []any) []string {
 func buildBrowseSQL(
 	schema, table string, pk []pkColumn, hasCursor bool, pageSize int,
 ) (execSQL, displaySQL string, err error) {
-	quotedSchema, err := quoteIdentifier(schema)
+	quotedSchema, err := quoteName(schema)
 	if err != nil {
 		return "", "", err
 	}
-	quotedTable, err := quoteIdentifier(table)
+	quotedTable, err := quoteName(table)
 	if err != nil {
 		return "", "", err
 	}
@@ -220,7 +220,7 @@ func buildBrowseSQL(
 	casts := make([]string, len(pk))
 	cursorCols := make([]string, len(pk))
 	for i, column := range pk {
-		quoted, keyErr := quoteIdentifier(column.Name)
+		quoted, keyErr := quoteName(column.Name)
 		if keyErr != nil {
 			return "", "", keyErr
 		}

@@ -651,9 +651,13 @@ func TestBrowseValidation(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "an ordinary table", database: "app", schema: "public", table: "users"},
-		{name: "an unsafe database name", database: `x"; --`, schema: "public", table: "users", wantErr: true},
-		{name: "an unsafe schema name", database: "app", schema: `public"; DROP`, table: "users", wantErr: true},
-		{name: "an unsafe table name", database: "app", schema: "public", table: `users"; DROP`, wantErr: true},
+		// A real table may legitimately be capitalised, spaced, or keyword-named;
+		// browse quotes it rather than refusing it, so these reach the repository.
+		{name: "a spaced, capitalised name is allowed", database: "app", schema: "public", table: "My Orders"},
+		{name: "an embedded quote is escaped, not refused", database: "app", schema: "public", table: `we"ird`},
+		{name: "an unsafe database name is still refused", database: `x"; --`, schema: "public", table: "users", wantErr: true},
+		{name: "an empty table name", database: "app", schema: "public", table: "", wantErr: true},
+		{name: "a null byte in a schema name", database: "app", schema: "pub\x00lic", table: "users", wantErr: true},
 	}
 
 	for _, test := range tests {
