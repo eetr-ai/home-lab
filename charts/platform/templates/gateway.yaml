@@ -46,3 +46,39 @@ spec:
         certificateRefs:
           - kind: Secret
             name: {{ .Values.platform.gateway.tlsSecretName }}
+    {{- /*
+      Domains other than baseDomain served by this same Gateway. Each entry is
+      one application's public names and the Secret its certificate lands in:
+      the listeners below reference that Secret, and cert-manager's Gateway shim
+      — the annotation above is what enables it — issues one Certificate per
+      Secret carrying every name that references it. So a two-hostname entry is
+      one certificate with two SANs, not two certificates racing over one Secret.
+
+      HTTPS only, deliberately. The `web` listener above exists for baseDomain
+      because it predates the tunnel; nothing reaches this cluster except through
+      cloudflared, which speaks HTTPS to the Traefik Service, so a plaintext
+      listener for a new domain would be an entrypoint with no caller.
+
+      The DNS-01 solver has to be able to edit each of these zones. A token
+      scoped to one zone silently leaves the certificate Pending — check the
+      Certificate's status, not the Gateway's, when a new domain serves nothing.
+    */}}
+    {{- range $domain := .Values.platform.gateway.additionalDomains }}
+    {{- range $index, $hostname := $domain.hostnames }}
+    - name: {{ printf "%s-%d" (required "platform.gateway.additionalDomains[].name is required — it prefixes the listener names" $domain.name) $index }}
+      port: 8443
+      protocol: HTTPS
+      hostname: {{ $hostname | quote }}
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              {{ $.Values.platform.gateway.routeNamespaceLabel.key }}: {{ $.Values.platform.gateway.routeNamespaceLabel.value | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ required "platform.gateway.additionalDomains[].tlsSecretName is required — it is the Secret cert-manager writes the certificate into" $domain.tlsSecretName }}
+    {{- end }}
+    {{- end }}
