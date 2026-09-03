@@ -40,6 +40,23 @@ export interface PostgresExtension {
 	version: string;
 }
 
+export interface PostgresColumn {
+	name: string;
+	/** The type as PostgreSQL renders it, e.g. "integer" or "character varying(255)". */
+	type: string;
+	nullable: boolean;
+	/** Part of the primary key — the columns stable keyset paging orders by. */
+	primaryKey: boolean;
+}
+
+export interface PostgresRelation {
+	schema: string;
+	name: string;
+	/** "table", "view", or "matview". A view has no primary key to page over. */
+	kind: string;
+	columns: PostgresColumn[];
+}
+
 export interface CreatePostgresDatabase {
 	name: string;
 	/** Optional; the connecting superuser owns it when omitted. */
@@ -170,6 +187,26 @@ export interface QueryResult {
 	rows: string[][];
 	/** The result was cut at the row cap — a partial answer, said to be one. */
 	truncated: boolean;
+	elapsedMs: number;
+}
+
+/** Ask for one page of a table or view. The cursor continues from a prior page. */
+export interface BrowseRequest {
+	schema: string;
+	table: string;
+	/** The opaque nextCursor from the previous page; omit for the first page. */
+	cursor?: string;
+}
+
+export interface BrowseResult {
+	columns: string[];
+	rows: string[][];
+	/** Continues from the last row; absent when there is no next page or no key. */
+	nextCursor?: string;
+	/** A keyless relation whose rows did not all fit — cannot be paged further. */
+	truncated: boolean;
+	/** The readable statement this page corresponds to, for the console's editor. */
+	sql: string;
 	elapsedMs: number;
 }
 

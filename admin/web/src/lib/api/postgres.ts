@@ -1,10 +1,13 @@
 import { call, seg } from "./http";
 import type { ActionResult } from "./result";
 import type {
+	BrowseRequest,
+	BrowseResult,
 	CreatePostgresDatabase,
 	CreatePostgresRole,
 	PostgresDatabase,
 	PostgresExtension,
+	PostgresRelation,
 	PostgresRole,
 	QueryResult,
 	UpdatePostgresDatabase,
@@ -74,4 +77,17 @@ export function updateDatabase(
 /** POST because the statement goes in the body. It is a read; the server enforces that. */
 export function runQuery(database: string, sql: string): Promise<ActionResult<QueryResult>> {
 	return call<QueryResult>("POST", `/api/postgres/databases/${seg(database)}/query`, { sql });
+}
+
+/** The tables and views in one database, each with its columns, for the schema tree. */
+export function listTables(database: string): Promise<ActionResult<PostgresRelation[]>> {
+	return call<PostgresRelation[]>("GET", `/api/postgres/databases/${seg(database)}/tables`);
+}
+
+/** One keyset-paginated page of a table. POST because the request goes in the body. */
+export function browseTable(
+	database: string,
+	request: BrowseRequest,
+): Promise<ActionResult<BrowseResult>> {
+	return call<BrowseResult>("POST", `/api/postgres/databases/${seg(database)}/browse`, request);
 }
