@@ -5,10 +5,14 @@ import * as postgres from "@/lib/api/postgres";
 import { withRead, withWrite } from "./_auth";
 import type { ActionResult } from "@/lib/api/result";
 import type {
+	BrowseRequest,
+	BrowseResult,
+	ExecuteResult,
 	CreatePostgresDatabase,
 	CreatePostgresRole,
 	PostgresDatabase,
 	PostgresExtension,
+	PostgresRelation,
 	PostgresRole,
 	QueryResult,
 	UpdatePostgresDatabase,
@@ -119,4 +123,41 @@ export async function runQuery(
 	sql: string,
 ): Promise<ActionResult<QueryResult>> {
 	return withRead(() => postgres.runQuery(database, sql));
+}
+
+/**
+ * Run a statement that commits.
+ *
+ * withWrite, unlike runQuery: this is the one console path that changes the
+ * database, so it is gated by the same write allowlist as creating a role or
+ * dropping one. A successful statement can change data or schema, so the section
+ * is revalidated — the databases and tables listings may now be different.
+ */
+export async function executeQuery(
+	database: string,
+	sql: string,
+): Promise<ActionResult<ExecuteResult>> {
+	return withWrite(async () => {
+		const result = await postgres.executeQuery(database, sql);
+		if (result.ok) revalidatePath(SECTION, "layout");
+		return result;
+	});
+}
+
+/** The schema tree's tables and views. A read, like listing anything else. */
+export async function listTables(
+	database: string,
+): Promise<ActionResult<PostgresRelation[]>> {
+	return withRead(() => postgres.listTables(database));
+}
+
+/**
+ * One page of a table. withRead like runQuery: browsing is a read, and the same
+ * READ ONLY transaction on the server is what guarantees it.
+ */
+export async function browseTable(
+	database: string,
+	request: BrowseRequest,
+): Promise<ActionResult<BrowseResult>> {
+	return withRead(() => postgres.browseTable(database, request));
 }

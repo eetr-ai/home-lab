@@ -1,84 +1,102 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Play, Table2 } from "lucide-react";
-import { runQuery } from "@/app/actions/postgres";
-import { Banner, Button, FormField, Select, Td, Th } from "@/components/ui";
-import { Directory } from "../../../_components/directory";
+import { executeQuery, runQuery } from "@/app/actions/postgres";
+import { Banner } from "@/components/ui";
+import { SqlEditor } from "@/components/editor/sql-editor";
+import { classifyStatement } from "@/lib/query/classify";
 import { describeResult } from "@/lib/query/console";
-import type { QueryResult } from "@/lib/api/types";
+import type { PostgresRelation } from "@/lib/api/types";
+import { ConsoleToolbar } from "./console-toolbar";
+import { ResultsHeader } from "./results-header";
+import { ResultsTable } from "./results-table";
+import { relationLabel, SchemaTree } from "./schema-tree";
+import { useTableBrowse } from "./use-table-browse";
+
+/** The page sizes the browser offers. The server clamps anything larger. */
+const PAGE_SIZES = [25, 50, 100, 200] as const;
+
+/** The unified shape a run, a browse page, and an executed statement display as. */
+type Shown = {
+	columns: string[];
+	rows: string[][];
+	truncated: boolean;
+	elapsedMs: number;
+	/** Present only for an executed statement: its command tag, e.g. "UPDATE 3". */
+	command?: string;
+};
 
 /**
- * A read-only SQL console.
+ * A SQL console with a schema tree.
  *
- * Nothing here inspects the statement, deliberately. The API runs it inside a
- * READ ONLY transaction that is always rolled back, so PostgreSQL itself refuses
- * every write and DDL — with its own message, which names what it refused. A
- * pattern match over the text here would suggest the safety came from the
- * browser; it does not, and comments, CTEs and dollar quoting all defeat one.
+ * Run executes read-only (the server rolls it back); Execute commits, gated by
+ * the write allowlist and behind an inline confirmation. Clicking a table fills
+ * the editor with its SELECT and browses it a page at a time — keyset over the
+ * primary key, so an insert or delete elsewhere cannot shift a later page (see
+ * useTableBrowse). Nothing here inspects the statement: PostgreSQL runs it.
  */
 export function QueryConsole({
 	databases,
 	selected: database,
+	relations,
+	relationsError,
 }: {
 	databases: string[];
 	selected: string;
+	relations: PostgresRelation[];
+	relationsError: string | null;
 }) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [sql, setSql] = useState("");
-	const [result, setResult] = useState<QueryResult | null>(null);
+	const [result, setResult] = useState<Shown | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [pending, startTransition] = useTransition();
-	// A second transition, because these two are not the same wait. Sharing one
-	// put the Run button in its loading state while the page was merely fetching
-	// another database's name list, which says a statement is running when none is.
+	const [confirmingExecute, setConfirmingExecute] = useState(false);
+	const [running, startRun] = useTransition();
+	const [executing, startExecuting] = useTransition();
 	const [switching, startSwitching] = useTransition();
-	// Which database the console is actually showing, readable from inside a
-	// callback that started before the answer arrived. A statement takes up to
-	// fifteen seconds, and the selection can move while one is in flight.
-	// Set both here — from the effect, which catches the back button — and
-	// synchronously in `choose`, which catches the gap between a push starting and
-	// the new prop arriving. An answer landing inside that gap would otherwise pass
-	// the check and paint itself under a database the operator had already left.
-	const shown = useRef(database);
-	useEffect(() => {
-		shown.current = database;
-	}, [database]);
+	// A monotonic token for "the answer the console is still waiting for". Every
+	// fetch bumps it and captures the value; a callback that finds it moved on was
+	// superseded and drops its answer. One token, shared with the browse hook,
+	// covers every race between running, executing, paging and switching.
+	const request = useRef(0);
 
-	// The choice is the address, so changing it is a navigation. The statement in
-	// the box survives it: this component stays mounted across a soft navigation
-	// to the same route, which is the point of putting only the scope in the URL.
+	const browse = useTableBrowse({ database, request, onResult: setResult, onError: setError, onSql: setSql });
+
 	function choose(next: string) {
-		// A result belongs to the database it ran against, so it does not survive the
-		// switch. Left alone it is the previous database's rows sitting under the new
-		// database's name — which is not a stale table, it is a wrong answer, and
-		// nothing on screen would say so.
+		// A result and a browse belong to the database they ran against; neither
+		// survives the switch. Bumping the token abandons anything still in flight.
+		request.current += 1;
 		setResult(null);
 		setError(null);
-		shown.current = next;
+		setConfirmingExecute(false);
+		browse.leave();
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("database", next);
 		startSwitching(() => router.push(`?${params.toString()}`));
 	}
 
+	const busy = running || executing || browse.paging || switching;
+	const canRun = !busy && sql.trim() !== "" && database !== "";
+	const willWrite = sql.trim() !== "" && classifyStatement(sql) === "write";
+
+	// One Run for both. A read runs at once; a modifying statement stops for the
+	// confirmation first — the routing is a convenience, and the server is what
+	// enforces read-only or commit on each path. See lib/query/classify.
 	function run() {
+		if (!canRun) return;
 		setError(null);
-		// The database this particular run asked about, compared against the one on
-		// screen when the answer lands. A statement that started before the selection
-		// moved must not paint its rows under a name they did not come from, and
-		// clearing the result in `choose` does not cover it — the late completion
-		// arrives afterwards.
-		//
-		// Checked this way rather than by disabling the selector while a query runs.
-		// Disabling forbids a reasonable thing — abandoning a slow query by moving on
-		// — and it would still miss the back button, which changes the selection
-		// without going anywhere near `choose`.
+		if (willWrite) {
+			setConfirmingExecute(true);
+			return;
+		}
+		browse.leave();
 		const ran = database;
-		startTransition(async () => {
+		const token = (request.current += 1);
+		startRun(async () => {
 			const answer = await runQuery(ran, sql);
-			if (ran !== shown.current) return;
+			if (token !== request.current) return;
 			if (!answer.ok) {
 				setError(answer.error);
 				setResult(null);
@@ -88,86 +106,114 @@ export function QueryConsole({
 		});
 	}
 
-	return (
-		<div className="flex flex-col gap-4">
-			<div className="flex flex-wrap items-end gap-3">
-				<FormField label="Database" htmlFor="query-database" className="w-56">
-					<Select
-						id="query-database"
-						value={database}
-						disabled={switching || databases.length === 0}
-						onChange={(event) => choose(event.target.value)}
-					>
-						{databases.map((name) => (
-							<option key={name} value={name}>
-								{name}
-							</option>
-						))}
-					</Select>
-				</FormField>
-				<Button
-					icon={Play}
-					loading={pending}
-					disabled={switching || sql.trim() === "" || database === ""}
-					onClick={run}
-				>
-					Run
-				</Button>
-				{result ? (
-					<span className="pb-2 text-sm text-muted-foreground">
-						{describeResult(result.rows.length, result.truncated, result.elapsedMs)}
-					</span>
-				) : null}
-			</div>
+	function commit() {
+		setConfirmingExecute(false);
+		setError(null);
+		// The table open before the write, if any — its rows are about to change,
+		// so it is re-browsed once the write lands rather than left stale.
+		const reopen = browse.browsing;
+		browse.leave();
+		const ran = database;
+		const token = (request.current += 1);
+		startExecuting(async () => {
+			const answer = await executeQuery(ran, sql);
+			if (token !== request.current) return;
+			if (!answer.ok) {
+				setError(answer.error);
+				return;
+			}
+			// A write can change data and schema, so refetch the tree the server page
+			// renders; and if a table was open, re-browse it from the first page so
+			// its rows reflect the change. Otherwise show the command's own result.
+			router.refresh();
+			if (reopen) {
+				browse.select(reopen);
+			} else {
+				setResult({ ...answer.data });
+			}
+		});
+	}
 
-			<textarea
-				aria-label="SQL"
-				value={sql}
-				onChange={(event) => setSql(event.target.value)}
-				spellCheck={false}
-				rows={6}
-				placeholder="SELECT * FROM users ORDER BY created_at DESC LIMIT 20"
-				className="w-full rounded-control border border-border bg-background px-3 py-2 font-mono text-sm text-foreground focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+	const summary = result
+		? result.command
+			? `${result.command} — ${result.elapsedMs} ms`
+			: describeResult(result.rows.length, result.truncated, result.elapsedMs)
+		: "";
+
+	return (
+		<div className="flex min-h-0 flex-1 gap-4">
+			<SchemaTree
+				databases={databases}
+				selected={database}
+				onChooseDatabase={choose}
+				switching={switching}
+				relations={relations}
+				relationsError={relationsError}
+				activeKey={browse.activeKey}
+				onSelectRelation={browse.select}
 			/>
 
-			<Banner variant="error" message={error} />
-
-			{result ? (
-				<Directory
-					error={null}
-					isEmpty={result.rows.length === 0}
-					minWidth="min-w-[640px]"
-					empty={{
-						icon: Table2,
-						title: "No rows",
-						description: "The statement ran and matched nothing.",
-					}}
-					columns={
-						<>
-							{result.columns.map((column) => (
-								<Th key={column}>{column}</Th>
-							))}
-						</>
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
+				<ConsoleToolbar
+					context={
+						browse.browsing
+							? `Browsing ${relationLabel(browse.browsing)}`
+							: willWrite
+								? "This statement modifies the database"
+								: "Read-only query"
 					}
-					rows={result.rows.map((row, index) => (
-						// Index as key: a result row has no identity, and the whole table is
-						// replaced on every run rather than reordered.
-						<tr key={index}>
-							{row.map((value, at) => (
-								<Td key={at} className="font-mono text-xs">
-									{/* NULL arrives as the literal string, which is how it is told
-									    apart from an empty one once both are text. */}
-									{value === "NULL" ? (
-										<span className="text-muted-foreground">NULL</span>
-									) : (
-										value
-									)}
-								</Td>
-							))}
-						</tr>
-					))}
+					canRun={canRun}
+					running={running}
+					executing={executing}
+					confirming={confirmingExecute}
+					database={database}
+					onRun={run}
+					onConfirm={commit}
+					onCancel={() => setConfirmingExecute(false)}
 				/>
-			) : null}
+
+				<SqlEditor
+					value={sql}
+					onChange={(value) => {
+						setSql(value);
+						// Editing the statement withdraws a pending commit confirmation.
+						if (confirmingExecute) setConfirmingExecute(false);
+					}}
+					onRun={run}
+				/>
+
+				<Banner variant="error" message={error} />
+
+				{result ? (
+					<>
+						<ResultsHeader
+							summary={summary}
+							browsing={browse.browsing !== null}
+							paging={browse.paging}
+							pageSize={browse.pageSize}
+							pageSizes={PAGE_SIZES}
+							onPageSize={browse.changePageSize}
+							page={browse.page}
+							estimatedPages={browse.estimatedPages}
+							canPrevious={browse.canPrevious}
+							canNext={browse.canNext}
+							onPrevious={browse.previous}
+							onNext={browse.next}
+						/>
+						<ResultsTable
+							columns={result.columns}
+							rows={result.rows}
+							emptyDescription={
+								result.command
+									? "The statement ran and returned no rows."
+									: browse.browsing
+										? "This table has no rows."
+										: "The statement ran and matched nothing."
+							}
+						/>
+					</>
+				) : null}
+			</div>
 		</div>
 	);
 }

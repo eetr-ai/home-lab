@@ -39,6 +39,12 @@ const reservedPrefix = "pg_"
 // Declared here, where it is consumed, so the service can be tested against a
 // fake without a PostgreSQL server. The pgx-backed implementation in repo.go
 // satisfies it without importing it.
+//
+// It is wide on purpose: this is the whole persistence surface of the slice —
+// databases, roles, extensions, and the two consoles — and the fake in the test
+// implements all of it. Splitting it would only scatter one seam across several.
+//
+//nolint:interfacebloat // the persistence surface is genuinely this wide.
 type repository interface {
 	ListDatabases(ctx context.Context) ([]Database, error)
 	CreateDatabase(ctx context.Context, name, owner string) error
@@ -58,6 +64,9 @@ type repository interface {
 	CreateExtension(ctx context.Context, database, name string) error
 
 	Query(ctx context.Context, database, sql string) (QueryResult, error)
+	Execute(ctx context.Context, database, sql string) (ExecuteResult, error)
+	ListRelations(ctx context.Context, database string) ([]Relation, error)
+	Browse(ctx context.Context, database, schema, table, cursor string, pageSize int) (BrowseResult, error)
 }
 
 // Service manages the databases and roles on the PostgreSQL server.
@@ -369,6 +378,61 @@ func (s *Service) Query(ctx context.Context, database, sql string) (QueryResult,
 			ErrInvalidName, maxQueryLength)
 	}
 	return s.repo.Query(ctx, database, sql)
+}
+
+// ListRelations returns the tables and views in one database, each with its
+// columns, so the console can show a schema tree rather than leaving an operator
+// to guess table names.
+func (s *Service) ListRelations(ctx context.Context, database string) ([]Relation, error) {
+	if err := validateName(database); err != nil {
+		return nil, err
+	}
+	return s.repo.ListRelations(ctx, database)
+}
+
+// Browse returns one keyset-paginated page of a table or view.
+//
+// The database is validated with the strict allowlist, the same as everywhere: it
+// names the connection, and the lab's databases are created through this panel, so
+// there is no reason for one to carry an exotic name. The schema and table are
+// validated more leniently, with quoteName, because they name an object the tree
+// already listed — a real table may legitimately be capitalised, spaced, or
+// keyword-named, and refusing to browse it would be a bug, not a defence. quoteName
+// is the injection defence for those two, by escaping rather than by allowlist.
+// The cursor is opaque; the repository is what knows whether it decodes.
+func (s *Service) Browse(ctx context.Context, database string, req BrowseRequest) (BrowseResult, error) {
+	if err := validateName(database); err != nil {
+		return BrowseResult{}, err
+	}
+	if _, err := quoteName(req.Schema); err != nil {
+		return BrowseResult{}, fmt.Errorf("schema: %w", err)
+	}
+	if _, err := quoteName(req.Table); err != nil {
+		return BrowseResult{}, fmt.Errorf("table: %w", err)
+	}
+	return s.repo.Browse(ctx, database, req.Schema, req.Table, req.Cursor, req.PageSize)
+}
+
+// Execute runs one statement that may change the database and commits it.
+//
+// The read-only console's twin, and the reason they are two methods rather than a
+// flag: the difference between them is the whole safety story. Query runs in a
+// transaction that is always rolled back; Execute runs in one that commits. Both
+// gates are checked here — that there is a statement, and that it is not
+// oversized — but nothing inspects what it does, the same as Query: PostgreSQL is
+// what runs it, and the caller has already been authorized to write by the panel.
+func (s *Service) Execute(ctx context.Context, database, sql string) (ExecuteResult, error) {
+	if err := validateName(database); err != nil {
+		return ExecuteResult{}, err
+	}
+	if strings.TrimSpace(sql) == "" {
+		return ExecuteResult{}, fmt.Errorf("%w: there is no statement to run", ErrInvalidName)
+	}
+	if len(sql) > maxQueryLength {
+		return ExecuteResult{}, fmt.Errorf("%w: a statement may be at most %d characters",
+			ErrInvalidName, maxQueryLength)
+	}
+	return s.repo.Execute(ctx, database, sql)
 }
 
 // validateRoleUpdate checks everything about an update that needs no server.

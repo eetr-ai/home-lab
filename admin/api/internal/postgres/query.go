@@ -70,23 +70,67 @@ const (
 // and DO blocks all defeat one, and a check here would suggest a boundary that
 // the paragraph above says plainly is not there.
 func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResult, error) {
+	var result QueryResult
+	err := r.inReadOnlyTx(ctx, database, func(ctx context.Context, tx pgx.Tx) error {
+		started := time.Now()
+		// One statement per message, because this asks for the extended protocol
+		// rather than inheriting whatever the connection defaults to: verified that
+		// "SELECT 1; DROP TABLE t" is refused rather than run as two.
+		//
+		// Named here and not left to the default, because the default is not this
+		// package's to decide. `connectTo` copies the pool's config, the pool parses
+		// the DSN, and pgx reads `default_query_exec_mode` out of a connection string
+		// — `simple_protocol` among the values it accepts. Under that mode the whole
+		// string goes to the server as one Query message and runs as many statements,
+		// so `COMMIT; INSERT ...` would end the read-only transaction above and
+		// persist what followed, with the deferred Rollback left nothing to undo. A
+		// bound that a deployment's DSN can switch off is not one of the three this
+		// function claims to have.
+		rows, err := tx.Query(ctx, sql, pgx.QueryExecModeExec)
+		if err != nil {
+			// The server's own message, which is the useful part: a syntax error names
+			// the position, and a refusal names what it would not run.
+			return fmt.Errorf("%w: %s", ErrQueryFailed, err.Error())
+		}
+		defer rows.Close()
+
+		collected, err := collectRows(rows)
+		if err != nil {
+			return err
+		}
+		collected.ElapsedMs = time.Since(started).Milliseconds()
+		result = collected
+		return nil
+	})
+	return result, err
+}
+
+// inReadOnlyTx runs fn inside a rolled-back READ ONLY transaction on a short-lived
+// connection to the named database, bounded the two ways the safety model above
+// relies on. Query and Browse both run this way; the scaffolding lives here so the
+// bounds are stated and applied once rather than drifting between two copies.
+func (r *Repository) inReadOnlyTx(
+	ctx context.Context,
+	database string,
+	fn func(ctx context.Context, tx pgx.Tx) error,
+) error {
 	// One deadline over the whole operation, before anything opens a socket.
 	// statement_timeout is set after connecting and bounds only execution, so on
 	// its own it leaves both ends unbounded: a connection to an unresponsive
-	// server, and the delivery of rows that pgx reads inside collectRows. Neither
-	// is execution, so neither is what the server-side timeout covers.
+	// server, and the delivery of rows that pgx reads while the callback runs.
+	// Neither is execution, so neither is what the server-side timeout covers.
 	ctx, cancel := context.WithTimeout(ctx, queryDeadline)
 	defer cancel()
 
 	conn, err := r.connectTo(ctx, database)
 	if err != nil {
-		return QueryResult{}, err
+		return err
 	}
 	defer func() { _ = conn.Close(ctx) }()
 
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return QueryResult{}, fmt.Errorf("begin a read-only transaction: %w", err)
+		return fmt.Errorf("begin a read-only transaction: %w", err)
 	}
 	// Always. The success path does not commit — nothing in it should have
 	// changed anything, and rolling back means a statement that somehow did
@@ -104,37 +148,10 @@ func (r *Repository) Query(ctx context.Context, database, sql string) (QueryResu
 	if _, err := tx.Exec(ctx,
 		"SELECT set_config('statement_timeout', $1, true)",
 		strconv.FormatInt(queryTimeout.Milliseconds(), 10)); err != nil {
-		return QueryResult{}, fmt.Errorf("bound the query: %w", err)
+		return fmt.Errorf("bound the query: %w", err)
 	}
 
-	started := time.Now()
-	// One statement per message, because this asks for the extended protocol
-	// rather than inheriting whatever the connection defaults to: verified that
-	// "SELECT 1; DROP TABLE t" is refused rather than run as two.
-	//
-	// Named here and not left to the default, because the default is not this
-	// package's to decide. `connectTo` copies the pool's config, the pool parses
-	// the DSN, and pgx reads `default_query_exec_mode` out of a connection string
-	// — `simple_protocol` among the values it accepts. Under that mode the whole
-	// string goes to the server as one Query message and runs as many statements,
-	// so `COMMIT; INSERT ...` would end the read-only transaction above and
-	// persist what followed, with the deferred Rollback left nothing to undo. A
-	// bound that a deployment's DSN can switch off is not one of the three this
-	// function claims to have.
-	rows, err := tx.Query(ctx, sql, pgx.QueryExecModeExec)
-	if err != nil {
-		// The server's own message, which is the useful part: a syntax error names
-		// the position, and a refusal names what it would not run.
-		return QueryResult{}, fmt.Errorf("%w: %s", ErrQueryFailed, err.Error())
-	}
-	defer rows.Close()
-
-	result, err := collectRows(rows)
-	if err != nil {
-		return QueryResult{}, err
-	}
-	result.ElapsedMs = time.Since(started).Milliseconds()
-	return result, nil
+	return fn(ctx, tx)
 }
 
 // collectRows reads a result set into strings, stopping at the row cap.
@@ -176,13 +193,31 @@ func collectRows(rows pgx.Rows) (QueryResult, error) {
 func renderRow(values []any) []string {
 	rendered := make([]string, 0, len(values))
 	for _, value := range values {
-		if value == nil {
-			// Distinguishable from the empty string, which is a different value and
-			// looks identical once both are rendered as text.
-			rendered = append(rendered, "NULL")
-			continue
-		}
-		rendered = append(rendered, fmt.Sprintf("%v", value))
+		rendered = append(rendered, renderValue(value))
 	}
 	return rendered
+}
+
+// renderValue turns one value into the text the panel shows.
+func renderValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		// Distinguishable from the empty string, which is a different value and
+		// looks identical once both are rendered as text.
+		return "NULL"
+	case [16]byte:
+		// pgx decodes a uuid to a raw 16-byte array, which %v prints as a list of
+		// numbers — "[6 81 241 …]" for what is really a uuid. A uuid is the one type
+		// that decodes to exactly [16]byte (bytea is a slice, not an array), so this
+		// is safe to special-case, and it is far and away the commonest primary key
+		// here, so leaving it as a number list would make most tables unreadable.
+		return formatUUID(v)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatUUID renders 16 bytes as the canonical hyphenated uuid.
+func formatUUID(b [16]byte) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

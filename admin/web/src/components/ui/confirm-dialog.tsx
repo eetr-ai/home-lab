@@ -80,7 +80,7 @@ export function ConfirmDialog({
 				onClick={cancelIfInteractive}
 				className={cn(
 					"absolute inset-0 bg-scrim duration-150 motion-reduce:animate-none",
-					open ? "animate-in fade-in" : "animate-out fade-out",
+					open ? "animate-in fade-in" : "animate-out fade-out fill-mode-forwards",
 				)}
 			/>
 			<div
@@ -92,7 +92,9 @@ export function ConfirmDialog({
 				tabIndex={-1}
 				className={cn(
 					"relative w-full max-w-md rounded-card border border-border bg-surface p-6 text-foreground shadow-xl outline-none duration-150 motion-reduce:animate-none",
-					open ? "animate-in fade-in zoom-in-95" : "animate-out fade-out zoom-out-95",
+					open
+						? "animate-in fade-in zoom-in-95"
+						: "animate-out fade-out zoom-out-95 fill-mode-forwards",
 				)}
 			>
 				<h2 id={titleId} className="text-lg font-medium">
