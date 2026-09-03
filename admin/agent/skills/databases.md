@@ -40,6 +40,21 @@ What stops a statement changing anything is the server: it runs inside a `READ
 ONLY` transaction that is always rolled back, under a statement timeout, one
 statement per request. Write it as a `SELECT` and expect a refusal if you do not.
 
+To **change** data or schema — seeding rows, an `UPDATE`, a `CREATE TABLE` — use
+`POST /api/postgres/databases/{db}/execute`, body `{"sql": "..."}`. It is the
+write twin of the query console: the same one statement per request and the same
+timeout, but the transaction is **committed** rather than rolled back, so an
+`INSERT`, `UPDATE`, `DELETE` or DDL persists. It returns the command tag
+(`"UPDATE 3"`), the number of rows affected, and any `RETURNING` rows. This — not
+`/query` — is how you seed data; `/query` runs it read-only and refuses the write.
+One statement per call, so seed a table with a single multi-row `INSERT` rather
+than many, and say what you are about to change before you run it.
+
+Two reads help you get the shape right first. `GET
+/api/postgres/databases/{db}/tables` lists the tables and views with their
+columns, types and primary keys; `POST /api/postgres/databases/{db}/browse` (body
+`{"schema": "...", "table": "..."}`) pages a table's rows by its primary key.
+
 ## MongoDB
 
 `/api/mongo/databases` lists databases with their sizes,
