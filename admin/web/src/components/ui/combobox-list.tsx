@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, Search } from "lucide-react";
 import { filterRanked } from "@/lib/search/rank";
 
@@ -48,7 +48,7 @@ export function ComboboxList<T>({
 		option?.scrollIntoView?.({ block: "nearest" });
 	}, [active, matches.length]);
 
-	function onKeyDown(event: React.KeyboardEvent) {
+	function onKeyDown(event: KeyboardEvent) {
 		const count = matches.length;
 		switch (event.key) {
 			case "ArrowDown":

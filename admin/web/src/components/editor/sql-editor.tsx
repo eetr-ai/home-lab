@@ -62,18 +62,20 @@ export function SqlEditor({
 					highlightActiveLine(),
 					placeholder(placeholderText),
 					sql(),
-					// Highest precedence so Mod-Enter runs the statement rather than
-					// inserting a newline, whatever the default keymap would do with it.
+					// Highest precedence so the run chord beats whatever the default
+					// keymap would do with it. Both Cmd+Enter (Mod on a Mac) and
+					// Ctrl+Enter are bound, because "Mod" alone is Cmd on a Mac and an
+					// operator there reaches for Ctrl+Enter just as often.
 					Prec.highest(
-						keymap.of([
-							{
-								key: "Mod-Enter",
+						keymap.of(
+							["Mod-Enter", "Ctrl-Enter"].map((key) => ({
+								key,
 								run: () => {
 									run.current();
 									return true;
 								},
-							},
-						]),
+							})),
+						),
 					),
 					keymap.of([...defaultKeymap, ...historyKeymap]),
 					panelTheme,
