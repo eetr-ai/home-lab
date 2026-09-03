@@ -40,6 +40,13 @@ describe("classifyStatement", () => {
 		).toBe("write");
 	});
 
+	it("does not treat a DML word inside a literal, comment or quoted name as a write", () => {
+		expect(classifyStatement("WITH x AS (SELECT 'delete' AS action) SELECT * FROM x")).toBe("read");
+		expect(classifyStatement("WITH x AS (SELECT 1 /* delete */) SELECT * FROM x")).toBe("read");
+		expect(classifyStatement(`WITH x AS (SELECT "delete" FROM t) SELECT * FROM x`)).toBe("read");
+		expect(classifyStatement("WITH x AS (SELECT $$update$$ AS s) SELECT * FROM x")).toBe("read");
+	});
+
 	it("classifies by the first keyword, past leading comments and whitespace", () => {
 		expect(classifyStatement("-- a note\nSELECT 1")).toBe("read");
 		expect(classifyStatement("/* block */ UPDATE users SET x = 1")).toBe("write");

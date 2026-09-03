@@ -28,6 +28,16 @@ export function ResultsTable({
 	const [open, setOpen] = useState<{ value: string; row: number; column: number } | null>(null);
 	const anchor = useRef<HTMLElement | null>(null);
 
+	// A new query or page replaces the grid, and the open cell no longer exists —
+	// close the popover rather than leave it showing a value from a table that is
+	// gone. Adjusting state during render is React's own way to reset on a changed
+	// input; the props are fresh arrays on every result, so the identity check bites.
+	const [shownFor, setShownFor] = useState({ columns, rows });
+	if (shownFor.columns !== columns || shownFor.rows !== rows) {
+		setShownFor({ columns, rows });
+		if (open !== null) setOpen(null);
+	}
+
 	function openCell(cell: HTMLElement, value: string, row: number, column: number) {
 		anchor.current = cell;
 		setOpen({ value, row, column });

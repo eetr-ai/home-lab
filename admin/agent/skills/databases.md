@@ -53,7 +53,11 @@ than many, and say what you are about to change before you run it.
 Two reads help you get the shape right first. `GET
 /api/postgres/databases/{db}/tables` lists the tables and views with their
 columns, types and primary keys; `POST /api/postgres/databases/{db}/browse` (body
-`{"schema": "...", "table": "..."}`) pages a table's rows by its primary key.
+`{"schema", "table", "pageSize"?, "cursor"?}`) pages a table's rows by its primary
+key. Omit `cursor` for the first page, then send back the `nextCursor` the
+response gives you for the next; when there is no `nextCursor`, that was the last
+page. A view or a table without a primary key has nothing to page over, so it
+comes back as one capped page — `truncated` says whether rows were left off.
 
 ## MongoDB
 

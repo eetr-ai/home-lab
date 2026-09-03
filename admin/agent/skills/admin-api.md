@@ -66,7 +66,7 @@ choose. A verb says nothing about whether a call changes anything:
 | Path | |
 | --- | --- |
 | `POST /api/postgres/databases/{db}/query` | Run a read-only statement. Body `{"sql": "..."}`. It runs as the panel's own superuser, inside a read-only transaction that is rolled back. |
-| `POST /api/postgres/databases/{db}/browse` | One keyset-paginated page of a table. Body `{"schema": "...", "table": "..."}`. |
+| `POST /api/postgres/databases/{db}/browse` | One keyset page of a table. Body `{"schema", "table", "pageSize"?, "cursor"?}`. Omit `cursor` for the first page, then pass back the `nextCursor` from the response to get the next; when the response has no `nextCursor` there are no more pages. A view or a keyless table has no key to page over, so it returns a single capped page (and reports `truncated` if more rows exist). |
 | `POST /api/mongo/databases/{db}/find` | Read documents from a collection. |
 
 ## What changes something
