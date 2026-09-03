@@ -584,6 +584,11 @@ fi
 # The Job's own grant: everything a chart in this lab needs to be installed.
 # Scoped to that one role, because the document also holds the API's read role and
 # reading both together would merge their rules.
+#
+# Pods and leases are held for escalation rather than for anything the Job does
+# with them: a chart may ship a Role granting them to the workload it installs,
+# and Kubernetes will not let this Job create a Role holding more than it holds.
+# See rbac-deploy.yaml.
 helm_pairs=$(printf '%s\n' "$helm_rbac" | doc_named home-lab-admin-helm | extract_pairs)
 expected_helm_pairs=$(LC_ALL=C sort <<'HELMPAIRS'
 rbac.authorization.k8s.io/clusterrolebindings create
@@ -652,6 +657,13 @@ batch/jobs list
 batch/jobs patch
 batch/jobs update
 batch/jobs watch
+coordination.k8s.io/leases create
+coordination.k8s.io/leases delete
+coordination.k8s.io/leases get
+coordination.k8s.io/leases list
+coordination.k8s.io/leases patch
+coordination.k8s.io/leases update
+coordination.k8s.io/leases watch
 core/configmaps create
 core/configmaps delete
 core/configmaps get
@@ -666,6 +678,14 @@ core/persistentvolumeclaims list
 core/persistentvolumeclaims patch
 core/persistentvolumeclaims update
 core/persistentvolumeclaims watch
+core/pods create
+core/pods delete
+core/pods get
+core/pods list
+core/pods patch
+core/pods update
+core/pods watch
+core/pods/log get
 core/secrets create
 core/secrets delete
 core/secrets get
