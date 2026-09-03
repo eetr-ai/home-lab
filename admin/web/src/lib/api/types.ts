@@ -196,6 +196,8 @@ export interface BrowseRequest {
 	table: string;
 	/** The opaque nextCursor from the previous page; omit for the first page. */
 	cursor?: string;
+	/** Rows per page. Omit for the server default; larger than the cap is clamped. */
+	pageSize?: number;
 }
 
 export interface BrowseResult {
@@ -207,6 +209,21 @@ export interface BrowseResult {
 	truncated: boolean;
 	/** The readable statement this page corresponds to, for the console's editor. */
 	sql: string;
+	/** PostgreSQL's own estimate of the row count, for an approximate page total.
+	 *  Zero when unknown — a view, or a table never analyzed. */
+	estimatedRows: number;
+	elapsedMs: number;
+}
+
+/** What a committed, modifying statement did. */
+export interface ExecuteResult {
+	columns: string[];
+	rows: string[][];
+	/** RETURNING rows cut at the cap; the statement still ran and changed all rows. */
+	truncated: boolean;
+	/** PostgreSQL's command tag, e.g. "UPDATE 3" or "CREATE TABLE". */
+	command: string;
+	rowsAffected: number;
 	elapsedMs: number;
 }
 

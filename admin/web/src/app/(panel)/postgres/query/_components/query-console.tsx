@@ -2,40 +2,38 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Play } from "lucide-react";
-import { browseTable, runQuery } from "@/app/actions/postgres";
-import { Banner, Button, IconButton } from "@/components/ui";
+import { executeQuery, runQuery } from "@/app/actions/postgres";
+import { Banner } from "@/components/ui";
 import { SqlEditor } from "@/components/editor/sql-editor";
 import { describeResult } from "@/lib/query/console";
-import {
-	advance,
-	currentCursor,
-	firstPage,
-	hasPrevious,
-	pageNumber,
-	retreat,
-} from "@/lib/query/pagination";
 import type { PostgresRelation } from "@/lib/api/types";
+import { ConsoleToolbar } from "./console-toolbar";
+import { ResultsHeader } from "./results-header";
 import { ResultsTable } from "./results-table";
 import { relationKey, SchemaTree } from "./schema-tree";
+import { useTableBrowse } from "./use-table-browse";
 
-/** The unified shape a run and a browse page both display as. */
-type Shown = { columns: string[]; rows: string[][]; truncated: boolean; elapsedMs: number };
-/** The relation currently being browsed, or null when the box is free SQL. */
-type Browsing = { schema: string; name: string } | null;
+/** The page sizes the browser offers. The server clamps anything larger. */
+const PAGE_SIZES = [25, 50, 100, 200] as const;
+
+/** The unified shape a run, a browse page, and an executed statement display as. */
+type Shown = {
+	columns: string[];
+	rows: string[][];
+	truncated: boolean;
+	elapsedMs: number;
+	/** Present only for an executed statement: its command tag, e.g. "UPDATE 3". */
+	command?: string;
+};
 
 /**
- * A read-only SQL console with a schema tree.
+ * A SQL console with a schema tree.
  *
- * Two ways fill the results: typing SQL and running it (free-form, the server
- * enforces read-only), or clicking a table in the tree, which fills the editor
- * with its SELECT and browses it a page at a time. Browsing pages by the primary
- * key with a cursor, so an insert or delete elsewhere cannot shift a later page —
- * see lib/query/pagination. Editing the box and running leaves browse mode.
- *
- * Nothing here inspects the statement, deliberately: the API runs it inside a READ
- * ONLY transaction that is always rolled back, and a pattern match over the text
- * would only suggest a safety that comes from the server.
+ * Run executes read-only (the server rolls it back); Execute commits, gated by
+ * the write allowlist and behind an inline confirmation. Clicking a table fills
+ * the editor with its SELECT and browses it a page at a time — keyset over the
+ * primary key, so an insert or delete elsewhere cannot shift a later page (see
+ * useTableBrowse). Nothing here inspects the statement: PostgreSQL runs it.
  */
 export function QueryConsole({
 	databases,
@@ -53,46 +51,37 @@ export function QueryConsole({
 	const [sql, setSql] = useState("");
 	const [result, setResult] = useState<Shown | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [browsing, setBrowsing] = useState<Browsing>(null);
-	const [trail, setTrail] = useState<string[]>(firstPage);
-	const [nextCursor, setNextCursor] = useState<string | null>(null);
+	const [confirmingExecute, setConfirmingExecute] = useState(false);
 	const [running, startRun] = useTransition();
-	const [paging, startPaging] = useTransition();
-	// A separate transition from the two above: switching database is a navigation,
-	// not a statement, and sharing a pending flag would light the Run button while a
-	// name list is merely being fetched.
+	const [executing, startExecuting] = useTransition();
 	const [switching, startSwitching] = useTransition();
 	// A monotonic token for "the answer the console is still waiting for". Every
-	// action that fetches — running SQL, loading a page, switching database — bumps
-	// it and captures the new value; a callback that finds the token has moved on
-	// was superseded and drops its answer. A statement can take fifteen seconds, and
-	// in that time the operator can run something else, page, or change database —
-	// so more than one guard is needed, and comparing one token covers them all: a
-	// late page cannot paint over a newer run, nor a run over a newer page.
+	// fetch bumps it and captures the value; a callback that finds it moved on was
+	// superseded and drops its answer. One token, shared with the browse hook,
+	// covers every race between running, executing, paging and switching.
 	const request = useRef(0);
 
+	const browse = useTableBrowse({ database, request, onResult: setResult, onError: setError, onSql: setSql });
+
 	function choose(next: string) {
-		// A result, and a browse, belong to the database they ran against; neither
-		// survives the switch, or it becomes the previous database's rows under the
-		// new one's name. Bumping the token also abandons anything still in flight.
+		// A result and a browse belong to the database they ran against; neither
+		// survives the switch. Bumping the token abandons anything still in flight.
 		request.current += 1;
 		setResult(null);
 		setError(null);
-		setBrowsing(null);
-		setNextCursor(null);
+		setConfirmingExecute(false);
+		browse.leave();
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("database", next);
 		startSwitching(() => router.push(`?${params.toString()}`));
 	}
 
-	const canRun = !running && !paging && !switching && sql.trim() !== "" && database !== "";
+	const busy = running || executing || browse.paging || switching;
+	const canRun = !busy && sql.trim() !== "" && database !== "";
 
 	function run() {
 		setError(null);
-		// Running free SQL leaves browse mode: the box is now whatever was typed, and
-		// the pager would page a relation the statement may not even be about.
-		setBrowsing(null);
-		setNextCursor(null);
+		browse.leave();
 		const ran = database;
 		const token = (request.current += 1);
 		startRun(async () => {
@@ -107,35 +96,31 @@ export function QueryConsole({
 		});
 	}
 
-	// Fetch one page of a relation and, if nothing newer has since been asked for,
-	// show it: fill the editor with the page's own SELECT, remember the trail that
-	// reached it, and keep the cursor to the next page.
-	function loadPage(relation: { schema: string; name: string }, nextTrail: string[]) {
+	function execute() {
+		setConfirmingExecute(false);
+		setError(null);
+		browse.leave();
 		const ran = database;
 		const token = (request.current += 1);
-		startPaging(async () => {
-			const answer = await browseTable(ran, {
-				schema: relation.schema,
-				table: relation.name,
-				cursor: currentCursor(nextTrail),
-			});
+		startExecuting(async () => {
+			const answer = await executeQuery(ran, sql);
 			if (token !== request.current) return;
 			if (!answer.ok) {
 				setError(answer.error);
 				return;
 			}
-			setError(null);
-			setBrowsing(relation);
-			setTrail(nextTrail);
-			setSql(answer.data.sql);
-			setNextCursor(answer.data.nextCursor ?? null);
-			setResult(answer.data);
+			setResult({ ...answer.data });
+			// The statement may have changed data or the schema, so re-run the server
+			// page to refetch the tree it renders from.
+			router.refresh();
 		});
 	}
 
-	function selectRelation(relation: PostgresRelation) {
-		loadPage({ schema: relation.schema, name: relation.name }, firstPage());
-	}
+	const summary = result
+		? result.command
+			? `${result.command} — ${result.elapsedMs} ms`
+			: describeResult(result.rows.length, result.truncated, result.elapsedMs)
+		: "";
 
 	return (
 		<div className="flex min-h-0 flex-1 gap-4">
@@ -146,23 +131,36 @@ export function QueryConsole({
 				switching={switching}
 				relations={relations}
 				relationsError={relationsError}
-				activeKey={browsing ? relationKey(browsing) : null}
-				onSelectRelation={selectRelation}
+				activeKey={browse.activeKey}
+				onSelectRelation={browse.select}
 			/>
 
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
-				<div className="flex items-center gap-3">
-					<span className="text-sm text-muted-foreground">
-						{browsing ? `Browsing ${relationKey(browsing)}` : "Run a read-only statement"}
-					</span>
-					<Button icon={Play} className="ml-auto" loading={running} disabled={!canRun} onClick={run}>
-						Run
-					</Button>
-				</div>
+				<ConsoleToolbar
+					context={
+						browse.browsing ? `Browsing ${relationKey(browse.browsing)}` : "Run reads; Execute commits changes"
+					}
+					canRun={canRun}
+					running={running}
+					executing={executing}
+					confirming={confirmingExecute}
+					database={database}
+					onRun={run}
+					onExecute={() => {
+						setError(null);
+						setConfirmingExecute(true);
+					}}
+					onConfirmExecute={execute}
+					onCancelExecute={() => setConfirmingExecute(false)}
+				/>
 
 				<SqlEditor
 					value={sql}
-					onChange={setSql}
+					onChange={(value) => {
+						setSql(value);
+						// Editing the statement withdraws a pending Execute confirmation.
+						if (confirmingExecute) setConfirmingExecute(false);
+					}}
 					onRun={() => {
 						if (canRun) run();
 					}}
@@ -172,39 +170,29 @@ export function QueryConsole({
 
 				{result ? (
 					<>
-						<div className="flex items-center gap-3">
-							<span className="text-sm text-muted-foreground">
-								{describeResult(result.rows.length, result.truncated, result.elapsedMs)}
-							</span>
-							{browsing ? (
-								<div className="ml-auto flex items-center gap-1">
-									<IconButton
-										aria-label="Previous page"
-										disabled={paging || !hasPrevious(trail)}
-										onClick={() => loadPage(browsing, retreat(trail))}
-									>
-										<ChevronLeft className="h-4 w-4" />
-									</IconButton>
-									<span className="text-sm tabular-nums text-muted-foreground">
-										Page {pageNumber(trail)}
-									</span>
-									<IconButton
-										aria-label="Next page"
-										disabled={paging || nextCursor === null}
-										onClick={() => loadPage(browsing, advance(trail, nextCursor ?? ""))}
-									>
-										<ChevronRight className="h-4 w-4" />
-									</IconButton>
-								</div>
-							) : null}
-						</div>
+						<ResultsHeader
+							summary={summary}
+							browsing={browse.browsing !== null}
+							paging={browse.paging}
+							pageSize={browse.pageSize}
+							pageSizes={PAGE_SIZES}
+							onPageSize={browse.changePageSize}
+							page={browse.page}
+							estimatedPages={browse.estimatedPages}
+							canPrevious={browse.canPrevious}
+							canNext={browse.canNext}
+							onPrevious={browse.previous}
+							onNext={browse.next}
+						/>
 						<ResultsTable
 							columns={result.columns}
 							rows={result.rows}
 							emptyDescription={
-								browsing
-									? "This table has no rows."
-									: "The statement ran and matched nothing."
+								result.command
+									? "The statement ran and returned no rows."
+									: browse.browsing
+										? "This table has no rows."
+										: "The statement ran and matched nothing."
 							}
 						/>
 					</>

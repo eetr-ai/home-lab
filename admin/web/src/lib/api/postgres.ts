@@ -3,6 +3,7 @@ import type { ActionResult } from "./result";
 import type {
 	BrowseRequest,
 	BrowseResult,
+	ExecuteResult,
 	CreatePostgresDatabase,
 	CreatePostgresRole,
 	PostgresDatabase,
@@ -77,6 +78,11 @@ export function updateDatabase(
 /** POST because the statement goes in the body. It is a read; the server enforces that. */
 export function runQuery(database: string, sql: string): Promise<ActionResult<QueryResult>> {
 	return call<QueryResult>("POST", `/api/postgres/databases/${seg(database)}/query`, { sql });
+}
+
+/** Run a statement that commits. Write access is enforced by the action. */
+export function executeQuery(database: string, sql: string): Promise<ActionResult<ExecuteResult>> {
+	return call<ExecuteResult>("POST", `/api/postgres/databases/${seg(database)}/execute`, { sql });
 }
 
 /** The tables and views in one database, each with its columns, for the schema tree. */
