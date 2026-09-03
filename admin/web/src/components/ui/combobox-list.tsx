@@ -86,7 +86,12 @@ export function ComboboxList<T>({
 					aria-controls={`${prefix}-listbox`}
 					aria-activedescendant={matches[active] ? `${prefix}-option-${active}` : undefined}
 					value={query}
-					onChange={(event) => setQuery(event.target.value)}
+					onChange={(event) => {
+						setQuery(event.target.value);
+						// Back to the top match, so the best result is highlighted after a
+						// keystroke rather than a stale cursor clamped to the old list.
+						setCursor(0);
+					}}
 					onKeyDown={onKeyDown}
 					placeholder={`Search ${label.toLowerCase()}`}
 					aria-label={`Search ${label.toLowerCase()}`}

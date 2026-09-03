@@ -16,12 +16,23 @@
 /** The statements that only read. Everything else is treated as a write. */
 const readKeywords = new Set(["select", "with", "show", "explain", "table", "values"]);
 
+/** A statement mentioning one of these anywhere modifies data — used only to
+ *  catch a WITH that wraps a data-modifying CTE. */
+const dataModifying = /\b(insert|update|delete|merge)\b/i;
+
 export type StatementKind = "read" | "write";
 
 /** Classify a statement by its first keyword. An unrecognised or empty one reads. */
 export function classifyStatement(sql: string): StatementKind {
 	const keyword = leadingKeyword(sql);
-	return keyword !== null && !readKeywords.has(keyword) ? "write" : "read";
+	if (keyword === null) return "read";
+	if (!readKeywords.has(keyword)) return "write";
+	// A WITH can wrap a data-modifying CTE — `WITH x AS (DELETE … RETURNING …) …` —
+	// which is a write despite the leading keyword. Over-matching a CTE that merely
+	// contains the word is harmless (it commits a no-op); under-matching would send a
+	// real write to the read-only path, where the transaction refuses it.
+	if (keyword === "with" && dataModifying.test(sql)) return "write";
+	return "read";
 }
 
 /**

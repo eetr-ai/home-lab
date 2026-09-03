@@ -11,7 +11,7 @@ import type { PostgresRelation } from "@/lib/api/types";
 import { ConsoleToolbar } from "./console-toolbar";
 import { ResultsHeader } from "./results-header";
 import { ResultsTable } from "./results-table";
-import { relationKey, SchemaTree } from "./schema-tree";
+import { relationLabel, SchemaTree } from "./schema-tree";
 import { useTableBrowse } from "./use-table-browse";
 
 /** The page sizes the browser offers. The server clamps anything larger. */
@@ -157,7 +157,7 @@ export function QueryConsole({
 				<ConsoleToolbar
 					context={
 						browse.browsing
-							? `Browsing ${relationKey(browse.browsing)}`
+							? `Browsing ${relationLabel(browse.browsing)}`
 							: willWrite
 								? "This statement modifies the database"
 								: "Read-only query"

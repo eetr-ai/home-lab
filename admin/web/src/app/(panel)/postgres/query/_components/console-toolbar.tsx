@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Play } from "lucide-react";
 import { Button } from "@/components/ui";
 
@@ -31,6 +32,21 @@ export function ConsoleToolbar({
 	onConfirm: () => void;
 	onCancel: () => void;
 }) {
+	// Escape cancels the confirmation from anywhere; Enter is handled by focusing
+	// the Commit button below, so it commits without the operator reaching for the
+	// mouse. Only while confirming, and not while the commit is already running.
+	useEffect(() => {
+		if (!confirming || executing) return;
+		function onKeyDown(event: KeyboardEvent) {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				onCancel();
+			}
+		}
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [confirming, executing, onCancel]);
+
 	return (
 		<div className="flex flex-wrap items-center gap-3">
 			<span className="text-sm text-muted-foreground">{context}</span>
@@ -42,7 +58,8 @@ export function ConsoleToolbar({
 					<Button variant="secondary" onClick={onCancel} disabled={executing}>
 						Cancel
 					</Button>
-					<Button variant="destructiveConfirm" loading={executing} onClick={onConfirm}>
+					{/* autoFocus so a plain Enter commits, no mouse needed. */}
+					<Button variant="destructiveConfirm" autoFocus loading={executing} onClick={onConfirm}>
 						Commit
 					</Button>
 				</div>

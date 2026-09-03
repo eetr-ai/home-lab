@@ -5,14 +5,18 @@ import { ChevronDown, ChevronRight, Eye, KeyRound, Search, Table2 } from "lucide
 import { Banner, Combobox, FormField, IconButton, Input, Spinner } from "@/components/ui";
 import type { PostgresRelation } from "@/lib/api/types";
 
-/** A relation's stable key across a re-fetch: schema and name together. */
+/** A relation's stable key across a re-fetch: schema and name together.
+ *
+ * JSON of the pair rather than "schema.name": a quoted PostgreSQL identifier may
+ * contain a dot, so "a.b" + "c" and "a" + "b.c" would otherwise collide on one key
+ * — and this key drives React keys, the expanded set, and the active selection. */
 export function relationKey(relation: Pick<PostgresRelation, "schema" | "name">): string {
-	return `${relation.schema}.${relation.name}`;
+	return JSON.stringify([relation.schema, relation.name]);
 }
 
 /** Its label: the bare name in public, schema-qualified anywhere else. */
-function relationLabel(relation: PostgresRelation): string {
-	return relation.schema === "public" ? relation.name : relationKey(relation);
+export function relationLabel(relation: Pick<PostgresRelation, "schema" | "name">): string {
+	return relation.schema === "public" ? relation.name : `${relation.schema}.${relation.name}`;
 }
 
 /**

@@ -40,8 +40,10 @@ export function ResultsTable({
 				isEmpty={rows.length === 0}
 				minWidth="min-w-[640px]"
 				empty={{ icon: Table2, title: "No rows", description: emptyDescription }}
-				columns={columns.map((column) => (
-					<Th key={column} className="whitespace-nowrap">
+				columns={columns.map((column, index) => (
+					// Index as key: a statement can return two columns of the same name
+					// (SELECT a.id, b.id), and the table is replaced whole on every run.
+					<Th key={index} className="whitespace-nowrap">
 						{column}
 					</Th>
 				))}

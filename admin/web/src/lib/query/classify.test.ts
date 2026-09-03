@@ -31,6 +31,15 @@ describe("classifyStatement", () => {
 		}
 	});
 
+	it("writes a WITH that wraps a data-modifying CTE", () => {
+		expect(classifyStatement("WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d")).toBe(
+			"write",
+		);
+		expect(
+			classifyStatement("with moved as (insert into archive select * from users returning id) select * from moved"),
+		).toBe("write");
+	});
+
 	it("classifies by the first keyword, past leading comments and whitespace", () => {
 		expect(classifyStatement("-- a note\nSELECT 1")).toBe("read");
 		expect(classifyStatement("/* block */ UPDATE users SET x = 1")).toBe("write");
