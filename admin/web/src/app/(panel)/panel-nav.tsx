@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import {
 	Boxes,
-	Database,
 	LayoutDashboard,
 	Leaf,
 	LogOut,
@@ -16,6 +15,7 @@ import {
 } from "lucide-react";
 import { endSession } from "@/app/actions/session";
 import { ThemeSwitcher } from "@/app/theme-switcher";
+import { PostgresIcon } from "@/components/ui/postgres-icon";
 import { activeHref, type NavItem } from "@/lib/nav/active";
 
 // Remembered per browser so the choice survives a reload. A convenience, so a
@@ -52,7 +52,7 @@ function writeCollapsed(next: boolean): void {
 
 const navItems: NavItem[] = [
 	{ href: "/overview", label: "Overview", icon: LayoutDashboard },
-	{ href: "/postgres", label: "PostgreSQL", icon: Database },
+	{ href: "/postgres", label: "PostgreSQL", icon: PostgresIcon },
 	{ href: "/mongo", label: "MongoDB", icon: Leaf },
 	{ href: "/kubernetes", label: "Kubernetes", icon: Boxes },
 	// A peer of Kubernetes rather than a tab inside it: it is a different system

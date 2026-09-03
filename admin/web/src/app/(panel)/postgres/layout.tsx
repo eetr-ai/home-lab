@@ -1,4 +1,4 @@
-import { Database } from "lucide-react";
+import { PostgresIcon } from "@/components/ui/postgres-icon";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionTabs } from "../_components/section-tabs";
 
@@ -22,7 +22,7 @@ export default function PostgresLayout({ children }: { children: React.ReactNode
 		// and the list tabs simply scroll their table inside the same frame.
 		<main className="flex h-dvh flex-col p-6">
 			<PageHeader
-				icon={Database}
+				icon={PostgresIcon}
 				title="PostgreSQL"
 				description="The databases, roles, and extensions on the host's PostgreSQL server."
 			/>
