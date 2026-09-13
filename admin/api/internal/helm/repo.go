@@ -368,7 +368,14 @@ func translate(err error, what string) error {
 		// that the typed check alone misses it, and reading "forbidden" as a 500
 		// sends an operator looking for a bug instead of a missing RoleBinding.
 		strings.Contains(err.Error(), "is forbidden"):
-		return fmt.Errorf("%w: %s", ErrForbidden, what)
+		// The API server's sentence is kept, not summarised. It names the
+		// resource, the namespace and the account, and the sentinel alone does
+		// not: a rollout Job whose whole log read "forbidden: upgrade release
+		// home-lab-admin" took an hour to trace to one namespace the Job held no
+		// binding in, which the refusal had said outright. The handler still
+		// answers the panel with its own wording, so this detail reaches the Job
+		// log without reaching a browser.
+		return fmt.Errorf("%w: %s: %w", ErrForbidden, what, err)
 	default:
 		return fmt.Errorf("%s: %w", what, err)
 	}

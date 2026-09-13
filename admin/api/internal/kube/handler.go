@@ -507,10 +507,13 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusNotImplemented, "not_configured",
 			"this panel is not configured to deploy with Helm")
 	case errors.Is(err, ErrForbidden):
-		// Almost always the panel's own ClusterRole binding rather than anything
-		// the caller did, so it says so rather than reading as a 500.
+		// Almost always the panel's own ClusterRole rather than anything the caller
+		// did, so it says so rather than reading as a 500 — and it names the act,
+		// because "not permitted to create namespace journal" sends an operator to
+		// the chart value that withheld the grant, where "not permitted to read
+		// this" sent them looking for a refused read that never happened.
 		httpx.Error(w, http.StatusForbidden, "forbidden",
-			"the panel's service account is not permitted to read this")
+			"the panel's service account is not permitted to "+refusedAct(err))
 	default:
 		slog.Error("kubernetes request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")
