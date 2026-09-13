@@ -115,8 +115,9 @@ rules:
   # internal/nspolicy, the same shape of guarantee as restartPatch above.
   #
   # Deleting a namespace cascades to everything in it, so this is the widest write
-  # in the file. It is off by default, and switching it on is a decision about
-  # trusting that policy rather than about convenience.
+  # in the file. It is on by default all the same: the panel offers both actions
+  # regardless, and withholding the grant only turns them into buttons that fail.
+  # Switching it off is a decision to run a panel with two dead actions in it.
   - apiGroups: [""]
     resources:
       - namespaces
