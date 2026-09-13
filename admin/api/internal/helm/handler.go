@@ -281,8 +281,12 @@ func respondError(w http.ResponseWriter, err error) {
 		// for a release that was never missing.
 		httpx.Error(w, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, ErrForbidden):
+		// Deliberately not "read this namespace's releases": the same sentinel
+		// comes back from an upgrade and an uninstall, and naming a read is how a
+		// refused write gets mistaken for a missing read grant. The Job log
+		// carries the API server's own sentence for whoever needs the detail.
 		httpx.Error(w, http.StatusForbidden, "forbidden",
-			"the panel's service account is not permitted to read this namespace's releases")
+			"the panel's service account is not permitted to do this in this namespace")
 	default:
 		slog.Error("helm request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error",

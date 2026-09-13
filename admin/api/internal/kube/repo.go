@@ -282,10 +282,12 @@ func translate(err error, what string) error {
 	case apierrors.IsAlreadyExists(err):
 		return fmt.Errorf("%w: %s", ErrAlreadyExists, what)
 	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
-		// The panel's ServiceAccount is bound to a read-only role. A forbidden
-		// reply usually means that binding is missing rather than that the caller
-		// did anything wrong, so it is worth distinguishing from a 500.
-		return fmt.Errorf("%w: %s", ErrForbidden, what)
+		// A forbidden reply usually means a grant the chart did not render rather
+		// than anything the caller did wrong, so it is worth distinguishing from a
+		// 500 — and worth carrying `what` with it, because which act was refused
+		// is the difference between "your role binding is missing" and "this
+		// panel was installed without that capability".
+		return refused{what: what, err: err}
 	default:
 		return fmt.Errorf("%s: %w", what, err)
 	}

@@ -74,21 +74,29 @@ admin:
 
       # Creating and deleting namespaces from the panel.
       #
-      # Off by default, and it is the second grant here worth a deliberate
-      # decision. Everything else this ClusterRole holds either reads, or changes
-      # how many of something already exists; this is the first that brings
-      # something into being and takes something away — and deleting a namespace
-      # cascades to every workload, Secret, and volume claim in it.
+      # On, because the panel draws a New namespace button and a delete action
+      # whether this is on or not. Left off, they are still there and they fail
+      # with a permission error the operator cannot act on — which is not a
+      # safer panel, it is a broken one. A lab that does not want the panel
+      # creating namespaces switches this off and accepts the same two dead
+      # buttons, deliberately.
+      #
+      # It is the widest write here, and worth reading before changing:
+      # everything else this ClusterRole holds either reads, or changes how many
+      # of something already exists. This brings something into being and takes
+      # something away, and deleting a namespace cascades to every workload,
+      # Secret, and volume claim in it.
       #
       # What bounds it is not RBAC, which has no way to say "any namespace except
-      # these". It is the policy in the API: Kubernetes' own namespaces and
+      # these" — and so turning this off never narrowed the grant, it only
+      # removed it. It is the policy in the API: Kubernetes' own namespaces and
       # anything under the kube- prefix, the namespace the panel itself runs in,
       # the list below, and any namespace carrying the
       # home-lab.example/protected label are all refused. The label is read off
       # the live object, so protecting one more is a kubectl label rather than a
       # release.
       namespaces:
-        manage: false
+        manage: true
 
         # Namespaces this lab will not let the panel delete, on top of the
         # built-in rules above. Names only — the API adds its own namespace from
