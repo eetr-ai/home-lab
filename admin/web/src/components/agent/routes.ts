@@ -8,11 +8,18 @@
  *
  * A `{placeholder}` is a template the agent fills in from something it looked up.
  * Some paths carry one in the query string instead — `?namespace=` and
- * `?database=` — and those matter as much as the path does: a page scoped to a
+ * `?database=` — and those matter as much as the path does. A page scoped to a
  * database opens on whichever one is named, and on the first one in the list when
  * none is. Saying "the extensions page" while the operator is looking at the
  * wrong database is a worse answer than saying nothing, and the parameter is the
  * only way this list can prevent it.
+ *
+ * `?namespace=` works differently from `?database=`, and the descriptions below
+ * say so. The namespace is one choice shared by the whole panel, remembered
+ * between pages; naming it here does not scope a single page, it moves that
+ * shared choice — the picker follows the link. Omitting it opens the page on
+ * whatever the operator was already looking at, which is usually what they want,
+ * so it is worth naming only when the answer is about a particular namespace.
  *
  * Keep the descriptions short and factual; they are read by a model deciding
  * whether a page answers the question it was asked, not by a person browsing.
@@ -34,15 +41,16 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	{ path: "/kubernetes/nodes", description: "Every node, with conditions and CPU and memory usage." },
 	{
 		path: "/kubernetes/workloads?namespace={namespace}",
-		description: "Deployments, StatefulSets and DaemonSets in one namespace, with replica counts. Restarting and scaling happen here. Omit the parameter for the default namespace.",
+		description: "Deployments, StatefulSets and DaemonSets, with replica counts. Restarting and scaling happen here. Naming a namespace moves the panel's shared scope to it; omitting it keeps whatever is already chosen, which may be every namespace.",
 	},
 	{
 		path: "/kubernetes/workloads/{kind}/{name}?namespace={namespace}",
 		description: "One workload in detail: its pods, its rollout state, and its logs. `kind` is deployment, statefulset or daemonset. The namespace is required — without it this page is a 404, not a default.",
 	},
-	{ path: "/kubernetes/pods?namespace={namespace}", description: "Pods in one namespace, with phase and restart counts." },
-	{ path: "/kubernetes/events?namespace={namespace}", description: "Recent events in one namespace — where a pod that will not start says why." },
+	{ path: "/kubernetes/pods?namespace={namespace}", description: "Pods with phase and restart counts, in the chosen namespace or in every namespace. Naming one moves the panel's shared scope to it." },
+	{ path: "/kubernetes/events?namespace={namespace}", description: "Recent events — where a pod that will not start says why. Naming a namespace moves the panel's shared scope to it; without one this is the whole cluster, capped at the hundred most recent." },
 	{ path: "/kubernetes/namespaces", description: "Every namespace, whether the panel may delete it, and creating one. A protected namespace shows why it is protected instead of a delete action." },
+	{ path: "/kubernetes/secrets?namespace={namespace}", description: "The Secrets in one namespace — names, types and key names, never values — and where one is created or rotated. The namespace is required in practice: there is no cluster-wide list of Secrets, so without one the page asks for a namespace." },
 	{ path: "/kubernetes/storage", description: "PersistentVolumes, claims and storage classes." },
 
 	{ path: "/helm/dashboard?namespace={namespace}", description: "Every Helm release the panel can see, including any installed outside it, filterable by namespace. The Helm section opens here." },
@@ -50,7 +58,7 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 		path: "/helm/dashboard/{namespace}/{name}",
 		description: "One live release: its status, the values it was given, its revision history, and where rolling back and uninstalling happen.",
 	},
-	{ path: "/helm/deployments", description: "The charts this lab has declared, each with how it stands against the cluster. Declaring a new one happens here." },
+	{ path: "/helm/deployments?namespace={namespace}", description: "The charts this lab has declared, each with how it stands against the cluster. Declaring a new one happens here. Scoped by the panel's shared namespace like the rest." },
 	{
 		path: "/helm/deployments/{id}",
 		description: "One deployment: the values editor, the Roll out button, and every version that was ever declared with who wrote it.",

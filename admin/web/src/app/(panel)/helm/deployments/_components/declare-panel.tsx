@@ -6,6 +6,7 @@ import { ShipWheel } from "lucide-react";
 import { declareDeployment } from "@/app/actions/helm";
 import { FormField, Input, Label, Select } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
+import { useNamespaceScope } from "../../../_components/namespace-scope";
 import { YamlEditor } from "@/components/editor/yaml-editor";
 import { ChartVersionField } from "./chart-version-field";
 import type { Namespace } from "@/lib/api/types";
@@ -31,9 +32,17 @@ export function DeclarePanel({
 	namespaces: Namespace[];
 	onClose: () => void;
 }) {
+	// Pre-filled from the panel's namespace scope where that names one the API
+	// would accept, and empty otherwise — including when the scope is every
+	// namespace, which is the case a form must not answer on the operator's
+	// behalf. `suggested` is also what `dirty` compares against, so a pre-filled
+	// namespace is not by itself an unsaved change.
+	const { scope } = useNamespaceScope();
+	const suggested = namespaces.some((one) => one.name === scope) ? scope : "";
+
 	const [chartRef, setChartRef] = useState("");
 	const [name, setName] = useState("");
-	const [namespace, setNamespace] = useState("");
+	const [namespace, setNamespace] = useState(suggested);
 	const [version, setVersion] = useState("");
 	const [values, setValues] = useState(startingValues);
 	const router = useRouter();
@@ -49,7 +58,7 @@ export function DeclarePanel({
 	function reset() {
 		setChartRef("");
 		setName("");
-		setNamespace("");
+		setNamespace(suggested);
 		setVersion("");
 		setValues(startingValues);
 		onClose();
@@ -68,7 +77,7 @@ export function DeclarePanel({
 			dirty={
 				chartRef !== "" ||
 				name !== "" ||
-				namespace !== "" ||
+				namespace !== suggested ||
 				version !== "" ||
 				values !== startingValues
 			}

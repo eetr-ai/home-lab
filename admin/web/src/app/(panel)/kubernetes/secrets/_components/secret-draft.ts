@@ -23,6 +23,12 @@ export interface SecretRow {
 }
 
 export interface CreateDraft {
+	/**
+	 * Where it goes. Part of the draft rather than taken from the page around it:
+	 * the panel can be open while the scope is "every namespace", and a form that
+	 * inherited a namespace nobody chose is how a Secret ends up in the wrong one.
+	 */
+	namespace: string;
 	name: string;
 	rows: SecretRow[];
 	/**
@@ -33,7 +39,7 @@ export interface CreateDraft {
 }
 
 export type CreatePlan =
-	| { ok: true; name: string; request: PutSecret }
+	| { ok: true; namespace: string; name: string; request: PutSecret }
 	| { ok: false; error: string };
 
 export type RotatePlan = { ok: true; request: RotateSecret } | { ok: false; error: string };
@@ -50,6 +56,9 @@ const NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const MAX_NAME_LENGTH = 63;
 
 export function planCreate(draft: CreateDraft): CreatePlan {
+	const namespace = draft.namespace.trim();
+	if (!namespace) return { ok: false, error: "Choose the namespace to write it into." };
+
 	const name = draft.name.trim();
 	if (!name) return { ok: false, error: "Name the Secret." };
 	if (name.length > MAX_NAME_LENGTH || !NAME_PATTERN.test(name)) {
@@ -65,7 +74,12 @@ export function planCreate(draft: CreateDraft): CreatePlan {
 		return { ok: false, error: "A Secret needs at least one key." };
 	}
 
-	return { ok: true, name, request: { data: data.data, overwrite: draft.overwrite } };
+	return {
+		ok: true,
+		namespace,
+		name,
+		request: { data: data.data, overwrite: draft.overwrite },
+	};
 }
 
 /**
