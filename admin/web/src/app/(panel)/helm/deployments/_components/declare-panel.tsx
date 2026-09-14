@@ -7,7 +7,7 @@ import { declareDeployment } from "@/app/actions/helm";
 import { FormField, Input, Label, Select } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
 import { YamlEditor } from "@/components/editor/yaml-editor";
-import { useChartVersions } from "./use-chart-versions";
+import { ChartVersionField } from "./chart-version-field";
 import type { Namespace } from "@/lib/api/types";
 
 /** What a values file usually starts as, so the editor is never a blank void. */
@@ -37,8 +37,6 @@ export function DeclarePanel({
 	const [version, setVersion] = useState("");
 	const [values, setValues] = useState(startingValues);
 	const router = useRouter();
-
-	const versions = useChartVersions(open ? chartRef : "");
 
 	// Changing the chart clears the version. Without this, picking 6.9.2 for one
 	// chart and then editing the reference submits 6.9.2 for a chart that may not
@@ -104,35 +102,15 @@ export function DeclarePanel({
 			</FormField>
 
 			<FormField label="Version" htmlFor="chart-version">
-				{/* A picker when the registry answered, a text field when it did not.
-				    An unreachable registry is a reason to type the version yourself,
-				    not a reason to be unable to declare anything. */}
-				{versions.offered.length > 0 ? (
-					<Select
-						id="chart-version"
-						value={version}
-						onChange={(event) => setVersion(event.target.value)}
-						required
-					>
-						<option value="">Choose a version</option>
-						{versions.offered.map((offered) => (
-							<option key={offered.version} value={offered.version}>
-								{offered.appVersion ? `${offered.version} (app ${offered.appVersion})` : offered.version}
-							</option>
-						))}
-					</Select>
-				) : (
-					<Input
-						id="chart-version"
-						value={version}
-						onChange={(event) => setVersion(event.target.value)}
-						placeholder="6.9.2"
-						autoComplete="off"
-						spellCheck={false}
-						required
-					/>
-				)}
-				<Hint>{versions.hint}</Hint>
+				{/* Follows the reference as it is typed: here the reference is being
+				    chosen, so the versions it offers are part of choosing it. */}
+				<ChartVersionField
+					id="chart-version"
+					reference={open ? chartRef : ""}
+					value={version}
+					onChange={setVersion}
+					follow
+				/>
 			</FormField>
 
 			<FormField label="Release name" htmlFor="release-name">
