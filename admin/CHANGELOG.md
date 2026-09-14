@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/eetr-ai/home-lab/compare/admin-v1.7.0...admin-v1.7.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* ship namespace management on, and say what a refusal refused ([#96](https://github.com/eetr-ai/home-lab/issues/96)) ([9980454](https://github.com/eetr-ai/home-lab/commit/998045441ef5efee421c867514408913043201eb))
+
 ## [1.7.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.6.0...admin-v1.7.0) (2026-09-03)
 
 
