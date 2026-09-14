@@ -2,16 +2,18 @@
 
 import { RefreshCw } from "lucide-react";
 import { IconButton, Input, Select } from "@/components/ui";
+import { versionField } from "./chart-version-options";
 import { useChartVersions } from "./use-chart-versions";
 
 /**
  * The chart version, as a list to pick from wherever the registry will say what
  * it publishes.
  *
- * A picker when the registry answered, a text field when it did not. An
- * unreachable registry is a reason to type the version yourself, not a reason to
- * be unable to declare or upgrade anything — so the input is the fallback rather
- * than the thing that gets disabled.
+ * A picker when the registry answered, a text field when it did not — and a text
+ * field is also what an upgrade starts as, since nothing has asked a registry
+ * anything yet. An unreachable registry is a reason to type the version yourself,
+ * not a reason to be unable to declare or upgrade anything, so the input is the
+ * fallback rather than the thing that gets disabled.
  *
  * The refresh button is the whole control on the upgrade side, where `follow` is
  * off: there, the reference has not changed and nothing should reach a registry
@@ -44,14 +46,16 @@ export function ChartVersionField({
 }) {
 	const versions = useChartVersions(reference, follow);
 
-	const offered = versions.offered.map((one) => one.version);
-	const options = value !== "" && !offered.includes(value) ? [value, ...offered] : offered;
+	const { picker, options } = versionField(
+		versions.offered.map((one) => one.version),
+		value,
+	);
 	const appVersions = new Map(versions.offered.map((one) => [one.version, one.appVersion]));
 
 	return (
 		<div className={dense ? "flex flex-col gap-1" : undefined}>
 			<div className="flex items-center gap-1">
-				{options.length > 0 ? (
+				{picker ? (
 					<Select
 						id={id}
 						value={value}
