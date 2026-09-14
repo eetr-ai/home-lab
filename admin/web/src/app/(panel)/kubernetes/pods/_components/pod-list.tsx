@@ -26,11 +26,12 @@ const UNHEALTHY = /BackOff|Error|Failed|Unknown|Evicted|OOMKilled/;
 export function PodList({
 	pods,
 	error,
-	namespace,
+	showNamespace,
 }: {
 	pods: Pod[];
 	error: string | null;
-	namespace: string;
+	/** Set when the rows come from more than one namespace. */
+	showNamespace: boolean;
 }) {
 	const [tailing, setTailing] = useState<Pod | null>(null);
 	const now = new Date();
@@ -40,14 +41,20 @@ export function PodList({
 			<Directory
 				error={error}
 				isEmpty={error === null && pods.length === 0}
-				minWidth="min-w-[820px]"
+				minWidth={showNamespace ? "min-w-[940px]" : "min-w-[820px]"}
 				empty={{
 					icon: Container,
 					title: "No pods",
-					description: "Nothing is scheduled in this namespace.",
+					description: showNamespace
+						? "Nothing is scheduled anywhere on the cluster."
+						: "Nothing is scheduled in this namespace.",
 				}}
 				columns={
 					<>
+						{/* Only where the rows come from more than one. A column whose
+						    every cell says the same thing is a column that pushed the
+						    ones that differ off the edge. */}
+						{showNamespace ? <Th>Namespace</Th> : null}
 						<Th>Name</Th>
 						<Th>Status</Th>
 						<Th className="text-right">Ready</Th>
@@ -58,7 +65,8 @@ export function PodList({
 					</>
 				}
 				rows={pods.map((pod) => (
-					<tr key={pod.name}>
+					<tr key={`${pod.namespace}/${pod.name}`}>
+						{showNamespace ? <Td className="text-muted-foreground">{pod.namespace}</Td> : null}
 						<Td className="font-medium">{pod.name}</Td>
 						<Td className={UNHEALTHY.test(pod.status) ? "text-danger-fg" : "text-muted-foreground"}>
 							{pod.status}
@@ -90,8 +98,11 @@ export function PodList({
 				// Keyed by pod: selecting a different one is a new instance, which is
 				// how the buffer and the stream reset.
 				<LogPanel
-					key={`${namespace}/${tailing.name}`}
-					namespace={namespace}
+					key={`${tailing.namespace}/${tailing.name}`}
+					// The pod's own namespace, not the page's. With the cluster-wide
+					// listing the two are not the same, and streaming a log from the
+					// wrong namespace is a 404 that reads as a pod that has gone away.
+					namespace={tailing.namespace}
 					pod={tailing.name}
 					containers={tailing.containers}
 					onClose={() => setTailing(null)}

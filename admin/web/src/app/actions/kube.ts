@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import * as kube from "@/lib/api/kube";
 import { withRead, withWrite } from "./_auth";
+import type { NamespaceScope } from "@/lib/kube/scope";
 import type { ActionResult } from "@/lib/api/result";
 import type {
 	ClusterEvent,
@@ -132,16 +133,20 @@ export async function revokeNamespace(namespace: string): Promise<ActionResult<v
 	return result;
 }
 
-export async function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {
-	return withRead(() => kube.listWorkloads(namespace));
+/**
+ * The three listings a cluster page is scoped by. Each takes a namespace or
+ * ALL_NAMESPACES, and `lib/api/kube.ts` is what turns that into the right route.
+ */
+export async function listWorkloads(scope: NamespaceScope): Promise<ActionResult<Workload[]>> {
+	return withRead(() => kube.listWorkloads(scope));
 }
 
-export async function listPods(namespace: string): Promise<ActionResult<Pod[]>> {
-	return withRead(() => kube.listPods(namespace));
+export async function listPods(scope: NamespaceScope): Promise<ActionResult<Pod[]>> {
+	return withRead(() => kube.listPods(scope));
 }
 
-export async function listEvents(namespace: string): Promise<ActionResult<ClusterEvent[]>> {
-	return withRead(() => kube.listEvents(namespace));
+export async function listEvents(scope: NamespaceScope): Promise<ActionResult<ClusterEvent[]>> {
+	return withRead(() => kube.listEvents(scope));
 }
 
 export async function listNodes(): Promise<ActionResult<ClusterNode[]>> {

@@ -198,20 +198,51 @@ contract to review a change against:
    `useRowDelete` owns the confirm/delete pair. Both keep that state in the
    parent so only one row can be asking for confirmation at a time.
 
-10. **Scoped lists put the scope in the query string.** A list that has no
-    meaning without a database or a namespace — Mongo collections, PostgreSQL
-    extensions, anything under Kubernetes — reads its scope from the URL through
-    `ScopePicker`, not from component state. The scope is part of what the page
-    is showing, so it should be linkable, survive a reload, and step through the
-    back button. A scope named in the URL that no longer exists falls back to the
-    first available one rather than erroring: the link is stale, not wrong.
+10. **A database scope goes in the query string; the namespace scope does not.**
+    The two are scoped differently on purpose, and the difference is worth
+    understanding before adding a third kind.
 
-    Pass `allLabel` only where the unfiltered view is meaningful — the Helm
-    dashboard is, a collections list is not, and there being made to choose is
-    the point. Selecting it removes the parameter rather than setting it empty,
-    so the unfiltered view has one address instead of two.
+    A list that has no meaning without a **database** — Mongo collections,
+    PostgreSQL extensions — reads its scope from the URL through `ScopePicker`,
+    not from component state. That scope belongs to the page: MongoDB's
+    collections and PostgreSQL's extensions are not the same question, and
+    nobody expects choosing one to move the other. Pass `allLabel` only where
+    the unfiltered view is meaningful, and there it removes the parameter rather
+    than setting it empty, so the unfiltered view has one address instead of two.
 
-11. **A detail page opens with a `BackLink` to the list it came from**, carrying
+    The **namespace** is one choice for the whole panel, held in
+    `NamespaceScopeProvider` and mirrored into a cookie so a Server Component can
+    read it. It is not a property of a page: the Kubernetes tabs and the Helm
+    ones are all asking about the same part of the same cluster, and a page that
+    resolved its own would disagree with the tab beside it. They did, and the way
+    that showed up was a dropdown silently falling back to whichever namespace
+    sorts first every time you changed tab — with a Secret written into it before
+    anybody noticed.
+
+    So: read it with `readNamespaceScope()`, render `<NamespacePicker scope={…} />`
+    on the pages it scopes, and default to `ALL_NAMESPACES`. Never to the first
+    namespace in the list — a scope nobody chose is the failure mode this
+    replaced. A page that cannot answer for the whole cluster says so and asks
+    for one (`requireOne`); the Secrets tab is the only one, because its grant is
+    bound per namespace rather than held cluster-wide.
+
+    `?namespace=` still works as a way *in* — the back link from a workload, a
+    bookmark, the assistant's route catalogue — and moves the shared scope rather
+    than overriding it for one page. The picker adopts whatever the page
+    resolved, so the dropdown and the rows beneath it always agree.
+
+11. **A form that writes something names where it writes it.** Not in a
+    description, not inherited from the page: a field, with a value the operator
+    can see and change, offering only the namespaces the API would accept. A
+    Secret written into the wrong namespace is a real Secret in a real namespace
+    that nothing complains about — the release that needed it simply never finds
+    it — so this is the one field worth putting above the name.
+
+    Where the scope names nothing the API would write into, the field is left
+    empty rather than filled in with a guess. An empty required field is a
+    question; a silently substituted one is the mistake.
+
+12. **A detail page opens with a `BackLink` to the list it came from**, carrying
     the scope it was viewed under. The browser's back button only helps somebody
     who arrived by clicking: a detail page reached from a bookmark, a link
     somebody pasted, or the assistant's `navigate_to` is otherwise a dead end

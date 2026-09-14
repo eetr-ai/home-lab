@@ -1,26 +1,34 @@
 import { listPods } from "@/app/actions/kube";
-import { ScopePicker } from "../../_components/scope-picker";
-import { resolveNamespace } from "../_components/namespace-scope";
+import { NamespacePicker } from "../../_components/namespace-picker";
+import { readNamespaceScope } from "../../_components/namespace-scope-server";
+import { isAllNamespaces } from "@/lib/kube/scope";
 import { PodList } from "./_components/pod-list";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The pods in the chosen namespace, or in every namespace.
+ *
+ * Cluster-wide is the default and costs one request either way — the panel's
+ * grant for pods is a ClusterRole, so reading one namespace and reading all of
+ * them are the same permission and the API answers both from one route each.
+ */
 export default async function PodsPage({
 	searchParams,
 }: {
 	searchParams: Promise<{ namespace?: string }>;
 }) {
-	const { namespace: requested } = await searchParams;
-	const { namespaces, selected, error } = await resolveNamespace(requested);
-	const pods = selected ? await listPods(selected) : null;
+	const { namespace } = await searchParams;
+	const scope = await readNamespaceScope(namespace);
+	const pods = await listPods(scope);
 
 	return (
 		<>
-			<ScopePicker label="Namespace" param="namespace" options={namespaces} selected={selected} />
+			<NamespacePicker scope={scope} />
 			<PodList
-				namespace={selected ?? ""}
-				pods={pods?.ok ? pods.data : []}
-				error={error ?? (pods && !pods.ok ? pods.error : null)}
+				pods={pods.ok ? pods.data : []}
+				error={pods.ok ? null : pods.error}
+				showNamespace={isAllNamespaces(scope)}
 			/>
 		</>
 	);

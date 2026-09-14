@@ -116,10 +116,17 @@ export function ReleaseView({
 								// failed for the reason the operator just asked for. The
 								// uninstall worked; the list is the page that can still say
 								// something true.
+								//
+								// backHref rather than a path written out here. This used to
+								// navigate to /helm/releases, which is not a route: the list
+								// is /helm/dashboard, and every uninstall ended on the 404
+								// page. Reusing the link the header already points at is what
+								// stops the two from disagreeing again — and it keeps the
+								// namespace that was being looked at.
 								onConfirm={() =>
 									rowDelete.confirm(release.name, async () => {
 										const result = await uninstallRelease(release.namespace, release.name);
-										if (result.ok) router.replace("/helm/releases");
+										if (result.ok) router.replace(backHref);
 										return result;
 									})
 								}

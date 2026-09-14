@@ -2,8 +2,9 @@ import { Boxes } from "lucide-react";
 import { listWorkloads } from "@/app/actions/kube";
 import { Th } from "@/components/ui/table";
 import { Directory } from "../../_components/directory";
-import { ScopePicker } from "../../_components/scope-picker";
-import { resolveNamespace } from "../_components/namespace-scope";
+import { NamespacePicker } from "../../_components/namespace-picker";
+import { readNamespaceScope } from "../../_components/namespace-scope-server";
+import { isAllNamespaces } from "@/lib/kube/scope";
 import { WorkloadRows } from "./_components/workload-rows";
 
 export const dynamic = "force-dynamic";
@@ -18,22 +19,33 @@ export default async function WorkloadsPage({
 }: {
 	searchParams: Promise<{ namespace?: string }>;
 }) {
-	const { namespace: requested } = await searchParams;
-	const { namespaces, selected, error } = await resolveNamespace(requested);
-	const workloads = selected ? await listWorkloads(selected) : null;
-	const rows = workloads?.ok ? workloads.data : [];
+	const { namespace } = await searchParams;
+	const scope = await readNamespaceScope(namespace);
+	const everywhere = isAllNamespaces(scope);
+	const workloads = await listWorkloads(scope);
+	const rows = workloads.ok ? workloads.data : [];
 	const now = new Date();
 
 	return (
 		<>
-			<ScopePicker label="Namespace" param="namespace" options={namespaces} selected={selected} />
+			<NamespacePicker scope={scope} />
 			<Directory
-				error={error ?? (workloads && !workloads.ok ? workloads.error : null)}
-				isEmpty={workloads?.ok === true && rows.length === 0}
-				minWidth="min-w-[760px]"
-				empty={{ icon: Boxes, title: "Nothing running here", description: "This namespace has no Deployments, StatefulSets, or DaemonSets." }}
+				error={workloads.ok ? null : workloads.error}
+				isEmpty={workloads.ok && rows.length === 0}
+				minWidth={everywhere ? "min-w-[880px]" : "min-w-[760px]"}
+				empty={{
+					icon: Boxes,
+					title: "Nothing running here",
+					description: everywhere
+						? "The cluster has no Deployments, StatefulSets, or DaemonSets."
+						: "This namespace has no Deployments, StatefulSets, or DaemonSets.",
+				}}
 				columns={
 					<>
+						{/* Only where the rows come from more than one. A column whose
+						    every cell says the same thing is a column that pushed the
+						    ones that differ off the edge. */}
+						{everywhere ? <Th>Namespace</Th> : null}
 						<Th>Kind</Th>
 						<Th>Name</Th>
 						<Th className="text-right">Ready</Th>
@@ -41,7 +53,7 @@ export default async function WorkloadsPage({
 						<Th className="text-right">Age</Th>
 					</>
 				}
-				rows={<WorkloadRows workloads={rows} now={now} />}
+				rows={<WorkloadRows workloads={rows} now={now} showNamespace={everywhere} />}
 			/>
 		</>
 	);

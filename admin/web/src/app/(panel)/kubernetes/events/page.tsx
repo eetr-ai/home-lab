@@ -2,8 +2,9 @@ import { CalendarClock } from "lucide-react";
 import { listEvents } from "@/app/actions/kube";
 import { Td, Th } from "@/components/ui/table";
 import { Directory } from "../../_components/directory";
-import { ScopePicker } from "../../_components/scope-picker";
-import { resolveNamespace } from "../_components/namespace-scope";
+import { NamespacePicker } from "../../_components/namespace-picker";
+import { readNamespaceScope } from "../../_components/namespace-scope-server";
+import { isAllNamespaces } from "@/lib/kube/scope";
 import { formatAge } from "@/lib/format/age";
 
 export const dynamic = "force-dynamic";
@@ -13,19 +14,20 @@ export default async function EventsPage({
 }: {
 	searchParams: Promise<{ namespace?: string }>;
 }) {
-	const { namespace: requested } = await searchParams;
-	const { namespaces, selected, error } = await resolveNamespace(requested);
-	const events = selected ? await listEvents(selected) : null;
-	const rows = events?.ok ? events.data : [];
+	const { namespace } = await searchParams;
+	const scope = await readNamespaceScope(namespace);
+	const everywhere = isAllNamespaces(scope);
+	const events = await listEvents(scope);
+	const rows = events.ok ? events.data : [];
 	const now = new Date();
 
 	return (
 		<>
-			<ScopePicker label="Namespace" param="namespace" options={namespaces} selected={selected} />
+			<NamespacePicker scope={scope} />
 			<Directory
-				error={error ?? (events && !events.ok ? events.error : null)}
-				isEmpty={rows.length === 0}
-				minWidth="min-w-[860px]"
+				error={events.ok ? null : events.error}
+				isEmpty={events.ok && rows.length === 0}
+				minWidth={everywhere ? "min-w-[980px]" : "min-w-[860px]"}
 				empty={{
 					icon: CalendarClock,
 					title: "No recent events",
@@ -35,6 +37,7 @@ export default async function EventsPage({
 				}}
 				columns={
 					<>
+						{everywhere ? <Th>Namespace</Th> : null}
 						<Th>Type</Th>
 						<Th>Reason</Th>
 						<Th>Object</Th>
@@ -47,7 +50,8 @@ export default async function EventsPage({
 					// The API does not surface the event's own name, and one object can
 					// produce several events with the same reason, so the index is part of
 					// the key rather than a lazy substitute for one.
-					<tr key={`${event.object}-${event.reason}-${index}`}>
+					<tr key={`${event.namespace}/${event.object}-${event.reason}-${index}`}>
+						{everywhere ? <Td className="text-muted-foreground">{event.namespace}</Td> : null}
 						<Td className={event.type === "Warning" ? "text-warning-fg" : "text-muted-foreground"}>
 							{event.type}
 						</Td>

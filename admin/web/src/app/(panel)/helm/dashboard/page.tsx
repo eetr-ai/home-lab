@@ -1,6 +1,7 @@
 import { listNamespaceReleases, listReleases } from "@/app/actions/helm";
-import { listNamespaces } from "@/app/actions/kube";
-import { ScopePicker } from "../../_components/scope-picker";
+import { NamespacePicker } from "../../_components/namespace-picker";
+import { readNamespaceScope } from "../../_components/namespace-scope-server";
+import { isAllNamespaces } from "@/lib/kube/scope";
 import { ReleaseTable } from "./_components/release-table";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,9 @@ export const dynamic = "force-dynamic";
  * With a namespace chosen, the narrower per-namespace read is used rather than
  * filtering a cluster-wide one. Reading a release means reading Secrets, so
  * asking for one namespace instead of all of them is worth the extra branch.
+ *
+ * The namespace is the panel's shared scope rather than this page's own, so
+ * arriving here from the cluster section keeps looking at the same namespace.
  */
 export default async function HelmDashboardPage({
 	searchParams,
@@ -23,24 +27,17 @@ export default async function HelmDashboardPage({
 	searchParams: Promise<{ namespace?: string }>;
 }) {
 	const { namespace } = await searchParams;
-	const [releases, namespaces] = await Promise.all([
-		namespace ? listNamespaceReleases(namespace) : listReleases(),
-		listNamespaces(),
-	]);
+	const scope = await readNamespaceScope(namespace);
+	const everywhere = isAllNamespaces(scope);
+	const releases = everywhere ? await listReleases() : await listNamespaceReleases(scope);
 
 	return (
 		<>
-			<ScopePicker
-				label="Namespace"
-				param="namespace"
-				allLabel="All namespaces"
-				options={namespaces.ok ? namespaces.data.map((namespaceItem) => namespaceItem.name) : []}
-				selected={namespace ?? ""}
-			/>
+			<NamespacePicker scope={scope} />
 			<ReleaseTable
 				releases={releases.ok ? releases.data : []}
 				loadError={releases.ok ? null : releases.error}
-				scoped={Boolean(namespace)}
+				scoped={!everywhere}
 				now={new Date()}
 			/>
 		</>

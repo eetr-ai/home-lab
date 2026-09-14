@@ -20,6 +20,15 @@ import (
 // arbitrary order, so they are sorted after fetching rather than truncated before.
 const eventLimit = 100
 
+// AllNamespaces asks a listing for the whole cluster rather than one namespace.
+//
+// It is metav1.NamespaceAll, which is the empty string, and it is named here so
+// that a caller reading "" at a call site is reading an intention rather than a
+// forgotten argument. Nothing reaches this value by accident: validateNamespace
+// refuses the empty string, so the namespaced endpoints cannot be widened into
+// cluster-wide ones by leaving a path segment off.
+const AllNamespaces = metav1.NamespaceAll
+
 // Repository reads the cluster through client-go.
 type Repository struct {
 	client kubernetes.Interface
@@ -177,7 +186,12 @@ func (r *Repository) ListWorkloads(ctx context.Context, namespace string) ([]Wor
 			item.Status.DesiredNumberScheduled, item.Status.NumberReady, item.Spec.Template.Spec))
 	}
 
+	// Namespace first, which changes nothing for a listing of one and is what
+	// makes a cluster-wide listing group rather than interleave.
 	sort.Slice(workloads, func(a, b int) bool {
+		if workloads[a].Namespace != workloads[b].Namespace {
+			return workloads[a].Namespace < workloads[b].Namespace
+		}
 		if workloads[a].Kind != workloads[b].Kind {
 			return workloads[a].Kind < workloads[b].Kind
 		}
@@ -222,7 +236,12 @@ func (r *Repository) ListPods(ctx context.Context, namespace string) ([]Pod, err
 	for i := range list.Items {
 		pods = append(pods, summarizePod(&list.Items[i]))
 	}
-	sort.Slice(pods, func(a, b int) bool { return pods[a].Name < pods[b].Name })
+	sort.Slice(pods, func(a, b int) bool {
+		if pods[a].Namespace != pods[b].Namespace {
+			return pods[a].Namespace < pods[b].Namespace
+		}
+		return pods[a].Name < pods[b].Name
+	})
 	return pods, nil
 }
 

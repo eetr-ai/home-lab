@@ -14,7 +14,16 @@ import type { Workload } from "@/lib/api/types";
  * invisible until the pointer is already on it. The page above still fetches;
  * only the part that needs a router lives here.
  */
-export function WorkloadRows({ workloads, now }: { workloads: Workload[]; now: Date }) {
+export function WorkloadRows({
+	workloads,
+	now,
+	showNamespace,
+}: {
+	workloads: Workload[];
+	now: Date;
+	/** Set when the rows come from more than one namespace; the page owns the header. */
+	showNamespace: boolean;
+}) {
 	const router = useRouter();
 
 	return (
@@ -26,9 +35,12 @@ export function WorkloadRows({ workloads, now }: { workloads: Workload[]; now: D
 
 				return (
 					<InteractiveRow
-						key={`${workload.kind}/${workload.name}`}
+						key={`${workload.namespace}/${workload.kind}/${workload.name}`}
 						onActivate={() => router.push(href)}
 					>
+						{showNamespace ? (
+							<Td className="text-muted-foreground">{workload.namespace}</Td>
+						) : null}
 						<Td className="text-muted-foreground">{workload.kind}</Td>
 						<Td className="font-medium">
 							<Link

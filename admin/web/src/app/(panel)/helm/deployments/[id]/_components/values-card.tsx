@@ -5,6 +5,7 @@ import { Rocket, Save } from "lucide-react";
 import { addDeploymentVersion, rolloutDeployment } from "@/app/actions/helm";
 import { Banner, Button, Card, Checkbox } from "@/components/ui";
 import { YamlEditor } from "@/components/editor/yaml-editor";
+import { ChartVersionField } from "../../_components/chart-version-field";
 import type { HelmDeploymentDetail, HelmDeploymentVersion } from "@/lib/api/types";
 
 /**
@@ -115,27 +116,40 @@ export function ValuesCard({
 
 	return (
 		<Card padding="md">
-			<div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-				<div className="flex items-baseline gap-2">
-					<h2 className="text-sm font-medium">Values</h2>
-					<span className="text-xs text-muted-foreground">
-						version {shown.version} of {newest}
-						{older ? " · not the newest" : ""}
-						{dirty ? " · unsaved" : ""}
-					</span>
+			<div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+				<div className="flex flex-col gap-2">
+					<div className="flex items-baseline gap-2">
+						<h2 className="text-sm font-medium">Values</h2>
+						<span className="text-xs text-muted-foreground">
+							version {shown.version} of {newest}
+							{older ? " · not the newest" : ""}
+							{dirty ? " · unsaved" : ""}
+						</span>
+					</div>
+
+					{/* On the left, with the heading, rather than beside the buttons it
+					    used to sit next to. The refresh button and the hint under it
+					    both appear and disappear, and a control that changes height is
+					    a poor neighbour for "Roll out" — the button would move under
+					    the pointer at the moment somebody is aiming at it. */}
+					<div className="flex items-center gap-2">
+						<label
+							className="text-xs text-muted-foreground"
+							htmlFor="deployment-chart-version"
+						>
+							Chart version
+						</label>
+						<ChartVersionField
+							id="deployment-chart-version"
+							reference={deployment.chartRef}
+							value={chartVersion}
+							onChange={setChartVersion}
+							dense
+						/>
+					</div>
 				</div>
 
 				<div className="flex items-center gap-2">
-					<label className="flex items-center gap-2 text-xs text-muted-foreground">
-						Chart version
-						<input
-							value={chartVersion}
-							onChange={(event) => setChartVersion(event.target.value)}
-							spellCheck={false}
-							autoComplete="off"
-							className="w-28 rounded-control border border-border px-2 py-1 text-xs"
-						/>
-					</label>
 					<Button
 						variant="secondary"
 						icon={Save}
