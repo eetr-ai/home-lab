@@ -200,6 +200,39 @@ func (s *Service) ListEvents(ctx context.Context, namespace string) ([]Event, er
 	return s.repo.ListEvents(ctx, namespace)
 }
 
+// ListAllWorkloads returns the workloads in every namespace, and is one of the
+// three cluster-wide listings beside ListAllPods and ListAllEvents.
+//
+// Separate methods rather than a namespace argument that may be empty. The
+// namespaced ones validate what they are given and the empty string does not
+// pass, which is deliberate — a missing path segment must not silently widen a
+// request to the whole cluster. Asking for everything is therefore its own call,
+// and the route that reaches it is its own route.
+//
+// No policy check stands in front of these, and none stands in front of their
+// namespaced counterparts either: the panel's grant for pods, workloads, and
+// events is a ClusterRole that already spans every namespace, so reading one
+// namespace and reading all of them are the same permission. Secrets have no
+// cluster-wide listing for exactly the opposite reason — that grant is bound per
+// namespace by enrolment, and there is no namespace-independent answer to give.
+func (s *Service) ListAllWorkloads(ctx context.Context) ([]Workload, error) {
+	return s.repo.ListWorkloads(ctx, AllNamespaces)
+}
+
+// ListAllPods returns every pod on the cluster.
+func (s *Service) ListAllPods(ctx context.Context) ([]Pod, error) {
+	return s.repo.ListPods(ctx, AllNamespaces)
+}
+
+// ListAllEvents returns the cluster's recent events, most recent first.
+//
+// The same cap as one namespace gets, applied to a wider pool: a hundred events
+// from everywhere is a hundred events, and the ones that matter are the newest
+// wherever they happened.
+func (s *Service) ListAllEvents(ctx context.Context) ([]Event, error) {
+	return s.repo.ListEvents(ctx, AllNamespaces)
+}
+
 // ListNodes returns every machine in the cluster, with what is scheduled against
 // it and what is actually being used.
 //
