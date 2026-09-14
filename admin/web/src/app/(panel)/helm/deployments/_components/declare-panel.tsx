@@ -43,9 +43,20 @@ export function DeclarePanel({
 	const [chartRef, setChartRef] = useState("");
 	const [name, setName] = useState("");
 	const [namespace, setNamespace] = useState(suggested);
+	// What the namespace was seeded from. The panel stays mounted for the life of
+	// the page, so without this the suggestion is read once and a scope chosen
+	// afterwards never reaches the field — see CreateSecretPanel, which carries
+	// the longer version of this note.
+	const [seeded, setSeeded] = useState(suggested);
 	const [version, setVersion] = useState("");
 	const [values, setValues] = useState(startingValues);
 	const router = useRouter();
+
+	// Reseeded while closed only; an open panel is a form somebody is filling in.
+	if (!open && seeded !== suggested) {
+		setSeeded(suggested);
+		setNamespace(suggested);
+	}
 
 	// Changing the chart clears the version. Without this, picking 6.9.2 for one
 	// chart and then editing the reference submits 6.9.2 for a chart that may not
@@ -59,6 +70,7 @@ export function DeclarePanel({
 		setChartRef("");
 		setName("");
 		setNamespace(suggested);
+		setSeeded(suggested);
 		setVersion("");
 		setValues(startingValues);
 		onClose();
@@ -77,7 +89,7 @@ export function DeclarePanel({
 			dirty={
 				chartRef !== "" ||
 				name !== "" ||
-				namespace !== suggested ||
+				namespace !== seeded ||
 				version !== "" ||
 				values !== startingValues
 			}

@@ -14,10 +14,13 @@ export const dynamic = "force-dynamic";
  * the dashboard beside it are looking at the same part of the cluster.
  *
  * The namespace list comes along because declaring a deployment needs one to
- * choose from, and protected namespaces are filtered out here rather than in the
- * form: the API refuses them, and offering a choice that would be refused is
- * worse than not offering it. Its failure is reported separately, because "no
- * namespaces" and "the namespaces could not be read" are different sentences.
+ * choose from, and the ones the API would refuse are filtered out here rather
+ * than in the form: offering a choice that comes back 403 is worse than not
+ * offering it. Both halves of that answer are the API's own — `helmManaged` says
+ * the panel may install there at all, `protected` says it may not write there —
+ * so this filter and that refusal cannot disagree. The list's failure is reported
+ * separately, because "no namespaces" and "the namespaces could not be read" are
+ * different sentences.
  */
 export default async function HelmDeploymentsPage({
 	searchParams,
@@ -38,7 +41,11 @@ export default async function HelmDeploymentsPage({
 			<DeploymentList
 				deployments={deployments.ok ? deployments.data : []}
 				loadError={deployments.ok ? null : deployments.error}
-				namespaces={namespaces.ok ? namespaces.data.filter((one) => !one.protected) : []}
+				namespaces={
+					namespaces.ok
+						? namespaces.data.filter((one) => one.helmManaged && !one.protected)
+						: []
+				}
 				namespacesError={namespaces.ok ? null : namespaces.error}
 				showNamespace={everywhere}
 				now={new Date()}

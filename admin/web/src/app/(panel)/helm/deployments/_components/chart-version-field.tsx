@@ -82,6 +82,10 @@ export function ChartVersionField({
 					/>
 				)}
 				<IconButton
+					// This renders inside the declare form, and a button with no type
+					// is a submit button: without this, asking what versions exist
+					// would declare the deployment.
+					type="button"
 					aria-label="List the versions this chart publishes"
 					title="List the versions this chart publishes"
 					onClick={versions.refresh}

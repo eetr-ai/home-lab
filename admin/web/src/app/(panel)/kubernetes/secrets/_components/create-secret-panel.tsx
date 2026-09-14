@@ -45,18 +45,36 @@ export function CreateSecretPanel({
 	const suggested = writable.some((one) => one.name === namespace) ? namespace : "";
 
 	const [draft, setDraft] = useState<CreateDraft>(() => empty(suggested));
+	// What the draft was seeded from, so a changed suggestion can be told from a
+	// namespace the operator picked.
+	const [seeded, setSeeded] = useState(suggested);
+
+	// The panel is mounted for the life of the page, so a `useState` initializer
+	// reads the suggestion once and then never again — and changing the panel's
+	// namespace scope is precisely a thing that happens while this is sitting
+	// there closed. Reseeding during render rather than in an effect, so the field
+	// is never briefly shown holding the previous namespace.
+	//
+	// Only while closed. An open panel is a form somebody is filling in, and
+	// rewriting the namespace under them would be the same class of surprise this
+	// whole change is about, pointed the other way.
+	if (!open && seeded !== suggested) {
+		setSeeded(suggested);
+		setDraft(empty(suggested));
+	}
 
 	// The rows carry generated ids, so comparing the whole draft would call every
 	// fresh panel dirty. What the operator has actually filled in is the name, the
 	// key/value pairs, the namespace if they changed it, and the overwrite box.
 	const dirty =
 		draft.name !== "" ||
-		draft.namespace !== suggested ||
+		draft.namespace !== seeded ||
 		draft.overwrite ||
 		draft.rows.some((row) => row.key !== "" || row.value !== "");
 
 	function reset() {
 		setDraft(empty(suggested));
+		setSeeded(suggested);
 		onClose();
 	}
 
