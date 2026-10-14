@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_NAMESPACES, isAllNamespaces, isNamespaceName, readScope } from "./scope";
+import { ALL_NAMESPACES, isAllNamespaces, isNamespaceName, readScope, resolveScope } from "./scope";
 
 describe("readScope", () => {
 	it("reads a namespace name as itself", () => {
@@ -48,4 +48,23 @@ describe("isNamespaceName", () => {
 			expect(isNamespaceName(name)).toBe(false);
 		},
 	);
+});
+
+describe("resolveScope", () => {
+	it("prefers a namespace named in the address", () => {
+		expect(resolveScope("journal", ALL_NAMESPACES)).toBe("journal");
+	});
+
+	it("prefers the whole cluster when the address asks for it", () => {
+		expect(resolveScope(ALL_NAMESPACES, "journal")).toBe(ALL_NAMESPACES);
+	});
+
+	it.each([
+		["absent", undefined],
+		["null", null],
+		["empty", ""],
+		["not a namespace name", "../secrets"],
+	])("falls back to the remembered scope when the parameter is %s", (_, requested) => {
+		expect(resolveScope(requested, "admin")).toBe("admin");
+	});
 });

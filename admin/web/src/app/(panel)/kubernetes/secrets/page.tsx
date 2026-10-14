@@ -1,7 +1,6 @@
 import { KeyRound } from "lucide-react";
 import { listSecrets } from "@/app/actions/kube";
 import { EmptyState } from "@/components/ui/empty-state";
-import { NamespacePicker } from "../../_components/namespace-picker";
 import { readNamespaceScope } from "../../_components/namespace-scope-server";
 import { isAllNamespaces } from "@/lib/kube/scope";
 import { SecretList } from "./_components/secret-list";
@@ -32,7 +31,6 @@ export default async function SecretsPage({
 	if (isAllNamespaces(scope)) {
 		return (
 			<>
-				<NamespacePicker scope={scope} requireOne />
 				<EmptyState
 					icon={KeyRound}
 					title="Choose a namespace"
@@ -46,7 +44,6 @@ export default async function SecretsPage({
 
 	return (
 		<>
-			<NamespacePicker scope={scope} requireOne />
 			<SecretList
 				namespace={scope}
 				secrets={secrets.ok ? secrets.data : []}
