@@ -105,6 +105,12 @@ export function JobStatus({ job }: { job: HelmJob | null }) {
 					</span>
 				) : null}
 			</button>
+			{/* The button's label changes as the job moves, which a screen reader
+			    is not told about on its own. */}
+			<span role="status" aria-live="polite" className="sr-only">
+				{`${job.operation} ${indicator.label.toLowerCase()}`}
+				{indicator.lost ? " — lost contact, reconnecting" : ""}
+			</span>
 
 			<Popover
 				open={open}
@@ -128,11 +134,12 @@ export function JobStatus({ job }: { job: HelmJob | null }) {
 					{/* A dropped stream is not a failed deploy, and saying so matters
 					    most here: rolling out this panel's own chart replaces the pods
 					    serving this page, so the connection drops every time and the
-					    operation carries on regardless. */}
+					    operation carries on regardless. What it cannot say is how far
+					    the job got meanwhile — only the reconnect knows that. */}
 					{indicator.lost && (
 						<Banner
 							variant="info"
-							message={`Lost contact with the job — reconnecting. The operation is still running: ${state.streamError}`}
+							message={`Lost contact with the job — reconnecting. It was last seen ${state.phase}; reconnecting will confirm how it ended. ${state.streamError}`}
 						/>
 					)}
 

@@ -132,7 +132,9 @@ export function NamespaceSwitcher() {
 			<button
 				ref={trigger}
 				type="button"
-				disabled={namespaces.length === 0}
+				// Never disabled, even when the list is empty or could not be read:
+				// the popover is also the way to namespace management, which is
+				// where an empty cluster gets its first one.
 				onClick={() => setOpen((wasOpen) => !wasOpen)}
 				aria-haspopup="dialog"
 				aria-expanded={open}
