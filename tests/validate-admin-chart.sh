@@ -315,6 +315,8 @@ apps/statefulsets/scale update
 core/events get
 core/events list
 core/events watch
+core/namespaces create
+core/namespaces delete
 core/namespaces get
 core/namespaces list
 core/namespaces watch
@@ -349,15 +351,16 @@ if [[ $granted_pairs != "$expected_pairs" ]]; then
 fi
 
 # Belt and braces, so a mistake in the expected list above is still caught. These
-# verbs are never right for this role however they are scoped: the panel rolls and
-# resizes what already exists, and brings nothing into being, takes nothing away,
-# and grants nobody anything.
+# verbs are never right for this role however they are scoped: this role grants
+# nobody anything and impersonates nobody, and deletecollection empties a kind at
+# a stroke where every delete the panel performs names one object.
 #
 # `patch` and `update` are not here — they are legitimate now, on exactly the four
 # pairs listed above — which is the whole reason the assertion had to become pairs
 # rather than a flat set of verbs. It could no longer tell `patch` on
-# deployments/scale from `patch` on secrets.
-forbidden_verbs=' (create|delete|deletecollection|bind|escalate|impersonate|\*)$'
+# deployments/scale from `patch` on secrets. `create` and `delete` left the list
+# for the same reason and are pinned to namespaces on their own below.
+forbidden_verbs=' (deletecollection|bind|escalate|impersonate|\*)$'
 if grep -qE "$forbidden_verbs" <<<"$granted_pairs"; then
   printf 'The admin ClusterRole grants a verb it must never hold:\n' >&2
   grep -E "$forbidden_verbs" <<<"$granted_pairs" >&2
@@ -387,29 +390,34 @@ if grep -qE '(^\*/|/\*)' <<<"$granted_pairs"; then
   exit 1
 fi
 
-# Creating and deleting namespaces is the widest write this ClusterRole can hold,
-# so assert both halves: absent by default, and exactly two verbs when asked for.
+# Creating and deleting namespaces is the widest write this ClusterRole holds, and
+# it is held by default: the panel draws New namespace and a delete action either
+# way, so withholding the grant only turns them into buttons that fail. What
+# bounds it is internal/nspolicy, not RBAC — which is why it is asserted here
+# from both directions rather than trusted to a values default.
 #
-# The forbidden-verbs assertion above already fails on a create or delete leaking
-# into the default render, which is why this one only has to prove that turning it
-# on grants these two pairs and nothing else. The two have to be wrong in the same
-# way to pass.
-if grep -q 'namespaces create' <<<"$granted_pairs"; then
-  printf 'Namespace management must not be granted by default\n' >&2
+# First: create and delete reach namespaces and nothing else, however the expected
+# list above is edited. Adding either verb to another resource has to trip this.
+stray_writes=$(grep -E ' (create|delete)$' <<<"$granted_pairs" |
+  grep -v '^core/namespaces ' || true)
+if [[ -n $stray_writes ]]; then
+  printf 'Only namespaces may be created or deleted by this ClusterRole:\n' >&2
+  printf '%s\n' "$stray_writes" >&2
   exit 1
 fi
 
-# The whole rendered set, not just the write verbs. Filtering to create/delete
-# would let a `get` or a `patch` added to the same block through unseen, which is
-# the mistake this file has made before: an assertion that only looks where it
-# expects trouble is an assertion that stops finding it.
-manage_pairs=$(render --set admin.api.kubernetes.namespaces.manage=true \
+# Second: switching it off removes exactly those two pairs and leaves the rest
+# standing. The whole rendered set, not just the write verbs — filtering to
+# create/delete would let a `get` or a `patch` added to the same block through
+# unseen, which is the mistake this file has made before: an assertion that only
+# looks where it expects trouble is an assertion that stops finding it.
+unmanaged_pairs=$(render --set admin.api.kubernetes.namespaces.manage=false \
   --show-only templates/api/rbac.yaml | extract_pairs)
-expected_manage_pairs=$(printf '%s\ncore/namespaces create\ncore/namespaces delete\n' \
-  "$expected_pairs" | grep -v '^$' | LC_ALL=C sort)
-if [[ $manage_pairs != "$expected_manage_pairs" ]]; then
-  printf 'Enabling namespace management must add create and delete on namespaces, and nothing else.\n' >&2
-  diff <(printf '%s\n' "$expected_manage_pairs") <(printf '%s\n' "$manage_pairs") >&2 || true
+expected_unmanaged_pairs=$(grep -v '^core/namespaces \(create\|delete\)$' \
+  <<<"$expected_pairs" | LC_ALL=C sort)
+if [[ $unmanaged_pairs != "$expected_unmanaged_pairs" ]]; then
+  printf 'Disabling namespace management must remove create and delete on namespaces, and nothing else.\n' >&2
+  diff <(printf '%s\n' "$expected_unmanaged_pairs") <(printf '%s\n' "$unmanaged_pairs") >&2 || true
   exit 1
 fi
 

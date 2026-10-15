@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.8.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.7.2...admin-v1.8.0) (2026-10-15)
+
+
+### Features
+
+* **admin:** header namespace switcher and helm job status button ([#109](https://github.com/eetr-ai/home-lab/issues/109)) ([6458df5](https://github.com/eetr-ai/home-lab/commit/6458df594dc0da5d9fbc0dea121c40c404773d32))
+
+## [1.7.2](https://github.com/eetr-ai/home-lab/compare/admin-v1.7.1...admin-v1.7.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **admin:** one namespace scope, cluster-wide listings, and two Helm papercuts ([#98](https://github.com/eetr-ai/home-lab/issues/98)) ([39dfa9b](https://github.com/eetr-ai/home-lab/commit/39dfa9b4cc5911d1ae468dd6df8bcccdff686ac0))
+
+## [1.7.1](https://github.com/eetr-ai/home-lab/compare/admin-v1.7.0...admin-v1.7.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* ship namespace management on, and say what a refusal refused ([#96](https://github.com/eetr-ai/home-lab/issues/96)) ([9980454](https://github.com/eetr-ai/home-lab/commit/998045441ef5efee421c867514408913043201eb))
+
 ## [1.7.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.6.0...admin-v1.7.0) (2026-09-03)
 
 

@@ -12,7 +12,7 @@ import { useRowDelete } from "../../../../../_components/use-row-delete";
 import { StatusBadge } from "../../../../_components/status-badge";
 import { formatAge } from "@/lib/format/age";
 import { describeOutcome, isPending, stuckForMinutes } from "@/lib/helm/status";
-import { JobPanel } from "../../../../_components/job-panel";
+import { JobStatus } from "../../../../_components/job-status";
 import type { HelmJob, HelmReleaseDetail, HelmRevision } from "@/lib/api/types";
 import { RevisionRow } from "./revision-row";
 import { useReleasePolling } from "../../../../_components/use-release-polling";
@@ -55,7 +55,7 @@ export function ReleaseView({
 	const router = useRouter();
 	const error = actionError ?? historyError ?? deploymentsError;
 
-	// Still polled, and for a narrower reason than before. The job panel reports
+	// Still polled, and for a narrower reason than before. The job status button reports
 	// the operation; this reports the release, which can be left pending by an
 	// operation nothing here started — or by one that was interrupted.
 	useReleasePolling(isPending(release.status));
@@ -65,17 +65,19 @@ export function ReleaseView({
 
 	return (
 		<div className="flex flex-col gap-6">
-			<div className="flex flex-wrap items-baseline justify-between gap-2">
-				<BackLink href={backHref} label="All releases" />
-				<span className="text-sm text-muted-foreground">
-					{release.namespace} / <span className="text-foreground">{release.name}</span>
-				</span>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex min-w-0 flex-col gap-1">
+					<BackLink href={backHref} label="All releases" />
+					<span className="truncate text-sm text-muted-foreground">
+						{release.namespace} / <span className="text-foreground">{release.name}</span>
+					</span>
+				</div>
+				{/* What the last operation is doing, and Helm's own account of it
+				    one click away. */}
+				<JobStatus job={job} />
 			</div>
 
 			<Banner variant="error" message={error} />
-
-			{/* What the last operation is doing, and Helm's own account of it. */}
-			<JobPanel job={job} />
 
 			{stuck !== null ? (
 				<Banner
@@ -116,10 +118,17 @@ export function ReleaseView({
 								// failed for the reason the operator just asked for. The
 								// uninstall worked; the list is the page that can still say
 								// something true.
+								//
+								// backHref rather than a path written out here. This used to
+								// navigate to /helm/releases, which is not a route: the list
+								// is /helm/dashboard, and every uninstall ended on the 404
+								// page. Reusing the link the header already points at is what
+								// stops the two from disagreeing again — and it keeps the
+								// namespace that was being looked at.
 								onConfirm={() =>
 									rowDelete.confirm(release.name, async () => {
 										const result = await uninstallRelease(release.namespace, release.name);
-										if (result.ok) router.replace("/helm/releases");
+										if (result.ok) router.replace(backHref);
 										return result;
 									})
 								}

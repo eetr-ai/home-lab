@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { planCreate, planRotate, type SecretRow } from "./secret-draft";
+import { planCreate, planRotate, type CreateDraft, type SecretRow } from "./secret-draft";
 import type { SecretSummary } from "@/lib/api/types";
 
 function rows(...pairs: [string, string][]): SecretRow[] {
 	return pairs.map(([key, value], index) => ({ id: String(index), key, value }));
+}
+
+/** A draft with a namespace already chosen, for the cases that are about the rest. */
+function draft(partial: Omit<CreateDraft, "namespace">): CreateDraft {
+	return { namespace: "apps", ...partial };
 }
 
 const secret: SecretSummary = {
@@ -18,16 +23,33 @@ const secret: SecretSummary = {
 
 describe("planCreate", () => {
 	it("turns filled rows into a payload", () => {
-		const plan = planCreate({
+		const plan = planCreate(draft({
 			name: "octo-database",
 			rows: rows(["username", "octo"], ["password", "hunter2"]),
 			overwrite: false,
-		});
+		}));
 		expect(plan).toEqual({
 			ok: true,
+			namespace: "apps",
 			name: "octo-database",
 			request: { data: { username: "octo", password: "hunter2" }, overwrite: false },
 		});
+	});
+
+	// The mistake that started this: the namespace used to come from the page, and
+	// the page used to fall back to whichever namespace sorts first. A Secret in
+	// the wrong namespace is a real Secret that nothing complains about — the
+	// release that needed it simply never finds it — so a draft without one is
+	// refused here rather than written somewhere plausible.
+	it("refuses a draft with no namespace", () => {
+		const plan = planCreate({
+			namespace: "",
+			name: "octo-database",
+			rows: rows(["password", "hunter2"]),
+			overwrite: false,
+		});
+		expect(plan.ok).toBe(false);
+		if (!plan.ok) expect(plan.error).toContain("namespace");
 	});
 
 	// The mistake this exists to catch. Object.fromEntries keeps the last of two
@@ -35,11 +57,11 @@ describe("planCreate", () => {
 	// password — and nothing reads a value back, so the first sign of it would be
 	// a workload that will not authenticate.
 	it("refuses two rows with the same key", () => {
-		const plan = planCreate({
+		const plan = planCreate(draft({
 			name: "octo-database",
 			rows: rows(["password", "one"], ["password", "two"]),
 			overwrite: false,
-		});
+		}));
 		expect(plan.ok).toBe(false);
 		if (!plan.ok) expect(plan.error).toContain("password");
 	});
@@ -47,59 +69,61 @@ describe("planCreate", () => {
 	// A row nobody touched is not an error — the form starts with blank rows and
 	// offers more than are usually wanted.
 	it("ignores rows that are entirely empty", () => {
-		const plan = planCreate({
+		const plan = planCreate(draft({
 			name: "octo-database",
 			rows: rows(["password", "hunter2"], ["", ""], ["", ""]),
 			overwrite: false,
-		});
+		}));
 		expect(plan.ok).toBe(true);
 		if (plan.ok) expect(plan.request.data).toEqual({ password: "hunter2" });
 	});
 
 	// Half-filled is different from empty: one of them is a mistake in progress.
 	it("refuses a half-filled row", () => {
-		expect(planCreate({ name: "s", rows: rows(["password", ""]), overwrite: false }).ok).toBe(false);
-		expect(planCreate({ name: "s", rows: rows(["", "hunter2"]), overwrite: false }).ok).toBe(false);
+		expect(planCreate(draft({ name: "s", rows: rows(["password", ""]), overwrite: false })).ok).toBe(false);
+		expect(planCreate(draft({ name: "s", rows: rows(["", "hunter2"]), overwrite: false })).ok).toBe(false);
 	});
 
 	it("refuses a Secret with no keys at all", () => {
-		expect(planCreate({ name: "octo-database", rows: rows(["", ""]), overwrite: false }).ok).toBe(
-			false,
-		);
+		expect(
+			planCreate(draft({ name: "octo-database", rows: rows(["", ""]), overwrite: false })).ok,
+		).toBe(false);
 	});
 
 	it("refuses a key Kubernetes would not accept", () => {
-		const plan = planCreate({
+		const plan = planCreate(draft({
 			name: "octo-database",
 			rows: rows(["pass word", "hunter2"]),
 			overwrite: false,
-		});
+		}));
 		expect(plan.ok).toBe(false);
 		if (!plan.ok) expect(plan.error).toContain("pass word");
 	});
 
 	it("refuses a name the API would refuse", () => {
 		for (const name of ["", "  ", "Octo", "octo_database", "octo.database", "-octo", "octo-"]) {
-			expect(planCreate({ name, rows: rows(["k", "v"]), overwrite: false }).ok, name).toBe(false);
+			expect(planCreate(draft({ name, rows: rows(["k", "v"]), overwrite: false })).ok, name).toBe(
+				false,
+			);
 		}
 	});
 
 	it("trims the name rather than sending the spaces", () => {
-		const plan = planCreate({
+		const plan = planCreate(draft({
 			name: "  octo-database  ",
 			rows: rows(["password", "hunter2"]),
 			overwrite: false,
-		});
+		}));
 		expect(plan.ok).toBe(true);
 		if (plan.ok) expect(plan.name).toBe("octo-database");
 	});
 
 	it("carries overwrite through", () => {
-		const plan = planCreate({
+		const plan = planCreate(draft({
 			name: "octo-database",
 			rows: rows(["password", "hunter2"]),
 			overwrite: true,
-		});
+		}));
 		expect(plan.ok).toBe(true);
 		if (plan.ok) expect(plan.request.overwrite).toBe(true);
 	});

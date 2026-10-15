@@ -388,3 +388,70 @@ func newTestService(repo repository) *Service {
 	}
 	return service
 }
+
+// Asking for every namespace must reach the cluster as one cluster-wide request
+// rather than as a namespace that happens to be empty.
+//
+// The distinction matters because it is the only one there is: client-go spells
+// "every namespace" as the empty string, so a listing that was meant to be scoped
+// and lost its namespace along the way is indistinguishable at the cluster from
+// one that meant this. What keeps the two apart is that the namespaced calls
+// refuse the empty string outright — asserted below — and that asking for
+// everything is its own method.
+func TestClusterWideListingsAskForEveryNamespace(t *testing.T) {
+	calls := map[string]struct {
+		call func(*Service) error
+		want string
+	}{
+		"workloads": {
+			call: func(s *Service) error { _, err := s.ListAllWorkloads(t.Context()); return err },
+			want: "workloads:" + AllNamespaces,
+		},
+		"pods": {
+			call: func(s *Service) error { _, err := s.ListAllPods(t.Context()); return err },
+			want: "pods:" + AllNamespaces,
+		},
+		"events": {
+			call: func(s *Service) error { _, err := s.ListAllEvents(t.Context()); return err },
+			want: "events:" + AllNamespaces,
+		},
+	}
+
+	for name, test := range calls {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			service := newTestService(repo)
+
+			if err := test.call(service); err != nil {
+				t.Fatalf("%s error = %v", name, err)
+			}
+			if len(repo.asked) != 1 || repo.asked[0] != test.want {
+				t.Errorf("%s asked %v, want [%s]", name, repo.asked, test.want)
+			}
+		})
+	}
+}
+
+// The namespaced listings must not accept the empty string, which is what stops a
+// dropped path segment from quietly becoming a request for the whole cluster.
+func TestTheNamespacedListingsRefuseAnEmptyNamespace(t *testing.T) {
+	calls := map[string]func(*Service, string) error{
+		"workloads": func(s *Service, ns string) error { _, err := s.ListWorkloads(t.Context(), ns); return err },
+		"pods":      func(s *Service, ns string) error { _, err := s.ListPods(t.Context(), ns); return err },
+		"events":    func(s *Service, ns string) error { _, err := s.ListEvents(t.Context(), ns); return err },
+	}
+
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			service := newTestService(repo)
+
+			if err := call(service, AllNamespaces); !errors.Is(err, ErrInvalidName) {
+				t.Fatalf("%s error = %v, want %v", name, err, ErrInvalidName)
+			}
+			if len(repo.asked) != 0 {
+				t.Errorf("%s was refused but still asked the cluster: %v", name, repo.asked)
+			}
+		})
+	}
+}

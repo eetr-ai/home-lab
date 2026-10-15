@@ -38,6 +38,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads", h.listWorkloads)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/pods", h.listPods)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/events", h.listEvents)
+	// The same three across the whole cluster. Their own routes rather than the
+	// namespaced ones with the segment left off: an absent path segment is a
+	// mistake far more often than it is a request for everything, and a route
+	// that answers both cannot tell them apart. There is deliberately no
+	// cluster-wide Secrets route — see the note on Service.ListAllWorkloads.
+	mux.HandleFunc("GET /api/kubernetes/workloads", h.listAllWorkloads)
+	mux.HandleFunc("GET /api/kubernetes/pods", h.listAllPods)
+	mux.HandleFunc("GET /api/kubernetes/events", h.listAllEvents)
 	mux.HandleFunc("GET /api/kubernetes/nodes", h.listNodes)
 	mux.HandleFunc("GET /api/kubernetes/storage", h.readStorage)
 	mux.HandleFunc("GET /api/kubernetes/summary", h.readSummary)
@@ -230,6 +238,63 @@ func (h *Handler) listPods(w http.ResponseWriter, r *http.Request) {
 //	@Router			/api/kubernetes/namespaces/{namespace}/events [get]
 func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 	events, err := h.service.ListEvents(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, events)
+}
+
+// listAllWorkloads returns the workloads in every namespace.
+//
+//	@Summary		List workloads across every namespace
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{array}		kube.Workload
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/workloads [get]
+func (h *Handler) listAllWorkloads(w http.ResponseWriter, r *http.Request) {
+	workloads, err := h.service.ListAllWorkloads(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, workloads)
+}
+
+// listAllPods returns the pods in every namespace.
+//
+//	@Summary		List pods across every namespace
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{array}		kube.Pod
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/pods [get]
+func (h *Handler) listAllPods(w http.ResponseWriter, r *http.Request) {
+	pods, err := h.service.ListAllPods(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, pods)
+}
+
+// listAllEvents returns the recent events in every namespace, most recent first.
+//
+//	@Summary		List events across every namespace
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{array}		kube.Event
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/events [get]
+func (h *Handler) listAllEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := h.service.ListAllEvents(r.Context())
 	if err != nil {
 		respondError(w, err)
 		return
@@ -507,10 +572,13 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusNotImplemented, "not_configured",
 			"this panel is not configured to deploy with Helm")
 	case errors.Is(err, ErrForbidden):
-		// Almost always the panel's own ClusterRole binding rather than anything
-		// the caller did, so it says so rather than reading as a 500.
+		// Almost always the panel's own ClusterRole rather than anything the caller
+		// did, so it says so rather than reading as a 500 — and it names the act,
+		// because "not permitted to create namespace journal" sends an operator to
+		// the chart value that withheld the grant, where "not permitted to read
+		// this" sent them looking for a refused read that never happened.
 		httpx.Error(w, http.StatusForbidden, "forbidden",
-			"the panel's service account is not permitted to read this")
+			"the panel's service account is not permitted to "+refusedAct(err))
 	default:
 		slog.Error("kubernetes request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")

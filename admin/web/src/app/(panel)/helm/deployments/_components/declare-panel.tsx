@@ -6,8 +6,9 @@ import { ShipWheel } from "lucide-react";
 import { declareDeployment } from "@/app/actions/helm";
 import { FormField, Input, Label, Select } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
+import { useNamespaceScope } from "../../../_components/namespace-scope";
 import { YamlEditor } from "@/components/editor/yaml-editor";
-import { useChartVersions } from "./use-chart-versions";
+import { ChartVersionField } from "./chart-version-field";
 import type { Namespace } from "@/lib/api/types";
 
 /** What a values file usually starts as, so the editor is never a blank void. */
@@ -31,14 +32,31 @@ export function DeclarePanel({
 	namespaces: Namespace[];
 	onClose: () => void;
 }) {
+	// Pre-filled from the panel's namespace scope where that names one the API
+	// would accept, and empty otherwise — including when the scope is every
+	// namespace, which is the case a form must not answer on the operator's
+	// behalf. `suggested` is also what `dirty` compares against, so a pre-filled
+	// namespace is not by itself an unsaved change.
+	const { scope } = useNamespaceScope();
+	const suggested = namespaces.some((one) => one.name === scope) ? scope : "";
+
 	const [chartRef, setChartRef] = useState("");
 	const [name, setName] = useState("");
-	const [namespace, setNamespace] = useState("");
+	const [namespace, setNamespace] = useState(suggested);
+	// What the namespace was seeded from. The panel stays mounted for the life of
+	// the page, so without this the suggestion is read once and a scope chosen
+	// afterwards never reaches the field — see CreateSecretPanel, which carries
+	// the longer version of this note.
+	const [seeded, setSeeded] = useState(suggested);
 	const [version, setVersion] = useState("");
 	const [values, setValues] = useState(startingValues);
 	const router = useRouter();
 
-	const versions = useChartVersions(open ? chartRef : "");
+	// Reseeded while closed only; an open panel is a form somebody is filling in.
+	if (!open && seeded !== suggested) {
+		setSeeded(suggested);
+		setNamespace(suggested);
+	}
 
 	// Changing the chart clears the version. Without this, picking 6.9.2 for one
 	// chart and then editing the reference submits 6.9.2 for a chart that may not
@@ -51,7 +69,8 @@ export function DeclarePanel({
 	function reset() {
 		setChartRef("");
 		setName("");
-		setNamespace("");
+		setNamespace(suggested);
+		setSeeded(suggested);
 		setVersion("");
 		setValues(startingValues);
 		onClose();
@@ -70,7 +89,7 @@ export function DeclarePanel({
 			dirty={
 				chartRef !== "" ||
 				name !== "" ||
-				namespace !== "" ||
+				namespace !== seeded ||
 				version !== "" ||
 				values !== startingValues
 			}
@@ -104,35 +123,15 @@ export function DeclarePanel({
 			</FormField>
 
 			<FormField label="Version" htmlFor="chart-version">
-				{/* A picker when the registry answered, a text field when it did not.
-				    An unreachable registry is a reason to type the version yourself,
-				    not a reason to be unable to declare anything. */}
-				{versions.offered.length > 0 ? (
-					<Select
-						id="chart-version"
-						value={version}
-						onChange={(event) => setVersion(event.target.value)}
-						required
-					>
-						<option value="">Choose a version</option>
-						{versions.offered.map((offered) => (
-							<option key={offered.version} value={offered.version}>
-								{offered.appVersion ? `${offered.version} (app ${offered.appVersion})` : offered.version}
-							</option>
-						))}
-					</Select>
-				) : (
-					<Input
-						id="chart-version"
-						value={version}
-						onChange={(event) => setVersion(event.target.value)}
-						placeholder="6.9.2"
-						autoComplete="off"
-						spellCheck={false}
-						required
-					/>
-				)}
-				<Hint>{versions.hint}</Hint>
+				{/* Follows the reference as it is typed: here the reference is being
+				    chosen, so the versions it offers are part of choosing it. */}
+				<ChartVersionField
+					id="chart-version"
+					reference={open ? chartRef : ""}
+					value={version}
+					onChange={setVersion}
+					follow
+				/>
 			</FormField>
 
 			<FormField label="Release name" htmlFor="release-name">

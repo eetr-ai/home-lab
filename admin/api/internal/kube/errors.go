@@ -8,7 +8,11 @@ var (
 	ErrInvalidName = errors.New("invalid name")
 	// ErrNotFound reports something the cluster does not have.
 	ErrNotFound = errors.New("not found")
-	// ErrForbidden reports something the panel's ServiceAccount may not read.
+	// ErrForbidden reports something the panel's ServiceAccount may not do.
+	//
+	// Not "may not read": most of this panel's capabilities are a grant the chart
+	// renders, and a capability whose grant is absent refuses here — on a create
+	// or a delete as readily as on a read.
 	ErrForbidden = errors.New("forbidden")
 	// ErrUnsupportedKind reports an operation asked of a kind that has no such
 	// thing — scaling a DaemonSet, whose replica count comes from how many nodes
@@ -48,3 +52,46 @@ var (
 	// reason restartPatch, not the role, is what confines the `patch` grant.
 	ErrReserved = errors.New("reserved secret")
 )
+
+// refused is ErrForbidden carrying the act that was refused.
+//
+// The sentinel on its own was not enough to answer with. Every forbidden reply
+// the panel drew said "not permitted to read this", including the ones refusing
+// a create — so a chart value that left out the create grant read, in front of
+// an operator, as a missing role binding on a read that had never happened. The
+// act travels with the error and the handler names it; the API server's own
+// sentence stays wrapped underneath for the log.
+type refused struct {
+	what string
+	err  error
+}
+
+// Error carries the API server's own sentence as well as the act, because this
+// string is what reaches a log. It names the resource, the namespace and the
+// account; the handler answers the browser from `what` alone, so the detail goes
+// to the operator reading logs and not to the page.
+func (r refused) Error() string {
+	if r.err == nil {
+		return ErrForbidden.Error() + ": " + r.what
+	}
+	return ErrForbidden.Error() + ": " + r.what + ": " + r.err.Error()
+}
+
+// Is makes errors.Is(err, ErrForbidden) hold, so every caller that switched on
+// the sentinel keeps working without knowing this type exists.
+func (r refused) Is(target error) bool { return target == ErrForbidden }
+
+func (r refused) Unwrap() error { return r.err }
+
+// refusedAct is what to put after "not permitted to".
+//
+// The fallback matters: ErrForbidden is also returned bare by code that never
+// went through translate, and "do this" is the honest thing to say when the act
+// was not recorded.
+func refusedAct(err error) string {
+	var r refused
+	if errors.As(err, &r) {
+		return r.what
+	}
+	return "do this"
+}

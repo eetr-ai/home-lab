@@ -17,9 +17,15 @@ const KINDS = new Set(["Deployment", "StatefulSet", "DaemonSet"]);
 /**
  * One workload and everything around it.
  *
- * The namespace is a query parameter rather than another path segment, which
- * keeps it consistent with the list pages this is reached from — they are all
- * `?namespace=`, and the scope survives the navigation.
+ * The namespace is a query parameter rather than another path segment. Here it
+ * is part of the object's identity rather than a browsing scope: this page is
+ * about one workload, and without a namespace there is no one workload to be
+ * about — hence the 404 below rather than a default.
+ *
+ * The list pages read the same parameter, where it means something related but
+ * not identical: naming a namespace there moves the panel's shared scope to it.
+ * That is what makes the link back from here land on the workloads list showing
+ * the namespace this workload is in.
  */
 export default async function WorkloadPage({
 	params,

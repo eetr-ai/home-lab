@@ -19,12 +19,15 @@ export function DeploymentList({
 	loadError,
 	namespaces,
 	namespacesError,
+	showNamespace,
 	now,
 }: {
 	deployments: HelmDeploymentSummary[];
 	loadError: string | null;
 	namespaces: Namespace[];
 	namespacesError: string | null;
+	/** Set when the rows come from more than one namespace. */
+	showNamespace: boolean;
 	now: Date;
 }) {
 	const [error, setError] = useState<string | null>(null);
@@ -50,18 +53,19 @@ export function DeploymentList({
 			<Directory
 				error={error ?? loadError}
 				isEmpty={deployments.length === 0}
-				minWidth="min-w-[860px]"
+				minWidth={showNamespace ? "min-w-[860px]" : "min-w-[760px]"}
 				empty={{
 					icon: ShipWheel,
-					title: "Nothing declared yet",
-					description:
-						"Declare a chart by its OCI reference, pick a namespace, and write the values you want.",
+					title: showNamespace ? "Nothing declared yet" : "Nothing declared here",
+					description: showNamespace
+						? "Declare a chart by its OCI reference, pick a namespace, and write the values you want."
+						: "This namespace has no declared charts. Widen the namespace to see the rest.",
 					action: declare,
 				}}
 				columns={
 					<>
 						<Th>Release</Th>
-						<Th>Namespace</Th>
+						{showNamespace ? <Th>Namespace</Th> : null}
 						<Th>Chart</Th>
 						<Th className="w-px whitespace-nowrap text-right">Version</Th>
 						<Th>State</Th>
@@ -79,7 +83,9 @@ export function DeploymentList({
 								{deployment.releaseName}
 							</Link>
 						</Td>
-						<Td className="text-muted-foreground">{deployment.namespace}</Td>
+						{showNamespace ? (
+							<Td className="text-muted-foreground">{deployment.namespace}</Td>
+						) : null}
 						<Td className="max-w-[22rem] truncate text-muted-foreground" title={deployment.chartRef}>
 							{deployment.chartRef}
 						</Td>

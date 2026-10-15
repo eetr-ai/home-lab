@@ -1,4 +1,5 @@
 import { call, seg } from "./http";
+import { isAllNamespaces, type NamespaceScope } from "@/lib/kube/scope";
 import type { ActionResult } from "./result";
 import type {
 	ClusterEvent,
@@ -138,16 +139,35 @@ export function revokeNamespace(namespace: string): Promise<ActionResult<void>> 
 	);
 }
 
-export function listWorkloads(namespace: string): Promise<ActionResult<Workload[]>> {
-	return call<Workload[]>("GET", `/api/kubernetes/namespaces/${seg(namespace)}/workloads`);
+/**
+ * The three listings that answer for one namespace or for the whole cluster.
+ *
+ * Two routes each, chosen here rather than at every call site. The API keeps them
+ * apart on purpose — it refuses an empty namespace, so a dropped path segment
+ * cannot widen a scoped request into a cluster-wide one — and this is the one
+ * place that knows which of the two a scope means.
+ *
+ * Secrets are deliberately absent from this shape. The panel's grant for them is
+ * bound per namespace by enrolment rather than held cluster-wide, so there is no
+ * route to call and no answer to give; the Secrets page asks for a namespace
+ * instead.
+ */
+export function listWorkloads(scope: NamespaceScope): Promise<ActionResult<Workload[]>> {
+	return isAllNamespaces(scope)
+		? call<Workload[]>("GET", "/api/kubernetes/workloads")
+		: call<Workload[]>("GET", `/api/kubernetes/namespaces/${seg(scope)}/workloads`);
 }
 
-export function listPods(namespace: string): Promise<ActionResult<Pod[]>> {
-	return call<Pod[]>("GET", `/api/kubernetes/namespaces/${seg(namespace)}/pods`);
+export function listPods(scope: NamespaceScope): Promise<ActionResult<Pod[]>> {
+	return isAllNamespaces(scope)
+		? call<Pod[]>("GET", "/api/kubernetes/pods")
+		: call<Pod[]>("GET", `/api/kubernetes/namespaces/${seg(scope)}/pods`);
 }
 
-export function listEvents(namespace: string): Promise<ActionResult<ClusterEvent[]>> {
-	return call<ClusterEvent[]>("GET", `/api/kubernetes/namespaces/${seg(namespace)}/events`);
+export function listEvents(scope: NamespaceScope): Promise<ActionResult<ClusterEvent[]>> {
+	return isAllNamespaces(scope)
+		? call<ClusterEvent[]>("GET", "/api/kubernetes/events")
+		: call<ClusterEvent[]>("GET", `/api/kubernetes/namespaces/${seg(scope)}/events`);
 }
 
 export function listNodes(): Promise<ActionResult<ClusterNode[]>> {
