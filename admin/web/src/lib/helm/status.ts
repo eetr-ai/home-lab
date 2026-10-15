@@ -129,3 +129,37 @@ export function describeJob(phase: HelmJobPhase, reason?: string): string {
 			return reason ? `failed: ${reason}` : "failed";
 	}
 }
+
+export interface JobIndicator {
+	tone: Tone;
+	/** A word or two for the header button: what the operation is doing. */
+	label: string;
+	/** Whether something is happening, which is what the button animates. */
+	active: boolean;
+	/** Whether the stream dropped while the job was still going. */
+	lost: boolean;
+}
+
+/**
+ * How the job status button in a Helm page's header should look.
+ *
+ * The button is all that is on screen until somebody opens it, so it has to
+ * carry the three things worth knowing at a glance: whether something is still
+ * happening, how it ended, and whether the panel has lost sight of it. A dropped
+ * stream on a finished job is not worth a mark — the outcome is already known.
+ */
+export function jobIndicator(phase: HelmJobPhase, streamError?: string): JobIndicator {
+	const active = phase === "pending" || phase === "running";
+	const labels: Record<HelmJobPhase, string> = {
+		pending: "Starting",
+		running: "Running",
+		succeeded: "Succeeded",
+		failed: "Failed",
+	};
+	return {
+		tone: jobTone(phase),
+		label: labels[phase],
+		active,
+		lost: active && Boolean(streamError),
+	};
+}

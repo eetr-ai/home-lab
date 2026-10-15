@@ -1,5 +1,4 @@
 import { listPods } from "@/app/actions/kube";
-import { NamespacePicker } from "../../_components/namespace-picker";
 import { readNamespaceScope } from "../../_components/namespace-scope-server";
 import { isAllNamespaces } from "@/lib/kube/scope";
 import { PodList } from "./_components/pod-list";
@@ -24,7 +23,6 @@ export default async function PodsPage({
 
 	return (
 		<>
-			<NamespacePicker scope={scope} />
 			<PodList
 				pods={pods.ok ? pods.data : []}
 				error={pods.ok ? null : pods.error}

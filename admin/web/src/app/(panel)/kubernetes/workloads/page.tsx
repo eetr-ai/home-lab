@@ -2,7 +2,6 @@ import { Boxes } from "lucide-react";
 import { listWorkloads } from "@/app/actions/kube";
 import { Th } from "@/components/ui/table";
 import { Directory } from "../../_components/directory";
-import { NamespacePicker } from "../../_components/namespace-picker";
 import { readNamespaceScope } from "../../_components/namespace-scope-server";
 import { isAllNamespaces } from "@/lib/kube/scope";
 import { WorkloadRows } from "./_components/workload-rows";
@@ -28,7 +27,6 @@ export default async function WorkloadsPage({
 
 	return (
 		<>
-			<NamespacePicker scope={scope} />
 			<Directory
 				error={workloads.ok ? null : workloads.error}
 				isEmpty={workloads.ok && rows.length === 0}

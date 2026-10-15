@@ -10,6 +10,7 @@ import { useRowDelete } from "../../../_components/use-row-delete";
 import { formatAge } from "@/lib/format/age";
 import type { Namespace } from "@/lib/api/types";
 import { CreateNamespacePanel } from "./create-namespace-panel";
+import { BackLink } from "../../../_components/back-link";
 
 export function NamespaceList({
 	namespaces,
@@ -32,7 +33,15 @@ export function NamespaceList({
 
 	return (
 		<>
-			<div className="mb-4 flex justify-end">{create}</div>
+			{/* No tab leads here any more — the namespace switcher's gear does — so
+			    the page names itself and offers the way back to the lists. */}
+			<div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+				<div className="flex min-w-0 flex-col gap-1">
+					<BackLink href="/kubernetes/workloads" label="Workloads" />
+					<h2 className="text-lg font-medium">Namespaces</h2>
+				</div>
+				{create}
+			</div>
 
 			<Directory
 				error={error}

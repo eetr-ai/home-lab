@@ -1,6 +1,5 @@
 import { listDeployments } from "@/app/actions/helm";
 import { listNamespaces } from "@/app/actions/kube";
-import { NamespacePicker } from "../../_components/namespace-picker";
 import { readNamespaceScope } from "../../_components/namespace-scope-server";
 import { isAllNamespaces } from "@/lib/kube/scope";
 import { DeploymentList } from "./_components/deployment-list";
@@ -37,7 +36,6 @@ export default async function HelmDeploymentsPage({
 
 	return (
 		<>
-			<NamespacePicker scope={scope} />
 			<DeploymentList
 				deployments={deployments.ok ? deployments.data : []}
 				loadError={deployments.ok ? null : deployments.error}
