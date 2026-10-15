@@ -219,17 +219,24 @@ contract to review a change against:
     sorts first every time you changed tab — with a Secret written into it before
     anybody noticed.
 
-    So: read it with `readNamespaceScope()`, render `<NamespacePicker scope={…} />`
-    on the pages it scopes, and default to `ALL_NAMESPACES`. Never to the first
+    So: read it with `readNamespaceScope()` and default to `ALL_NAMESPACES`.
+    The control is `NamespaceSwitcher`, one per section header (Kubernetes and
+    Helm), top-right: a searchable popover with "All namespaces" pinned first
+    and a gear that leads to namespace management. It shows itself only where
+    `namespaceScopeFor()` (`lib/kube/scoped-routes.ts`) says the page is
+    scoped — a new scoped list is added there, not by rendering a control on
+    the page. Detail pages and cluster-wide listings stay off the list, because
+    a switcher above them would look like it applied. Never to the first
     namespace in the list — a scope nobody chose is the failure mode this
     replaced. A page that cannot answer for the whole cluster says so and asks
-    for one (`requireOne`); the Secrets tab is the only one, because its grant is
-    bound per namespace rather than held cluster-wide.
+    for one (`required` in `namespaceScopeFor`); the Secrets tab is the only one,
+    because its grant is bound per namespace rather than held cluster-wide.
 
     `?namespace=` still works as a way *in* — the back link from a workload, a
     bookmark, the assistant's route catalogue — and moves the shared scope rather
-    than overriding it for one page. The picker adopts whatever the page
-    resolved, so the dropdown and the rows beneath it always agree.
+    than overriding it for one page. The switcher resolves it with the same
+    `resolveScope()` the server does and adopts the result, so the button and
+    the rows beneath it always agree.
 
 11. **A form that writes something names where it writes it.** Not in a
     description, not inherited from the page: a field, with a value the operator

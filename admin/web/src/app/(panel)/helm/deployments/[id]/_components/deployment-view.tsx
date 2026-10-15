@@ -9,7 +9,7 @@ import { StateBadge } from "../../_components/state-badge";
 import { isPending, stuckForMinutes } from "@/lib/helm/status";
 import { useReleasePolling } from "../../../_components/use-release-polling";
 import type { HelmDeploymentDetail, HelmJob } from "@/lib/api/types";
-import { JobPanel } from "../../../_components/job-panel";
+import { JobStatus } from "../../../_components/job-status";
 import { PipelinePopover } from "./pipeline-popover";
 import { ValuesCard } from "./values-card";
 import { VersionHistory } from "./version-history";
@@ -59,6 +59,9 @@ export function DeploymentView({
 				    asked for. Absent entirely without an origin to build an address
 				    from — a snippet pointing at nowhere is worse than no snippet. */}
 				<div className="flex items-center gap-2">
+					{/* What the last operation is doing, and Helm's own account of
+					    it one click away. First, because it is the one that changes. */}
+					<JobStatus job={job} />
 					{origin ? (
 						<PipelinePopover
 							origin={origin}
@@ -79,9 +82,6 @@ export function DeploymentView({
 			    with nothing beside it would read as "nothing is deployed", which is
 			    a different and much more inviting statement than "I could not look". */}
 			<Banner variant="error" message={deployment.releaseError ?? null} />
-
-			{/* What the last operation is doing, and Helm's own account of it. */}
-			<JobPanel job={job} />
 
 			{stuck !== null ? (
 				<Banner

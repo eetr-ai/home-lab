@@ -1,5 +1,4 @@
 import { listNamespaceReleases, listReleases } from "@/app/actions/helm";
-import { NamespacePicker } from "../../_components/namespace-picker";
 import { readNamespaceScope } from "../../_components/namespace-scope-server";
 import { isAllNamespaces } from "@/lib/kube/scope";
 import { ReleaseTable } from "./_components/release-table";
@@ -33,7 +32,6 @@ export default async function HelmDashboardPage({
 
 	return (
 		<>
-			<NamespacePicker scope={scope} />
 			<ReleaseTable
 				releases={releases.ok ? releases.data : []}
 				loadError={releases.ok ? null : releases.error}
