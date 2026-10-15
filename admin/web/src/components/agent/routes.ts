@@ -17,7 +17,7 @@
  * `?namespace=` works differently from `?database=`, and the descriptions below
  * say so. The namespace is one choice shared by the whole panel, remembered
  * between pages; naming it here does not scope a single page, it moves that
- * shared choice — the picker follows the link. Omitting it opens the page on
+ * shared choice — the namespace switcher follows the link. Omitting it opens the page on
  * whatever the operator was already looking at, which is usually what they want,
  * so it is worth naming only when the answer is about a particular namespace.
  *

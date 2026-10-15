@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeOutcome, isPending, stuckForMinutes, tone, jobTone, describeJob } from "./status";
+import { describeOutcome, isPending, stuckForMinutes, tone, jobTone, describeJob, jobIndicator } from "./status";
 import type { HelmRelease } from "@/lib/api/types";
 
 function release(overrides: Partial<HelmRelease> = {}): HelmRelease {
@@ -145,5 +145,34 @@ describe("describeJob", () => {
 		expect(describeJob("pending")).toBe("waiting for a pod");
 		expect(describeJob("running")).toBe("running");
 		expect(describeJob("succeeded")).toBe("finished");
+	});
+});
+
+describe("jobIndicator", () => {
+	it.each([
+		["pending", "Starting", true],
+		["running", "Running", true],
+		["succeeded", "Succeeded", false],
+		["failed", "Failed", false],
+	] as const)("reads %s as %s, active %s", (phase, label, active) => {
+		const indicator = jobIndicator(phase);
+		expect(indicator.label).toBe(label);
+		expect(indicator.active).toBe(active);
+		expect(indicator.tone).toBe(jobTone(phase));
+	});
+
+	it("marks a dropped stream while the job is still going", () => {
+		expect(jobIndicator("running", "connection reset").lost).toBe(true);
+	});
+
+	// The outcome is already known, so losing the stream afterwards changes
+	// nothing an operator needs to see.
+	it("does not mark a dropped stream once the job has finished", () => {
+		expect(jobIndicator("succeeded", "connection reset").lost).toBe(false);
+		expect(jobIndicator("failed", "connection reset").lost).toBe(false);
+	});
+
+	it("does not mark a running job whose stream is healthy", () => {
+		expect(jobIndicator("running").lost).toBe(false);
 	});
 });

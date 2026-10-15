@@ -22,9 +22,9 @@ import AgentLauncher from "@/components/agent/AgentLauncher";
  *
  * The namespace scope is provided here rather than per section, which is what
  * makes it one choice for the whole panel. The namespace list is fetched once for
- * the same reason: the picker on every cluster page reads this one, instead of
+ * the same reason: the namespace switcher in each section header reads this one, instead of
  * each page asking the cluster for the same list. A failed read leaves the list
- * empty and the picker disabled — the pages below report their own failures, and
+ * empty and the switcher disabled — the pages below report their own failures, and
  * a shell that refused to render because a dropdown could not be filled would
  * take the rest of the panel down with it.
  *

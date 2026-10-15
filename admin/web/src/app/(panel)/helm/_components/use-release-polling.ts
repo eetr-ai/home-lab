@@ -9,7 +9,7 @@ const INTERVAL_MS = 2_000;
 /**
  * Refreshes the page while an operation on this release is still running.
  *
- * There IS a job to poll now, and JobPanel follows it. This is the other half:
+ * There IS a job to poll now, and JobStatus follows it. This is the other half:
  * the job reports the operation, and this reports the release.
  *
  * The two are not the same question. A release can be left pending by an
