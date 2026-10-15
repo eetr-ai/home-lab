@@ -2,7 +2,6 @@ import { CalendarClock } from "lucide-react";
 import { listEvents } from "@/app/actions/kube";
 import { Td, Th } from "@/components/ui/table";
 import { Directory } from "../../_components/directory";
-import { NamespacePicker } from "../../_components/namespace-picker";
 import { readNamespaceScope } from "../../_components/namespace-scope-server";
 import { isAllNamespaces } from "@/lib/kube/scope";
 import { formatAge } from "@/lib/format/age";
@@ -23,7 +22,6 @@ export default async function EventsPage({
 
 	return (
 		<>
-			<NamespacePicker scope={scope} />
 			<Directory
 				error={events.ok ? null : events.error}
 				isEmpty={events.ok && rows.length === 0}

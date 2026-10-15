@@ -63,3 +63,21 @@ export function readScope(stored: string | undefined): NamespaceScope {
 export function isNamespaceName(value: string): boolean {
 	return value.length <= 63 && /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(value);
 }
+
+/**
+ * The scope a page renders: a `?namespace=` from the address when it names one,
+ * otherwise the remembered scope.
+ *
+ * Shared by the server, which renders the rows, and the switcher, which names
+ * what they are — so the two can never disagree about which namespace is on
+ * screen. A parameter that is neither the asterisk nor a namespace name is
+ * ignored rather than trusted; it is still only a way in.
+ */
+export function resolveScope(
+	requested: string | null | undefined,
+	stored: NamespaceScope,
+): NamespaceScope {
+	if (requested === ALL_NAMESPACES) return ALL_NAMESPACES;
+	if (requested && isNamespaceName(requested)) return requested;
+	return stored;
+}
