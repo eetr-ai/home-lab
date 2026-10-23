@@ -1,0 +1,10 @@
+# The image installs its own dependencies (the deps stage runs `npm ci`), so the
+# host's must not follow `COPY . .` in and replace them: they are built for the
+# host's platform. esbuild is where that stopped being hypothetical — its binary
+# from a Mac checkout is not something Alpine can run.
+node_modules
+.next
+dist
+coverage
+tsconfig.tsbuildinfo
+.env*
