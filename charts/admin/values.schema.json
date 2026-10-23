@@ -13,7 +13,8 @@
         "gateway",
         "api",
         "web",
-        "agent"
+        "agent",
+        "console"
       ],
       "properties": {
         "imagePullSecrets": {
@@ -40,7 +41,7 @@
               "not": {
                 "const": "latest"
               },
-              "description": "An immutable tag for all three images. Empty means the chart's own appVersion, which is the version the images were published under. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
+              "description": "An immutable tag for every image. Empty means the chart's own appVersion, which is the version the images were published under. \"latest\" is refused: a pod pulling a moving name cannot say which build it is running."
             }
           }
         },
@@ -379,6 +380,77 @@
             },
             "image": {
               "$ref": "#/$defs/image"
+            },
+            "resources": {
+              "type": "object"
+            }
+          }
+        },
+        "console": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "image",
+            "storage",
+            "hosts",
+            "resources"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "image": {
+              "$ref": "#/$defs/image"
+            },
+            "storage": {
+              "type": "object",
+              "required": [
+                "className",
+                "size"
+              ],
+              "properties": {
+                "className": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(Mi|Gi|Ti)$"
+                }
+              }
+            },
+            "hosts": {
+              "type": "array",
+              "description": "Hosts rendered into the console's ssh_config as Host blocks.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "address",
+                  "user"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]+$",
+                    "description": "The alias typed after `ssh`. No spaces or wildcards: those would turn one Host block into a pattern matching others."
+                  },
+                  "address": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9.:_-]+$"
+                  },
+                  "user": {
+                    "type": "string",
+                    "pattern": "^[a-z_][a-z0-9_.-]*$"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                }
+              }
             },
             "resources": {
               "type": "object"

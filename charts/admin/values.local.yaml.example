@@ -30,3 +30,15 @@ admin:
     enabled: true
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-agent
+
+  # The console. On by default; it needs no Secret of its own, because its gate
+  # reads the panel's. Its first use is `ssh-keygen` inside it, and the public key
+  # it prints goes into each host's authorized_keys.
+  console:
+    image:
+      repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-console
+    hosts:
+      - name: eetr01
+        address: eetr01.example.invalid
+        user: your-user
+        port: 22

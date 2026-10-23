@@ -2,7 +2,8 @@
 
 Installs the in-cluster administration panel: the Go API that manages the host
 PostgreSQL and MongoDB services and reads the cluster, the web panel an operator
-signs in to, and — optionally — the assistant that answers questions about it.
+signs in to, a console for managing the whole lab from a terminal, and —
+optionally — the assistant that answers questions about it.
 
 It is a separate chart from [platform](../platform/README.md) rather than a
 section of it. The platform chart installs the cluster's shared services and its
@@ -28,17 +29,23 @@ repository has a cohesive set of configurable Kubernetes resources.
 | `Deployment/admin-agent` | **Disabled by default.** One replica, `Recreate` — see below |
 | `Service/admin-agent` | ClusterIP on port 80. No route: the panel proxies to it |
 | `PersistentVolumeClaim/admin-agent-data` | The agent's memory and workspace, on the NFS class |
+| `Deployment/admin-console` | The console: a `gate` and a `shell`. One replica, `Recreate`. **Holds cluster-admin** — see below |
+| `Service/admin-console` | ClusterIP on 8080, the gate's port. Reached through the panel's route at `/console/socket` |
+| `ServiceAccount/admin-console` | The console's identity, and the only subject of the cluster-admin binding |
+| `ClusterRoleBinding` to `cluster-admin` | `<release>-console-admin` |
+| `PersistentVolumeClaim/admin-console-home` | The console's home directory, `/home/lab`, on the NFS class |
+| `ConfigMap/admin-console-ssh` | The `admin.console.hosts` ssh_config; only when the list is non-empty |
 
 The images always carry the same version, and **a values file normally names no
 version at all**. `admin.image.tag` defaults to the chart's own `appVersion`,
-which is the version the images were published under — one release builds all
-three images and packages the chart, and every one of them gets the release tag
+which is the version the images were published under — one release builds every
+image and packages the chart, and every one of them gets the release tag
 with the `admin-v` prefix stripped. So installing chart `1.5.0` runs the `1.5.0`
 images by construction rather than because somebody remembered a second number,
 and release-please keeps `Chart.yaml` in step so this holds for a checkout too.
 
 Set `admin.image.tag` only to run something the chart was not released with — a
-branch build, say. There is one key rather than three because a per-component tag
+branch build, say. There is one key rather than one per image because a per-component tag
 could only ever express a mistake; each component keeps its own
 `image.repository` and `image.pullPolicy`, which genuinely differ, and naming a
 `tag` beside one of those is refused by the schema rather than ignored.
@@ -49,8 +56,8 @@ could only ever express a mistake; each component keeps its own
 
 ## Where the chart is published
 
-Each release publishes the chart to two places, and the three images to one. All
-five artifacts carry **one version**: the release tag with the `admin-v` prefix
+Each release publishes the chart to two places, and the images to one. Every
+artifact carries **one version**: the release tag with the `admin-v` prefix
 stripped, so `admin-v1.5.0` publishes chart `1.5.0` and images `1.5.0`. That
 single number is what `admin.image.tag` defaults to.
 
@@ -93,7 +100,7 @@ templates/
 Helm walks the directory, so nesting costs nothing and everything one half of the
 panel needs is in one place.
 
-## The three RBAC files, and which identity holds what
+## The RBAC files, and which identity holds what
 
 Worth knowing before reading any of them, because the split is the whole security
 story of the Helm feature.
@@ -103,6 +110,7 @@ story of the Helm feature.
 | `rbac.yaml` | `admin-api` | Cluster-wide, almost entirely read-only. Reading the cluster; two write verbs for restart and scale. |
 | `rbac-deploy.yaml` | `admin-api` **and** `admin-helm-job` | Split in three. Two ClusterRoles nothing binds cluster-wide — `secrets` `get`/`list`/`watch` plus `create`/`update` for the API, everything a deploy needs for the Job — granted one namespace at a time by a RoleBinding the panel creates when that namespace is enrolled. Plus the small enrolment grant, which is the one thing here bound cluster-wide. |
 | `rbac-jobs.yaml` | `admin-api` | `batch/jobs` `get`/`list`/`watch`/`create`, in the release namespace only. |
+| `console/rbac.yaml` | `admin-console` | `cluster-admin`, cluster-wide. Nothing else in the chart is bound to it — see [The console](#the-console). |
 
 **Enrolment replaced the per-namespace Roles**, and it is worth knowing why. A
 `Role` needs a concrete `metadata.namespace`, which Helm only knows at render
@@ -154,7 +162,7 @@ short-lived Job now, so the flag was deleted rather than defaulted.
 
 ## How many of each, and why they differ
 
-The three components run different replica counts, and the differences are
+The API, the panel and the agent run different replica counts, and the differences are
 decisions rather than oversights. "Make them consistent" is the change to resist.
 
 **`admin-api` runs two.** It holds no state: the operator's bearer token comes
@@ -480,6 +488,64 @@ its network reach matters on your cluster, a NetworkPolicy is the control.
 The drawer is gated by `admin.web.writeEmails` — the same allowlist every other
 change goes through. An operator given the panel read-only sees no launcher.
 
+### The console
+
+On by default, and it needs nothing new to start: its gate reads the panel's
+own Secret, and its image is published with the others. Set
+`admin.console.image.repository` beside the other three.
+
+**It is cluster-admin, and the panel's write allowlist is what guards it.** The
+console's ServiceAccount is bound to the built-in `cluster-admin` ClusterRole, and
+the pod has no egress NetworkPolicy, because managing the lab is what it is for:
+`kubectl` against anything, `ssh` to the host and the machines beside it. The gate
+admits exactly the operators `admin.web.writeEmails` lets write, so **every
+address on that list is a cluster-admin**, and an unset list makes everybody who
+can sign in one. If anyone holds the panel read-only for a reason, check the list
+before installing.
+
+**The gate is the only way in, and that rests on two things.** The pod runs two
+containers: `gate`, from the panel's image, which checks the session cookie and
+the allowlist on the WebSocket upgrade, and `shell`, which runs ttyd and tmux
+bound to `127.0.0.1`. The shell declares no port and the Service targets only the
+gate's, so the only path to a terminal is the panel's route at `/console/socket`
+and through the gate. A change that binds ttyd wider, or points a Service at it,
+leaves the cluster-admin binding in place with no authentication in front of it.
+`tests/validate-admin-chart.sh` asserts the chart's half of that.
+
+**The home directory is a volume.** `/home/lab` is a `ReadWriteOnce` claim on
+`admin.console.storage.className` (`nfs-client`, 2Gi), so the ssh key, history,
+kubeconfigs and anything cloned survive a restart. That is also why the
+Deployment is `Recreate`: a rolling update would start the new pod while the old
+one still held the volume. Deleting the claim archives the directory on the
+export rather than destroying it — which, for a volume holding a private key, is
+worth remembering when you remove the console.
+
+**First use.** Open the console from the panel and make it a key:
+
+```bash
+ssh-keygen -t ed25519
+```
+
+Add the public key it prints to `~/.ssh/authorized_keys` on each host the console
+should reach, then name those hosts in `values.local.yaml` so `ssh <name>` works:
+
+```yaml
+admin:
+  console:
+    hosts:
+      - name: eetr01
+        address: eetr01.example.invalid
+        user: your-user
+        port: 22
+```
+
+They render into `/etc/ssh/ssh_config.d/lab.conf` as `Host` blocks; your own
+`~/.ssh/config`, on the volume, still wins for anything it also names. The real
+addresses belong in the ignored values file, never in Git.
+
+To leave it out, set `admin.console.enabled: false`. That removes all of it,
+the binding included.
+
 ## Install
 
 ```bash
@@ -504,6 +570,10 @@ Gateway, and **Cloudflare Access belongs in front of that hostname**. eetr-auth
 authenticates whoever arrives, but the root README lists Access in front of
 administrative routes as a final-check requirement, and it is the layer that stops
 a stranger reaching the sign-in page at all.
+
+The same route carries the console: with `admin.console.enabled`, a
+`PathPrefix /console/socket` rule sends the terminal's WebSocket to the console's
+gate, and everything else still goes to the panel.
 
 `admin.api.route.enabled` is `false`, and it stays that way until something needs
 to reach the API from outside the cluster. The panel does not: its server talks to
