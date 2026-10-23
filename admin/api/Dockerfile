@@ -5,7 +5,7 @@
 #
 #   docker build -t admin-api:dev admin/api
 
-FROM golang:1.27-alpine AS build
+FROM golang:1.27.3-alpine AS build
 WORKDIR /src
 
 # Manifests first, so a source-only change reuses the dependency layer. go.sum is

@@ -18,7 +18,7 @@ vars:
   # machine and CI resolve the same linter, and it is compiled by the toolchain
   # that builds this module. A separately installed binary built by an older Go
   # refuses to load a config targeting a newer language version.
-  GOLANGCI_VERSION: v2.13.1
+  GOLANGCI_VERSION: v2.15.0
 
 tasks:
   openapi:
