@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, STATUS_CODES } from "node:http";
 import { connect, type Socket } from "node:net";
 import { writeAllowlist } from "@/lib/auth/write-access";
 import { authorize, type GateConfig } from "./authorize";
-import { sessionName } from "./session-name";
+import { sessionName } from "@/lib/console/session-name";
 import { upstreamHead } from "./upstream";
 
 /**

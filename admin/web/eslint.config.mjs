@@ -19,7 +19,7 @@ const eslintConfig = defineConfig([
 		files: ["**/*.test.ts", "**/*.test.tsx"],
 		rules: { "max-lines": "off" },
 	},
-	globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts"]),
+	globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "dist/**", "next-env.d.ts"]),
 ]);
 
 export default eslintConfig;

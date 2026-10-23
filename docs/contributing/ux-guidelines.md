@@ -345,6 +345,42 @@ comes back as a 400 naming the line. A second parser here would eventually
 disagree with that one, and the disagreement would be the panel accepting
 something the cluster then refused.
 
+## The console
+
+`src/app/(panel)/console/` puts a terminal on the page, and **`@xterm/xterm` plus
+`@xterm/addon-fit` are the third deliberate exception** to the rule about
+third-party libraries.
+
+The argument is narrower than the editor's. A terminal is not a widget that
+could be built from the primitives here: it is an emulator for escape sequences
+that ssh, tmux, vim and k9s all emit, and anything short of a real one breaks
+the first time one of them draws a screen. Like CodeMirror it is invisible as a
+library. It paints its own surface, so `lib/console/theme.ts` reads the
+`--terminal-*` role tokens from `theme.css` as computed values and hands them
+over, and re-reads them when the theme changes. The sixteen ANSI colours are
+roles like every other colour; no palette lives in TypeScript.
+
+The interaction contract:
+
+- **A tab is a view, not a process.** Each tab attaches to a tmux session of the
+  same name in the console pod. Closing the tab detaches it, and the session
+  keeps running. Typing `exit`, or detaching from tmux, ends the attachment, and
+  the tab closes because ttyd closed the socket cleanly.
+- **Every open tab stays mounted.** Hidden tabs keep their connection, so
+  switching between them is instant and does not reconnect. A hidden pane is
+  refitted when it is shown, because it measures as zero while hidden.
+- **A dropped connection is not an ending.** Anything other than a clean close
+  from an open socket leaves the tab up, with a Reconnect action laid over it.
+  "Dropped" (it was open) and "refused" (it never opened: the gate said no, or
+  the pod is down) get different messages.
+- **The open tabs are remembered per browser** in localStorage, as a
+  convenience. A name that comes back after its session ended starts a fresh
+  session under that name.
+
+The page is gated on write access, but only so it can explain itself. The real
+gate is the socket's, in the console pod, which reads the same session cookie and
+the same allowlist. See `src/console-gate/`.
+
 ## Overlays
 
 There are three overlays and the line between them is worth stating, because the
@@ -493,11 +529,12 @@ this pattern — and the reducer, being a pure function, is exactly the kind of 
   Headless UI, framer-motion). Status messaging is inline banners; overlays are
   the first-party `SidePanel`, `ConfirmDialog` and `Popover`.
 - New third-party UI component libraries. Tailwind plus `lucide-react` is the
-  stack. There are exactly two exceptions, each argued where it is used:
+  stack. There are exactly three exceptions, each argued where it is used:
   `react-markdown` and `remark-gfm` in the [assistant
-  drawer](#the-assistant-drawer), and CodeMirror 6 in [the values
-  editor](#the-values-editor). Both are renderers rather than component
-  libraries, and neither contributes anything to how the panel looks.
+  drawer](#the-assistant-drawer), CodeMirror 6 in [the values
+  editor](#the-values-editor), and xterm.js in [the console](#the-console).
+  All three are renderers rather than component libraries, and none of them
+  contributes anything to how the panel looks.
 - Raw Tailwind color ramps, `rounded-xl`, and `border-brand-muted` as a default
   border — all three fail lint.
 - Emojis in UI copy.
