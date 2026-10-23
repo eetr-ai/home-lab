@@ -334,7 +334,7 @@ cp admin/.env.example admin/.env && chmod 600 admin/.env   # then fill it in
 task dev
 ```
 
-The panel is then at `http://localhost:3000`; `task logs` follows all three
+The panel is then at `http://localhost:3000`; `task logs` follows all of them
 containers and `task stop` takes them down. `admin/.env` is ignored — it holds a client
 secret and two superuser passwords.
 

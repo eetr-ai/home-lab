@@ -15,7 +15,7 @@ name: home-lab-admin
 # or a kubeconfig, and a container has neither. Mount one in if you want it — see
 # the commented block on the api service.
 #
-# All three services come up together, so `admin/.env` needs an OPENROUTER_API_KEY
+# All the services come up together, so `admin/.env` needs an OPENROUTER_API_KEY
 # as well — `task dev` says so rather than starting a stack with a dead assistant
 # in it. In the cluster the agent is a deliberate opt-in; locally it is part of
 # the thing you are working on.
@@ -70,6 +70,9 @@ services:
       # Unset unless the agent profile is up, which is what makes the launcher
       # render nothing — the same signal the chart gives it in the cluster.
       AGENT_URL: ${AGENT_URL:-}
+      # The console's socket is a separate port here, where in the cluster the
+      # Gateway routes /console/socket on the panel's own origin.
+      ADMIN_CONSOLE_SOCKET_URL: ws://localhost:3001/console/socket
     ports:
       - "3000:3000"
     depends_on:
@@ -117,5 +120,41 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # The console: ttyd and tmux in the shell container, and the gate in front of
+  # them, exactly as the chart runs them — two containers sharing one network
+  # namespace, so ttyd's loopback port is reachable from the gate and from
+  # nothing else. Without a kubeconfig, kubectl in the shell has no cluster to
+  # talk to locally; ssh works as it does in the lab.
+  console:
+    build:
+      context: ./console
+    volumes:
+      # A named volume starts as a copy of the image's /home/lab, ownership
+      # included, which is what makes it writable by the shell's uid.
+      - console-home:/home/lab
+    ports:
+      # The gate's port, published from here because the gate has no network of
+      # its own. The panel points the browser at it with ADMIN_CONSOLE_SOCKET_URL;
+      # a browser sends localhost cookies to any localhost port, so the session
+      # the panel set is the one the gate reads.
+      - "3001:8080"
+    restart: unless-stopped
+    logging: *logging
+
+  console-gate:
+    build:
+      context: ./web
+    command: ["node", "console-gate.mjs"]
+    network_mode: "service:console"
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in admin/.env — generate one with `openssl rand -base64 32`}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      ADMIN_WRITE_EMAILS: ${ADMIN_WRITE_EMAILS:-}
+    depends_on:
+      - console
+    restart: unless-stopped
+    logging: *logging
+
 volumes:
   agent-data:
+  console-home:
