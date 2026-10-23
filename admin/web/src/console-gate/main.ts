@@ -26,7 +26,10 @@ const config: GateConfig = {
 	panelUrl: required("AUTH_URL"),
 	allowlist: writeAllowlist(process.env.ADMIN_WRITE_EMAILS),
 };
-const port = Number(process.env.PORT ?? 8080);
+// Not PORT: the panel's image sets that to 3000 for Next, and this runs from the
+// same image. Reading it would put the gate on the panel's port and leave the
+// chart's probes and Service talking to nothing.
+const port = Number(process.env.CONSOLE_GATE_PORT ?? 8080);
 const ttydHost = process.env.CONSOLE_TTYD_HOST ?? "127.0.0.1";
 const ttydPort = Number(process.env.CONSOLE_TTYD_PORT ?? 7681);
 
