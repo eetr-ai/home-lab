@@ -74,27 +74,26 @@ export function ConsoleWorkspace({ socketBase }: { socketBase: string }) {
 				</IconButton>
 			</div>
 
-			<div className="relative min-h-0 flex-1 overflow-hidden rounded-card border border-border bg-terminal-background">
-				{state.sessions.map((name) => (
-					<TerminalPane
-						key={name}
-						name={name}
-						socketBase={socketBase}
-						visible={name === state.active}
-						onEnded={() => dispatch({ type: "close", name })}
-					/>
-				))}
-				{state.sessions.length === 0 ? (
-					<div className="flex h-full items-center justify-center">
-						<EmptyState
-							icon={SquareTerminal}
-							title="No sessions open"
-							description="Sessions you closed are still running in the console; opening one by the same name reattaches."
-							action={<Button type="button" icon={Plus} onClick={open}>New session</Button>}
+			{state.sessions.length > 0 ? (
+				<div className="relative min-h-0 flex-1 overflow-hidden rounded-card border border-border bg-terminal-background">
+					{state.sessions.map((name) => (
+						<TerminalPane
+							key={name}
+							name={name}
+							socketBase={socketBase}
+							visible={name === state.active}
+							onEnded={() => dispatch({ type: "close", name })}
 						/>
-					</div>
-				) : null}
-			</div>
+					))}
+				</div>
+			) : (
+				<EmptyState
+					icon={SquareTerminal}
+					title="No sessions open"
+					description="Sessions you closed are still running in the console; opening one by the same name reattaches."
+					action={<Button type="button" icon={Plus} onClick={open}>New session</Button>}
+				/>
+			)}
 		</div>
 	);
 }

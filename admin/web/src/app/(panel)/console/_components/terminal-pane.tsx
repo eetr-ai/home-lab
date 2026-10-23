@@ -44,7 +44,7 @@ export function TerminalPane({ name, socketBase, visible, onEnded }: TerminalPan
 			) : null}
 			{status === "dropped" || status === "refused" ? (
 				<div className="absolute inset-0 flex items-center justify-center bg-scrim p-6">
-					<div className="flex max-w-md flex-col items-center gap-3 rounded-card border border-border bg-surface p-5 text-center text-sm text-foreground">
+					<div className="flex max-w-md flex-col items-center gap-3 rounded-card bg-surface p-5 text-center text-sm text-foreground">
 						<p>{MESSAGES[status]}</p>
 						<Button type="button" variant="secondary" icon={RotateCw} onClick={reconnect}>
 							Reconnect

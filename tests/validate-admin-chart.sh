@@ -1568,8 +1568,9 @@ if grep -q 'admin-console-ssh\|ssh_config.d' <<<"$no_hosts"; then
 fi
 
 # A host alias with a space or a wildcard turns one Host block into a pattern that
-# matches others, so the schema refuses it.
-if render --set 'admin.console.hosts[0].name=a b' >/dev/null 2>&1; then
+# matches others, so the schema refuses it. The entry is otherwise complete, so a
+# refusal can only be about the name and not about a missing address or user.
+if render --set-json 'admin.console.hosts=[{"name":"a b","address":"h.example.invalid","user":"u"}]' >/dev/null 2>&1; then
   printf 'The chart accepted a console host name with a space in it\n' >&2
   exit 1
 fi

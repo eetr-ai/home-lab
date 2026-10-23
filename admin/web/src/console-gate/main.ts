@@ -40,6 +40,10 @@ const server = createServer((req, res) => {
 });
 
 server.on("upgrade", (req: IncomingMessage, client: Socket, head: Buffer) => {
+	// Registered before anything awaits: a browser hanging up during authorization
+	// emits an error on this socket, and an error with no listener ends the process
+	// — and with it every other open terminal.
+	client.on("error", () => client.destroy());
 	void admit(req, client, head).catch((err: unknown) => {
 		console.error("console gate: upgrade failed:", err);
 		refuse(client, 502, "the console could not be reached");
