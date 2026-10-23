@@ -1549,8 +1549,8 @@ grep -q 'storageClassName: "nfs-client"' <<<"$console_pvc"
 # grew one is caught as well as a wrong value.
 lab_conf=$(render --show-only templates/console/ssh-config.yaml |
   awk '/^  lab.conf: \|$/ { grab = 1; next } grab { sub(/^    /, ""); print }')
-expected_lab_conf='Host eetr01
-  HostName eetr01.example.invalid
+expected_lab_conf='Host virt-host
+  HostName virt-host.example.invalid
   User your-user
   Port 22'
 if [[ $lab_conf != "$expected_lab_conf" ]]; then

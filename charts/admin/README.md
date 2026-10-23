@@ -533,8 +533,8 @@ should reach, then name those hosts in `values.local.yaml` so `ssh <name>` works
 admin:
   console:
     hosts:
-      - name: eetr01
-        address: eetr01.example.invalid
+      - name: virt-host
+        address: virt-host.example.invalid
         user: your-user
         port: 22
 ```

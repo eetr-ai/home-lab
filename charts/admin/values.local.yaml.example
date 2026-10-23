@@ -38,7 +38,7 @@ admin:
     image:
       repository: us-west1-docker.pkg.dev/YOUR_PROJECT/home-lab/admin-console
     hosts:
-      - name: eetr01
-        address: eetr01.example.invalid
+      - name: virt-host
+        address: virt-host.example.invalid
         user: your-user
         port: 22
