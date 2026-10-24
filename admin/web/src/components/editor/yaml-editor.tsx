@@ -85,6 +85,9 @@ export function YamlEditor({
 						keymap.of(
 							["Mod-s", "Ctrl-s"].map((key) => ({
 								key,
+								// The find box is part of editing values too, and keys typed
+								// there run only bindings scoped to the search panel.
+								scope: "editor search-panel",
 								run: () => {
 									if (!save.current) return false;
 									save.current();
