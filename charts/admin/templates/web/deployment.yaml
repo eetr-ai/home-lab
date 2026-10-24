@@ -57,25 +57,7 @@ spec:
           image: {{ include "home-lab-admin.webImage" . | quote }}
           imagePullPolicy: {{ .Values.admin.web.image.pullPolicy }}
           env:
-            # The panel's own origin, and the base of the redirect URI eetr-auth
-            # must have registered. Auth.js builds the callback from it, so a
-            # value that disagrees with the registered URI fails at the callback
-            # rather than at sign-in, which is a confusing place to find out.
-            #
-            # https://<hostname> unless admin.web.authUrl overrides it. The
-            # override exists for a rig reached some other way than by its own
-            # hostname over TLS -- a local cluster behind a port-forward, where
-            # the origin the browser actually uses is http://localhost:3000 and
-            # the derived value is a URL nothing serves.
-            - name: AUTH_URL
-              value: {{ .Values.admin.web.authUrl | default (printf "https://%s" (required "admin.web.hostname is required" .Values.admin.web.hostname)) | quote }}
-            # Seals the session cookie (JWE), which carries the operator's access
-            # and refresh tokens. Rotating it signs everybody out.
-            - name: AUTH_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.admin.web.secret.name }}
-                  key: {{ .Values.admin.web.secret.authSecretKey }}
+            {{- include "home-lab-admin.authEnv" . | nindent 12 }}
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -100,10 +82,6 @@ spec:
             # same fact — what the API will accept — and two places to write it is
             # one place to get it wrong.
             - name: OIDC_AUDIENCE
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.admin.web.writeEmails }}
-            - name: ADMIN_WRITE_EMAILS
               value: {{ . | quote }}
             {{- end }}
             {{- if .Values.admin.web.redis.enabled }}

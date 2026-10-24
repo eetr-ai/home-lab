@@ -94,7 +94,7 @@ if grep -qE 'image: .*:latest"?$' "$output_file"; then
   exit 1
 fi
 
-# One tag reaches all three images.
+# One tag reaches every image.
 #
 # Asserted on the rendered tags rather than on the values, because what matters is
 # that nothing renders a second one: the whole point of the single key is that a
@@ -1426,6 +1426,190 @@ fi
 # way to find out.
 if render --set admin.agent.model=deepseek-v4-flash >/dev/null 2>&1; then
   printf 'The chart rendered with a model id that is not vendor-prefixed\n' >&2
+  exit 1
+fi
+
+# --- the console -------------------------------------------------------------
+#
+# A shell bound to cluster-admin, so almost every assertion here is about the one
+# way in. What ttyd listens on is the image's business and is not asserted; what
+# the chart controls is that nothing else in the pod is reachable, that the route
+# sends the socket to the gate, and that the grant goes to this pod alone.
+#
+# On by default, so it is asserted against the shipped values as well.
+if ! grep -q 'name: admin-console$' <<<"$(render_defaults)"; then
+  printf 'The console must be enabled by default\n' >&2
+  exit 1
+fi
+
+console_pod=$(render --show-only templates/console/deployment.yaml)
+
+# One container's block out of the pod: from its `- name:` line to the next
+# container's, or to the end of the containers list.
+container_named() {
+  awk -v want="        - name: $1" '
+    $0 == want { grab = 1; print; next }
+    grab && (/^        - name: / || /^      [a-z]/) { exit }
+    grab { print }
+  '
+}
+
+# The shell declares no port. ttyd binding loopback is what keeps it unreachable,
+# and a declared port is the first half of a Service pointed round the gate.
+shell_container=$(container_named shell <<<"$console_pod")
+grep -q 'name: shell$' <<<"$shell_container"
+if grep -q 'ports:' <<<"$shell_container"; then
+  printf 'The console shell must declare no ports; the gate is the only way in\n' >&2
+  exit 1
+fi
+
+# ...and the gate's is the only port in the pod, on 8080.
+console_ports=$(grep 'containerPort:' <<<"$console_pod")
+if [[ $console_ports != '              containerPort: 8080' ]]; then
+  printf 'The console pod must expose exactly the gate on 8080; it exposes [%s]\n' "$console_ports" >&2
+  exit 1
+fi
+gate_container=$(container_named gate <<<"$console_pod")
+grep -q 'containerPort: 8080' <<<"$gate_container"
+grep -q 'path: /healthz' <<<"$gate_container"
+
+# The gate decides with the panel's cookie, so it reads the panel's own secret,
+# origin and allowlist — the same helper renders both, and this is what notices
+# the day one of them stops using it.
+grep -q 'name: AUTH_SECRET' <<<"$gate_container"
+grep -q 'name: AUTH_URL' <<<"$gate_container"
+gate_allowlist=$(render --set admin.web.writeEmails=ops@test.invalid \
+  --show-only templates/console/deployment.yaml | container_named gate)
+if ! grep -q 'value: "ops@test.invalid"' <<<"$gate_allowlist"; then
+  printf 'The console gate must enforce admin.web.writeEmails, as the panel does\n' >&2
+  exit 1
+fi
+
+# An empty allowlist keeps the console closed, so the opt-in that opens it must
+# reach both the gate (which enforces it) and the panel (which explains it), and
+# must be absent unless asked for.
+if grep -q 'ADMIN_CONSOLE_ALLOW_ANY_OPERATOR' <<<"$(render)"; then
+  printf 'The console must not be opened to every operator by default\n' >&2
+  exit 1
+fi
+for name in gate web; do
+  if [[ $name == gate ]]; then
+    block=$(render --set admin.console.allowAnyOperator=true \
+      --show-only templates/console/deployment.yaml | container_named gate)
+  else
+    block=$(render --set admin.console.allowAnyOperator=true \
+      --show-only templates/web/deployment.yaml)
+  fi
+  if ! grep -A1 'name: ADMIN_CONSOLE_ALLOW_ANY_OPERATOR' <<<"$block" | grep -q 'value: "true"'; then
+    printf 'admin.console.allowAnyOperator must reach the %s container\n' "$name" >&2
+    exit 1
+  fi
+done
+
+# The panel's route sends the socket to the gate. Read as the rule's own backend
+# rather than as two greps of the route, which would pass on a rule for the path
+# that still pointed at admin-web.
+socket_backend=$(render --show-only templates/web/httproute.yaml |
+  awk '/value: \/console\/socket$/ { grab = 1; next }
+       grab && /- name: / { print $NF; exit }')
+if [[ $socket_backend != admin-console ]]; then
+  printf 'The /console/socket rule must target admin-console; it targets [%s]\n' "$socket_backend" >&2
+  exit 1
+fi
+grep -A 4 'name: admin-console$' <<<"$(render --show-only templates/web/httproute.yaml)" |
+  grep -q 'port: 8080'
+
+# cluster-admin goes to the console's account and nobody else's. The binding's own
+# subjects block, for the reason the Helm grant's is read that way: a grep of the
+# document passes on a binding that also names admin-api.
+console_rbac=$(render --show-only templates/console/rbac.yaml)
+console_role_ref=$(awk '/^roleRef:/{inref=1; next} /^[^[:space:]]/{inref=0} inref' <<<"$console_rbac")
+grep -q '^  name: cluster-admin$' <<<"$console_role_ref"
+console_subjects=$(awk '/^subjects:/{insub=1; next} /^[^[:space:]]/{insub=0} insub' <<<"$console_rbac")
+expected_console_subjects='  - kind: ServiceAccount
+    name: admin-console
+    namespace: admin'
+if [[ $console_subjects != "$expected_console_subjects" ]]; then
+  printf 'cluster-admin must be bound to the admin-console ServiceAccount alone; subjects are:\n%s\n' \
+    "$console_subjects" >&2
+  exit 1
+fi
+grep -q 'serviceAccountName: admin-console$' <<<"$console_pod"
+
+# ...and nothing else in the release refers to cluster-admin at all. Everything but
+# the console's binding, with every optional grant switched on, so a second
+# binding cannot hide behind a default. Comments are dropped first: the templates
+# explain the grant in prose, and prose binds nobody.
+everything=$(render --set admin.api.helm.enabled=true \
+  --set 'admin.api.helm.namespaces[0]=apps' \
+  --set admin.api.kubernetes.nodeStats.enabled=true)
+cluster_admin_refs=$(awk '
+    /^---$/ { if (doc ~ /cluster-admin/ && doc !~ /\n  name: home-lab-admin-console-admin\n/) print doc; doc = "\n"; next }
+    /^ *#/ { next }
+    { doc = doc $0 "\n" }
+    END { if (doc ~ /cluster-admin/ && doc !~ /\n  name: home-lab-admin-console-admin\n/) print doc }
+  ' <<<"$everything")
+if [[ -n $cluster_admin_refs ]]; then
+  printf 'Only the console binding may refer to cluster-admin; also found:\n%s\n' "$cluster_admin_refs" >&2
+  exit 1
+fi
+
+# The home directory is the claim, and the rollout cannot run two pods over it.
+grep -A 1 'name: home$' <<<"$shell_container" | grep -q 'mountPath: /home/lab$'
+grep -A 2 'name: home$' <<<"$(awk '/^      volumes:/,0' <<<"$console_pod")" |
+  grep -q 'claimName: admin-console-home$'
+grep -q '^  replicas: 1$' <<<"$console_pod"
+grep -q 'type: Recreate' <<<"$console_pod"
+console_pvc=$(render --show-only templates/console/pvc.yaml)
+grep -q 'name: admin-console-home$' <<<"$console_pvc"
+grep -q 'ReadWriteOnce' <<<"$console_pvc"
+grep -q 'storageClassName: "nfs-client"' <<<"$console_pvc"
+
+# The hosts list becomes ssh_config Host blocks, mounted where ssh reads them...
+# Compared whole, as the file ssh will read, so a host block that lost a line or
+# grew one is caught as well as a wrong value.
+lab_conf=$(render --show-only templates/console/ssh-config.yaml |
+  awk '/^  lab.conf: \|$/ { grab = 1; next } grab { sub(/^    /, ""); print }')
+expected_lab_conf='Host virt-host
+  HostName virt-host.example.invalid
+  User your-user
+  Port 22'
+if [[ $lab_conf != "$expected_lab_conf" ]]; then
+  printf 'The console ssh_config does not match the example hosts:\n%s\n' "$lab_conf" >&2
+  exit 1
+fi
+grep -q 'mountPath: /etc/ssh/ssh_config.d/lab.conf' <<<"$shell_container"
+
+# ...and with no hosts there is no ConfigMap and no mount of one.
+no_hosts=$(render --set-json 'admin.console.hosts=[]')
+grep -q 'claimName: admin-console-home' <<<"$no_hosts"
+if grep -q 'admin-console-ssh\|ssh_config.d' <<<"$no_hosts"; then
+  printf 'An empty admin.console.hosts must render no ssh_config ConfigMap or mount\n' >&2
+  exit 1
+fi
+
+# A host alias with a space or a wildcard turns one Host block into a pattern that
+# matches others, so the schema refuses it. The entry is otherwise complete, so a
+# refusal can only be about the name and not about a missing address or user.
+if render --set-json 'admin.console.hosts=[{"name":"a b","address":"h.example.invalid","user":"u"}]' >/dev/null 2>&1; then
+  printf 'The chart accepted a console host name with a space in it\n' >&2
+  exit 1
+fi
+
+# Turning it off removes all of it — above all the binding, which would otherwise
+# stand as cluster-admin held by an account nothing runs as.
+without_console=$(render --set admin.console.enabled=false)
+if grep -v '^ *#' <<<"$without_console" | grep -q 'admin-console\|cluster-admin\|/console/socket'; then
+  printf 'Disabling the console must remove its Deployment, Service, account, claim,\n' >&2
+  printf 'binding, ssh_config and route rule\n' >&2
+  exit 1
+fi
+
+# The shared tag check above already covers this image, but say it plainly: the
+# console rides the release tag, never latest.
+console_image=$(grep -E '^ +image: .*admin-console:' <<<"$console_pod")
+if [[ -z $console_image ]] || grep -q ':latest' <<<"$console_image"; then
+  printf 'The console image must carry the release tag; it reads [%s]\n' "$console_image" >&2
   exit 1
 fi
 

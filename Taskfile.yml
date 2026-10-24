@@ -13,7 +13,8 @@ version: '3'
 # that quietly ran in the wrong place is worse than one honest exception, so
 # `task check` renders the manifests and CI validates them.
 #
-# `admin-agent:test` does use `docker run`, and is not a second exception to that.
+# `admin-agent:test` and `admin-console:test` do use `docker run`, and are not
+# more exceptions to that.
 # The difference is that kubeconform has a host-side alternative and this does not:
 # the agent's flows are exercised by dolphin, which needs an Octo runtime, and
 # there is no Go toolchain or Octo binary in this repository to give it one. So the
@@ -35,6 +36,9 @@ includes:
   admin-agent:
     taskfile: ./admin/agent/Taskfile.yml
     dir: ./admin/agent
+  admin-console:
+    taskfile: ./admin/console/Taskfile.yml
+    dir: ./admin/console
 
 vars:
   # Pinned so a local run and a CI run resolve the same tool. These match the
@@ -65,6 +69,7 @@ tasks:
       - task: admin-web:lint
       - task: admin-web:typecheck
       - task: admin-agent:lint
+      - task: admin-console:lint
 
   test:
     desc: Run the module tests and the repository regression tests
@@ -72,6 +77,7 @@ tasks:
       - task: admin-api:test
       - task: admin-web:test
       - task: admin-agent:test
+      - task: admin-console:test
       - task: tests:inventory
       - task: tests:databases
       - task: tests:chart
@@ -88,6 +94,7 @@ tasks:
       - task: admin-api:build
       - task: admin-web:build
       - task: admin-agent:build
+      - task: admin-console:build
 
   # --- Terraform ------------------------------------------------------------
 

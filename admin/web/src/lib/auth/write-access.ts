@@ -31,3 +31,27 @@ export function permitsWrite(allowlist: string[], email: string | null | undefin
 	if (!email) return false;
 	return allowlist.includes(email.trim().toLowerCase());
 }
+
+/**
+ * Whether `email` may open the console, which is a cluster-admin shell.
+ *
+ * Stricter than `permitsWrite` in one place, and on purpose: an empty allowlist
+ * means "every operator may write" for the panel, but for the console it means
+ * nobody — unless the install says otherwise with `allowAnyOperator`. Handing the
+ * cluster to whoever can sign in should be a decision someone wrote down, not
+ * what an unset variable quietly does. With an allowlist, the rule is the
+ * panel's own.
+ */
+export function permitsConsole(
+	allowlist: string[],
+	email: string | null | undefined,
+	allowAnyOperator: boolean,
+): boolean {
+	if (allowlist.length === 0) return allowAnyOperator;
+	return permitsWrite(allowlist, email);
+}
+
+/** The opt-in above, as the environment carries it. Anything but "true" is no. */
+export function consoleAllowsAnyOperator(raw: string | undefined): boolean {
+	return raw?.trim().toLowerCase() === "true";
+}

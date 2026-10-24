@@ -1,0 +1,143 @@
+{{- if .Values.admin.console.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-console
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-console
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  # One, because the point of tmux is that a session is still there when the
+  # browser comes back, and a second pod would be a second set of sessions that a
+  # reconnect lands in half the time.
+  replicas: 1
+  # Recreate for the same reason the agent's is: the home volume is
+  # ReadWriteOnce, and a rolling update would start the new pod while the old one
+  # still holds it -- on a single node that works and quietly runs two tmux
+  # servers over one history file, and across nodes it hangs the rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: admin-console
+      {{- with .Values.admin.console.hosts }}
+      # A subPath mount never sees a ConfigMap update, so a changed host list
+      # reaches the shell only by replacing the pod, and this is what does that.
+      annotations:
+        checksum/ssh-config: {{ include (print $.Template.BasePath "/console/ssh-config.yaml") $ | sha256sum }}
+      {{- end }}
+    spec:
+      # This pod is the one place in the chart that is meant to hold a cluster
+      # credential worth having: its ServiceAccount is bound to cluster-admin, see
+      # rbac.yaml. kubectl in the shell finds the token where it always looks.
+      serviceAccountName: admin-console
+      {{- with .Values.admin.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        # The same reason as the agent's: the NFS provisioner hands over a
+        # directory, and fsGroup is what makes it writable by this uid on a server
+        # that maps groups rather than users.
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # The only way in. It authorizes the WebSocket upgrade against the panel's
+        # session cookie and the write allowlist, and only then opens a connection
+        # to ttyd on loopback -- which is reachable from here and from nowhere else,
+        # because the two containers share the pod's network namespace and ttyd
+        # never binds anything wider.
+        - name: gate
+          image: {{ include "home-lab-admin.webImage" . | quote }}
+          imagePullPolicy: {{ .Values.admin.web.image.pullPolicy }}
+          command:
+            - node
+            - console-gate.mjs
+          env:
+            {{- include "home-lab-admin.authEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            # Slower than readiness on purpose: readiness taking a pod out of
+            # rotation is cheap, restarting it drops every open terminal.
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+        # ttyd and tmux. Deliberately no `ports`: it listens on 127.0.0.1 only, and
+        # declaring one would advertise a port that a Service could be pointed at
+        # by mistake -- the one way round the gate.
+        - name: shell
+          image: {{ include "home-lab-admin.consoleImage" . | quote }}
+          imagePullPolicy: {{ .Values.admin.console.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: /home/lab
+          resources:
+            {{- toYaml .Values.admin.console.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            # Everything worth keeping lives here, so the root filesystem can stay
+            # read-only: anything installed or written by hand belongs in the home
+            # directory, where it survives the next rollout.
+            - name: home
+              mountPath: /home/lab
+            # tmux keeps its server socket here.
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.admin.console.hosts }}
+            - name: ssh-config
+              mountPath: /etc/ssh/ssh_config.d/lab.conf
+              subPath: lab.conf
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: admin-console-home
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.admin.console.hosts }}
+        - name: ssh-config
+          configMap:
+            name: admin-console-ssh
+        {{- end }}
+{{- end }}

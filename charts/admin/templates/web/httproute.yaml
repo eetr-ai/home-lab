@@ -24,6 +24,20 @@ spec:
   hostnames:
     - {{ required "admin.web.hostname is required" .Values.admin.web.hostname | quote }}
   rules:
+    {{- if .Values.admin.console.enabled }}
+    # The console's terminal, which is a WebSocket the panel's server does not
+    # handle. It goes to the console's gate, which checks the same session cookie
+    # the panel would and then hands the connection to the shell. Longest prefix
+    # wins in a Gateway, so this takes the path from the rule below rather than
+    # competing with it.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /console/socket
+      backendRefs:
+        - name: admin-console
+          port: 8080
+    {{- end }}
     - matches:
         - path:
             type: PathPrefix
