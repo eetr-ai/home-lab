@@ -1,11 +1,12 @@
 import { getToken } from "@auth/core/jwt";
-import { permitsWrite } from "@/lib/auth/write-access";
+import { permitsConsole } from "@/lib/auth/write-access";
 
 /**
  * Whether an upgrade request may have a shell.
  *
  * The console is a cluster-admin shell, so the rule is the strictest one the panel
- * has: a live session, on the write allowlist, from the panel's own origin. The
+ * has: a live session, on the write allowlist, from the panel's own origin — and
+ * an empty allowlist is closed rather than open (see `permitsConsole`). The
  * session is read straight from the Auth.js cookie — the same sealed JWT the panel
  * reads, decrypted with the same AUTH_SECRET — because a raw socket upgrade never
  * passes through Next and so cannot ask it.
@@ -22,8 +23,10 @@ export interface GateConfig {
 	secret: string;
 	/** The panel's public URL (AUTH_URL). Its origin is the only one admitted. */
 	panelUrl: string;
-	/** The parsed ADMIN_WRITE_EMAILS. Empty admits every signed-in operator. */
+	/** The parsed ADMIN_WRITE_EMAILS. Empty admits nobody, unless the next is set. */
 	allowlist: string[];
+	/** ADMIN_CONSOLE_ALLOW_ANY_OPERATOR: an empty allowlist admits every operator. */
+	allowAnyOperator: boolean;
 }
 
 export type Verdict =
@@ -57,8 +60,15 @@ export async function authorize(
 	}
 
 	const email = typeof token.email === "string" ? token.email : null;
-	if (!permitsWrite(config.allowlist, email)) {
-		return { ok: false, status: 403, reason: "the console needs write access to the panel" };
+	if (!permitsConsole(config.allowlist, email, config.allowAnyOperator)) {
+		return {
+			ok: false,
+			status: 403,
+			reason:
+				config.allowlist.length === 0
+					? "the console is closed until ADMIN_WRITE_EMAILS names who may use it"
+					: "the console needs write access to the panel",
+		};
 	}
 	return { ok: true, email };
 }

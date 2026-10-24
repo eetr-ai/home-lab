@@ -494,6 +494,13 @@ admin:
   console:
     enabled: true
 
+    # What an empty admin.web.writeEmails means for the console. For the panel it
+    # means every operator may write; for a cluster-admin shell that is too much to
+    # happen by omission, so the console stays closed until writeEmails names
+    # someone -- or until this says, in writing, that every operator who can sign
+    # in should have it. Ignored once writeEmails is set.
+    allowAnyOperator: false
+
     image:
       repository: registry.example.invalid/home-lab/admin-console
       pullPolicy: IfNotPresent

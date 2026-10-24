@@ -499,9 +499,14 @@ console's ServiceAccount is bound to the built-in `cluster-admin` ClusterRole, a
 the pod has no egress NetworkPolicy, because managing the lab is what it is for:
 `kubectl` against anything, `ssh` to the host and the machines beside it. The gate
 admits exactly the operators `admin.web.writeEmails` lets write, so **every
-address on that list is a cluster-admin**, and an unset list makes everybody who
-can sign in one. If anyone holds the panel read-only for a reason, check the list
-before installing.
+address on that list is a cluster-admin**.
+
+An unset list is where the console parts ways with the rest of the panel. There
+it means every operator may write; here it means **the console is closed** — the
+page says so and the gate refuses every socket — because handing the cluster to
+whoever can sign in should be written down, not the result of a missing value.
+Set `admin.web.writeEmails`, or set `admin.console.allowAnyOperator: true` to
+open it to every operator deliberately.
 
 **The gate is the only way in, and that rests on two things.** The pod runs two
 containers: `gate`, from the panel's image, which checks the session cookie and

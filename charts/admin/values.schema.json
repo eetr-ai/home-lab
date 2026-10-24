@@ -399,6 +399,9 @@
             "enabled": {
               "type": "boolean"
             },
+            "allowAnyOperator": {
+              "type": "boolean"
+            },
             "image": {
               "$ref": "#/$defs/image"
             },

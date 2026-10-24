@@ -96,4 +96,10 @@ for the gate to drift from the panel it is supposed to agree with.
 - name: ADMIN_WRITE_EMAILS
   value: {{ . | quote }}
 {{- end }}
+# The console's rule for an empty allowlist: closed, unless this opens it. The
+# panel needs it as much as the gate does, to say why the page has no terminal.
+{{- if .Values.admin.console.allowAnyOperator }}
+- name: ADMIN_CONSOLE_ALLOW_ANY_OPERATOR
+  value: "true"
+{{- end }}
 {{- end }}

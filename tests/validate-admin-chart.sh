@@ -1485,6 +1485,27 @@ if ! grep -q 'value: "ops@test.invalid"' <<<"$gate_allowlist"; then
   exit 1
 fi
 
+# An empty allowlist keeps the console closed, so the opt-in that opens it must
+# reach both the gate (which enforces it) and the panel (which explains it), and
+# must be absent unless asked for.
+if grep -q 'ADMIN_CONSOLE_ALLOW_ANY_OPERATOR' <<<"$(render)"; then
+  printf 'The console must not be opened to every operator by default\n' >&2
+  exit 1
+fi
+for name in gate web; do
+  if [[ $name == gate ]]; then
+    block=$(render --set admin.console.allowAnyOperator=true \
+      --show-only templates/console/deployment.yaml | container_named gate)
+  else
+    block=$(render --set admin.console.allowAnyOperator=true \
+      --show-only templates/web/deployment.yaml)
+  fi
+  if ! grep -A1 'name: ADMIN_CONSOLE_ALLOW_ANY_OPERATOR' <<<"$block" | grep -q 'value: "true"'; then
+    printf 'admin.console.allowAnyOperator must reach the %s container\n' "$name" >&2
+    exit 1
+  fi
+done
+
 # The panel's route sends the socket to the gate. Read as the rule's own backend
 # rather than as two greps of the route, which would pass on a rule for the path
 # that still pointed at admin-web.

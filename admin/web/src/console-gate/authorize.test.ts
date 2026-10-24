@@ -6,7 +6,12 @@ const SECRET = "a-test-secret-that-is-long-enough-for-hkdf-0123456789";
 const PANEL = "https://admin.example.invalid";
 const COOKIE = "__Secure-authjs.session-token";
 
-const config: GateConfig = { secret: SECRET, panelUrl: PANEL, allowlist: [] };
+const config: GateConfig = {
+	secret: SECRET,
+	panelUrl: PANEL,
+	allowlist: [],
+	allowAnyOperator: true,
+};
 
 /** A session cookie exactly as Auth.js would seal it. */
 async function seal(
@@ -109,6 +114,21 @@ describe("authorize", () => {
 				ok: false,
 				status: 403,
 			});
+		});
+	});
+
+	describe("with no allowlist", () => {
+		it("is closed unless the install opted every operator in", async () => {
+			const cookie = await seal({ email: "op@example.invalid" });
+			const closed = { ...config, allowAnyOperator: false };
+			const verdict = await authorize(request(cookie), closed);
+			expect(verdict).toMatchObject({ ok: false, status: 403 });
+			if (!verdict.ok) expect(verdict.reason).toContain("ADMIN_WRITE_EMAILS");
+		});
+
+		it("admits any signed-in operator once opted in", async () => {
+			const cookie = await seal({ email: "op@example.invalid" });
+			expect(await authorize(request(cookie), config)).toMatchObject({ ok: true });
 		});
 	});
 });

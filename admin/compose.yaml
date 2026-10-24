@@ -64,6 +64,9 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set OIDC_CLIENT_SECRET in admin/.env}
       OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-Eetr Auth}
       ADMIN_WRITE_EMAILS: ${ADMIN_WRITE_EMAILS:-}
+      # The console stays closed while ADMIN_WRITE_EMAILS is empty. Set one or the
+      # other in admin/.env to use it locally.
+      ADMIN_CONSOLE_ALLOW_ANY_OPERATOR: ${ADMIN_CONSOLE_ALLOW_ANY_OPERATOR:-false}
       # Service name, not localhost: this call is made by the panel's server, which
       # is inside the compose network.
       ADMIN_API_URL: http://api:8090
@@ -150,6 +153,7 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in admin/.env — generate one with `openssl rand -base64 32`}
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       ADMIN_WRITE_EMAILS: ${ADMIN_WRITE_EMAILS:-}
+      ADMIN_CONSOLE_ALLOW_ANY_OPERATOR: ${ADMIN_CONSOLE_ALLOW_ANY_OPERATOR:-false}
     depends_on:
       - console
     restart: unless-stopped

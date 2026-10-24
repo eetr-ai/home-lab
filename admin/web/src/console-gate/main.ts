@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, STATUS_CODES } from "node:http";
 import { connect, type Socket } from "node:net";
-import { writeAllowlist } from "@/lib/auth/write-access";
+import { consoleAllowsAnyOperator, writeAllowlist } from "@/lib/auth/write-access";
 import { authorize, type GateConfig } from "./authorize";
 import { sessionName } from "@/lib/console/session-name";
 import { upstreamHead } from "./upstream";
@@ -25,6 +25,7 @@ const config: GateConfig = {
 	secret: required("AUTH_SECRET"),
 	panelUrl: required("AUTH_URL"),
 	allowlist: writeAllowlist(process.env.ADMIN_WRITE_EMAILS),
+	allowAnyOperator: consoleAllowsAnyOperator(process.env.ADMIN_CONSOLE_ALLOW_ANY_OPERATOR),
 };
 // Not PORT: the panel's image sets that to 3000 for Next, and this runs from the
 // same image. Reading it would put the gate on the panel's port and leave the
@@ -111,4 +112,16 @@ function required(name: string): string {
 	return value;
 }
 
-server.listen(port, () => console.log(`console gate: listening on :${port}`));
+server.listen(port, () => {
+	console.log(`console gate: listening on :${port}`);
+	// Said at startup because it is the whole access rule. A closed console still
+	// starts — refusing every socket with a reason beats a crash loop — but its
+	// log says why nobody can get in.
+	console.log(
+		config.allowlist.length > 0
+			? `console gate: shells for the ${config.allowlist.length} address(es) in ADMIN_WRITE_EMAILS`
+			: config.allowAnyOperator
+				? "console gate: ADMIN_CONSOLE_ALLOW_ANY_OPERATOR is set — every operator who can sign in gets a cluster-admin shell"
+				: "console gate: CLOSED — ADMIN_WRITE_EMAILS is empty; set it, or ADMIN_CONSOLE_ALLOW_ANY_OPERATOR=true",
+	);
+});
