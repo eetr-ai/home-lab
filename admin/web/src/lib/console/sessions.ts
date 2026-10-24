@@ -72,3 +72,30 @@ export function restoreSessions(stored: string | null): SessionsState {
 	const sessions = names.length > 0 ? names : [DEFAULT_SESSION];
 	return { sessions, active: sessions[0] };
 }
+
+/**
+ * Where a key pressed on a focused tab moves focus, the ARIA tablist way: arrows
+ * step and wrap, Home and End jump to the ends. Null for any other key, so the
+ * caller leaves it alone.
+ */
+export function tabKeyTarget(sessions: string[], current: string, key: string): string | null {
+	const index = sessions.indexOf(current);
+	if (index === -1 || sessions.length === 0) return null;
+	switch (key) {
+		case "ArrowRight":
+			return sessions[(index + 1) % sessions.length];
+		case "ArrowLeft":
+			return sessions[(index - 1 + sessions.length) % sessions.length];
+		case "Home":
+			return sessions[0];
+		case "End":
+			return sessions[sessions.length - 1];
+		default:
+			return null;
+	}
+}
+
+/** The ids that tie a tab to its panel, for aria-controls and aria-labelledby. */
+export function tabIds(name: string): { tab: string; panel: string } {
+	return { tab: `console-tab-${name}`, panel: `console-panel-${name}` };
+}

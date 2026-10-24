@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { RotateCw } from "lucide-react";
 import { Button, Spinner, cn } from "@/components/ui";
+import { tabIds } from "@/lib/console/sessions";
 import { useTtydSocket } from "./use-ttyd-socket";
 import { useXterm } from "./use-xterm";
 
@@ -24,6 +25,7 @@ const MESSAGES = {
 /** One session's terminal, with its connection state laid over it when it is not live. */
 export function TerminalPane({ name, socketBase, visible, onEnded }: TerminalPaneProps) {
 	const host = useRef<HTMLDivElement>(null);
+	const ids = tabIds(name);
 	const xterm = useXterm(host);
 	const { status, reconnect } = useTtydSocket(xterm, name, socketBase, onEnded);
 
@@ -35,7 +37,12 @@ export function TerminalPane({ name, socketBase, visible, onEnded }: TerminalPan
 	}, [visible, xterm]);
 
 	return (
-		<div className={cn("absolute inset-0 p-2", visible ? "block" : "hidden")} aria-hidden={!visible}>
+		<div
+			role="tabpanel"
+			id={ids.panel}
+			aria-labelledby={ids.tab}
+			className={cn("absolute inset-0 p-2", visible ? "block" : "hidden")}
+		>
 			<div ref={host} className="h-full w-full" />
 			{status === "connecting" ? (
 				<div className="absolute right-3 top-3">

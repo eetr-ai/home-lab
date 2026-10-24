@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { nextName, restoreSessions, sessionsReducer, type SessionsState } from "./sessions";
+import {
+	nextName,
+	restoreSessions,
+	sessionsReducer,
+	tabIds,
+	tabKeyTarget,
+	type SessionsState,
+} from "./sessions";
 
 describe("nextName", () => {
 	it("starts with main", () => {
@@ -85,5 +92,42 @@ describe("restoreSessions", () => {
 		expect(restoreSessions("{not json").sessions).toEqual(["main"]);
 		expect(restoreSessions('{"a":1}').sessions).toEqual(["main"]);
 		expect(restoreSessions("[]").sessions).toEqual(["main"]);
+	});
+});
+
+describe("tabKeyTarget", () => {
+	const tabs = ["main", "shell-2", "shell-3"];
+
+	it("steps right and wraps at the end", () => {
+		expect(tabKeyTarget(tabs, "main", "ArrowRight")).toBe("shell-2");
+		expect(tabKeyTarget(tabs, "shell-3", "ArrowRight")).toBe("main");
+	});
+
+	it("steps left and wraps at the start", () => {
+		expect(tabKeyTarget(tabs, "shell-2", "ArrowLeft")).toBe("main");
+		expect(tabKeyTarget(tabs, "main", "ArrowLeft")).toBe("shell-3");
+	});
+
+	it("jumps to the ends", () => {
+		expect(tabKeyTarget(tabs, "shell-2", "Home")).toBe("main");
+		expect(tabKeyTarget(tabs, "shell-2", "End")).toBe("shell-3");
+	});
+
+	it("leaves every other key alone", () => {
+		expect(tabKeyTarget(tabs, "main", "Enter")).toBeNull();
+		expect(tabKeyTarget(tabs, "main", "a")).toBeNull();
+	});
+
+	it("does nothing for a tab that is not open", () => {
+		expect(tabKeyTarget(tabs, "gone", "ArrowRight")).toBeNull();
+	});
+});
+
+describe("tabIds", () => {
+	it("gives a tab and its panel distinct ids that name the session", () => {
+		const ids = tabIds("main");
+		expect(ids.tab).not.toBe(ids.panel);
+		expect(ids.tab).toContain("main");
+		expect(ids.panel).toContain("main");
 	});
 });

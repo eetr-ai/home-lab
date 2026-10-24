@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useReducer } from "react";
-import { Plus, SquareTerminal, X } from "lucide-react";
-import { Button, EmptyState, IconButton, cn } from "@/components/ui";
+import { Plus, SquareTerminal } from "lucide-react";
+import { Button, EmptyState } from "@/components/ui";
 import { restoreSessions, sessionsReducer, STORAGE_KEY } from "@/lib/console/sessions";
+import { SessionTabs } from "./session-tabs";
 import { TerminalPane } from "./terminal-pane";
 
 /** Remembered tabs, or none when storage is unavailable (private mode). */
@@ -38,41 +39,13 @@ export function ConsoleWorkspace({ socketBase }: { socketBase: string }) {
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="mb-3 flex flex-wrap items-center gap-1 border-b border-border" role="tablist" aria-label="Sessions">
-				{state.sessions.map((name) => {
-					const active = name === state.active;
-					return (
-						<div
-							key={name}
-							className={cn(
-								"-mb-px flex items-center gap-1 border-b-2 pl-3 pr-1",
-								active ? "border-brand text-foreground" : "border-transparent text-muted-foreground",
-							)}
-						>
-							<button
-								type="button"
-								role="tab"
-								aria-selected={active}
-								onClick={() => dispatch({ type: "select", name })}
-								className="py-2 font-mono text-sm hover:text-foreground"
-							>
-								{name}
-							</button>
-							<IconButton
-								type="button"
-								aria-label={`Close ${name} (the session keeps running)`}
-								title="Close the tab; the session keeps running"
-								onClick={() => dispatch({ type: "close", name })}
-							>
-								<X className="h-3.5 w-3.5" />
-							</IconButton>
-						</div>
-					);
-				})}
-				<IconButton type="button" aria-label="New session" title="New session" onClick={open} className="ml-1">
-					<Plus className="h-4 w-4" />
-				</IconButton>
-			</div>
+			<SessionTabs
+				sessions={state.sessions}
+				active={state.active}
+				onSelect={(name) => dispatch({ type: "select", name })}
+				onClose={(name) => dispatch({ type: "close", name })}
+				onOpen={open}
+			/>
 
 			{state.sessions.length > 0 ? (
 				<div className="relative min-h-0 flex-1 overflow-hidden rounded-card border border-border bg-terminal-background">
