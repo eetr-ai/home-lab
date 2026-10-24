@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.8.0...admin-v1.9.0) (2026-10-24)
+
+
+### Features
+
+* **admin:** a Console section with multi-session terminals on a cluster-admin pod ([#113](https://github.com/eetr-ai/home-lab/issues/113)) ([9f7fe57](https://github.com/eetr-ai/home-lab/commit/9f7fe57862117a0995d786960a7f43dd62d28c46))
+* **admin:** save Helm values with Ctrl/Cmd+S ([#114](https://github.com/eetr-ai/home-lab/issues/114)) ([a3dcd7a](https://github.com/eetr-ai/home-lab/commit/a3dcd7af13ad849fd6bc9b1271ded20f12b1a6a6))
+
 ## [1.8.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.7.2...admin-v1.8.0) (2026-10-15)
 
 
