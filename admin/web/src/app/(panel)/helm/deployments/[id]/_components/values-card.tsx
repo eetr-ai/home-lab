@@ -154,6 +154,7 @@ export function ValuesCard({
 						variant="secondary"
 						icon={Save}
 						onClick={save}
+						title="Save version (Ctrl/Cmd+S in the editor)"
 						disabled={!dirty || !versioned || busy !== null}
 						loading={busy === "saving"}
 					>
@@ -176,7 +177,16 @@ export function ValuesCard({
 
 			<Banner variant="error" message={error} />
 
-			<YamlEditor value={draft} onChange={setDraft} minHeight="22rem" />
+			<YamlEditor
+				value={draft}
+				onChange={setDraft}
+				// The shortcut does what the Save button would, and nothing when the
+				// button is disabled — a keystroke must not save what a click could not.
+				onSave={() => {
+					if (dirty && versioned && busy === null) void save();
+				}}
+				minHeight="22rem"
+			/>
 
 			<div className="mt-3">
 				<Checkbox

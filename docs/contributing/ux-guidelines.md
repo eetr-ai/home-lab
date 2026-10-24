@@ -334,6 +334,11 @@ component library, invisible: every colour comes from `theme.css` role tokens vi
 `yaml-editor-theme.ts`, so it follows light and dark with the rest of the panel
 and no palette lives in TypeScript.
 
+Ctrl/Cmd+S in the editor saves a version, exactly as the Save button would and
+never when the button is disabled. While the editor has focus the chord is
+always taken from the browser, whose "save page" is never what someone editing
+values meant.
+
 What it is *not* is a general licence to reach for an editor. It renders one
 kind of document on two surfaces, and anything else that wants rich text should
 be a `textarea` until there is an argument this specific.
