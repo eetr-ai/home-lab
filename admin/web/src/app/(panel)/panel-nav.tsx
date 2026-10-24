@@ -12,6 +12,7 @@ import {
 	PanelLeftOpen,
 	ServerCog,
 	ShipWheel,
+	SquareTerminal,
 } from "lucide-react";
 import { endSession } from "@/app/actions/session";
 import { ThemeSwitcher } from "@/app/theme-switcher";
@@ -59,6 +60,9 @@ const navItems: NavItem[] = [
 	// of record. What is running comes from the cluster; what put it there comes
 	// from Helm.
 	{ href: "/helm", label: "Helm", icon: ShipWheel },
+	// Last because it is the way around everything above it: a shell with the
+	// cluster's keys, for whatever the panel has no page for yet.
+	{ href: "/console", label: "Console", icon: SquareTerminal },
 ];
 
 export function PanelNav({ email }: { email: string }) {

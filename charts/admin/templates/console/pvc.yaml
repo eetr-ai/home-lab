@@ -1,0 +1,31 @@
+{{- if .Values.admin.console.enabled }}
+# The console's home directory, /home/lab, whole.
+#
+# The ssh key generated on first use is the thing that matters most in here: it is
+# what every host's authorized_keys names, so losing it is a trip round every
+# machine to register a new one. History, kubeconfigs and checkouts come along.
+#
+# The NFS class, so a pod rescheduled onto another node still finds it.
+# ReadWriteOnce, because one pod uses it and the Deployment is Recreate.
+#
+# Deleting this PVC leaves the directory on the export as `archived-<name>`
+# rather than destroying it, which for a volume holding a private key is worth
+# knowing: removing the console does not remove the key. Recoverable, not
+# reclaimed — and the class's reclaimPolicy stays `Delete` for that to work at
+# all; see charts/platform/values.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: admin-console-home
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-console
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.admin.console.storage.className | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.admin.console.storage.size }}
+{{- end }}

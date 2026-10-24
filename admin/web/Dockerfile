@@ -18,6 +18,10 @@ COPY . .
 # Telemetry is off because a build should not phone home from CI.
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
+# The console gate is not part of the Next app: a standalone node:http server the
+# console pod runs from this same image. Bundled to one file with its
+# dependencies, because the standalone output only carries what Next traced.
+RUN npm run build:gate
 
 # `output: "standalone"` (next.config.ts) emits a server bundle carrying only the
 # dependencies it actually traced, so the runtime image installs nothing. The
@@ -35,6 +39,7 @@ RUN addgroup -g 65532 -S nonroot && adduser -u 65532 -S -G nonroot nonroot
 
 COPY --from=build --chown=nonroot:nonroot /src/.next/standalone ./
 COPY --from=build --chown=nonroot:nonroot /src/.next/static ./.next/static
+COPY --from=build --chown=nonroot:nonroot /src/dist/console-gate.mjs ./console-gate.mjs
 
 EXPOSE 3000
 USER nonroot:nonroot

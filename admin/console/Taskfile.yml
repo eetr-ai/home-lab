@@ -1,0 +1,42 @@
+version: '3'
+
+# Tasks for the admin console image. Meant to be included from the root Taskfile
+# under the `admin-console:` namespace with the working directory set to
+# admin/console, so every path here is relative to it.
+
+vars:
+  IMAGE: '{{.CONSOLE_IMAGE | default "home-lab/admin-console"}}'
+  TAG: '{{.CONSOLE_TAG | default "dev"}}'
+
+tasks:
+  lint:
+    desc: Shellcheck the console scripts and check the image carries what they use
+    cmds:
+      - ./lint.sh
+
+  test:
+    desc: Build the console image and run the smoke checks inside it
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    preconditions:
+      # Named here rather than left to a build failure, because "Cannot connect to
+      # the Docker daemon" in the middle of `task check` reads as the check being
+      # broken rather than as Docker not running.
+      - sh: docker info >/dev/null 2>&1
+        msg: 'Docker is not running. The console checks need it: they run inside the image they test.'
+    cmds:
+      # A fixed tag rather than {{.TAG}}: what is under test is the working tree,
+      # never whatever happens to be tagged. The script goes in on stdin rather
+      # than as a mount so a remote Docker context works too.
+      - docker build -t home-lab/admin-console:test .
+      - docker run --rm -i --entrypoint sh home-lab/admin-console:test -s < smoke.sh
+
+  build:
+    desc: 'Build the console image (task admin-console:build CONSOLE_TAG=0.1.0)'
+    # DOCKER_CONTEXT is pinned for the same reason every other local task pins it:
+    # databases/README.md has you point your context at the virtualization host,
+    # and a build that quietly ran there is worse than one honest override.
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - docker build -t '{{.IMAGE}}:{{.TAG}}' .

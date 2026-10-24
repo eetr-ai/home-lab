@@ -1,0 +1,25 @@
+{{- if and .Values.admin.console.enabled .Values.admin.console.hosts }}
+# The lab's machines by name, so `ssh <name>` in the console needs nothing but a
+# key the host already trusts. Mounted at /etc/ssh/ssh_config.d/lab.conf, which
+# the stock ssh_config includes, so the operator's own ~/.ssh/config still wins
+# for anything it also names.
+#
+# Not rendered at all when the list is empty: an empty file would be harmless, but
+# a ConfigMap nothing needs is one more thing to wonder about.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-console-ssh
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-console
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+data:
+  lab.conf: |
+    {{- range .Values.admin.console.hosts }}
+    Host {{ .name }}
+      HostName {{ .address }}
+      User {{ .user }}
+      Port {{ .port | default 22 }}
+    {{- end }}
+{{- end }}

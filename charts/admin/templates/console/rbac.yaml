@@ -1,0 +1,39 @@
+{{- if .Values.admin.console.enabled }}
+{{- /*
+cluster-admin, bound to the console's ServiceAccount and to nothing else.
+
+READ THIS BEFORE ASSUMING THE PANEL'S RBAC IS WHAT BOUNDS IT.
+
+The console is for managing the whole lab, so it holds the whole cluster: no
+ClusterRole written here could be narrower than "whatever the operator needs
+next" without being wrong the day they need it. That moves the boundary rather
+than removing it, and it is worth being exact about where it went:
+
+  - admin.web.writeEmails is now the cluster-admin boundary, not only the panel's
+    write boundary. The gate admits exactly who the panel lets write, so an
+    address on that list is a cluster-admin. An unset list admits every operator
+    who can sign in.
+  - The gate is the only way in because ttyd binds 127.0.0.1. The shell container
+    declares no port and the Service targets the gate's; a change that binds
+    ttyd wider, or points a Service at it, removes the authentication entirely
+    and leaves this binding in place.
+
+tests/validate-admin-chart.sh holds this binding to one subject, admin-console,
+and fails if anything else in the release refers to cluster-admin.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-console-admin
+  labels:
+    app.kubernetes.io/name: admin-console
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: admin-console
+    namespace: {{ .Release.Namespace }}
+{{- end }}

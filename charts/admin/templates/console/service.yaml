@@ -1,0 +1,19 @@
+{{- if .Values.admin.console.enabled }}
+# The gate's port and nothing else. The panel's route sends /console/socket here,
+# and the gate is what decides whether that request reaches a shell.
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-console
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: admin-console
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: admin-console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

@@ -129,6 +129,32 @@
 	--editor-selection: rgb(44 82 130 / 0.18);
 	--editor-active-line: rgb(15 23 42 / 0.04);
 
+	/* Terminal, for the console. xterm.js draws to a canvas rather than taking
+	   CSS, so lib/console/theme.ts reads these computed values and hands them
+	   over — re-reading on a theme change. Sixteen ANSI colours because programs
+	   pick from all sixteen; "white" is darkened here so it stays legible on a
+	   light background. */
+	--terminal-background: var(--gray-50);
+	--terminal-foreground: var(--gray-950);
+	--terminal-cursor: var(--brand-600);
+	--terminal-selection: rgb(44 82 130 / 0.22);
+	--terminal-black: var(--gray-900);
+	--terminal-red: var(--red-700);
+	--terminal-green: var(--green-700);
+	--terminal-yellow: var(--amber-700);
+	--terminal-blue: var(--blue-700);
+	--terminal-magenta: #a21caf;
+	--terminal-cyan: #0e7490;
+	--terminal-white: var(--gray-500);
+	--terminal-bright-black: var(--gray-500);
+	--terminal-bright-red: var(--red-600);
+	--terminal-bright-green: var(--green-600);
+	--terminal-bright-yellow: #ca8a04;
+	--terminal-bright-blue: #2563eb;
+	--terminal-bright-magenta: #c026d3;
+	--terminal-bright-cyan: #0891b2;
+	--terminal-bright-white: var(--gray-700);
+
 }
 
 /* ── Tier 2: roles — dark ────────────────────────────────────────────────── */
@@ -180,6 +206,27 @@
 	--editor-selection: rgb(125 211 252 / 0.22);
 	--editor-active-line: rgb(255 255 255 / 0.05);
 
+	--terminal-background: var(--ink-900);
+	--terminal-foreground: #fafafa;
+	--terminal-cursor: #7dd3fc;
+	--terminal-selection: rgb(125 211 252 / 0.25);
+	--terminal-black: #27272a;
+	--terminal-red: var(--red-400-dk);
+	--terminal-green: var(--green-400-dk);
+	--terminal-yellow: #fcd34d;
+	--terminal-blue: #60a5fa;
+	--terminal-magenta: #e879f9;
+	--terminal-cyan: #22d3ee;
+	--terminal-white: #d4d4d8;
+	--terminal-bright-black: #71717a;
+	--terminal-bright-red: var(--red-300);
+	--terminal-bright-green: var(--green-300);
+	--terminal-bright-yellow: var(--amber-200-dk);
+	--terminal-bright-blue: #93c5fd;
+	--terminal-bright-magenta: #f0abfc;
+	--terminal-bright-cyan: #67e8f9;
+	--terminal-bright-white: #fafafa;
+
 }
 
 /* "system" preference fallback for the brief window before the inline script in
@@ -230,6 +277,27 @@
 		--editor-selection: rgb(125 211 252 / 0.22);
 		--editor-active-line: rgb(255 255 255 / 0.05);
 
+		--terminal-background: var(--ink-900);
+		--terminal-foreground: #fafafa;
+		--terminal-cursor: #7dd3fc;
+		--terminal-selection: rgb(125 211 252 / 0.25);
+		--terminal-black: #27272a;
+		--terminal-red: var(--red-400-dk);
+		--terminal-green: var(--green-400-dk);
+		--terminal-yellow: #fcd34d;
+		--terminal-blue: #60a5fa;
+		--terminal-magenta: #e879f9;
+		--terminal-cyan: #22d3ee;
+		--terminal-white: #d4d4d8;
+		--terminal-bright-black: #71717a;
+		--terminal-bright-red: var(--red-300);
+		--terminal-bright-green: var(--green-300);
+		--terminal-bright-yellow: var(--amber-200-dk);
+		--terminal-bright-blue: #93c5fd;
+		--terminal-bright-magenta: #f0abfc;
+		--terminal-bright-cyan: #67e8f9;
+		--terminal-bright-white: #fafafa;
+
 	}
 }
 
@@ -271,6 +339,8 @@
 	--color-danger-icon: var(--danger-icon);
 
 	--color-scrim: var(--scrim);
+
+	--color-terminal-background: var(--terminal-background);
 
 	/* Radius scale. Named for intent rather than size so Tailwind's own
 	   rounded-sm|md|lg scale stays untouched. Buttons keep rounded-full. */

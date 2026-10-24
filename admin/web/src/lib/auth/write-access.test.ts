@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { permitsWrite, writeAllowlist } from "./write-access";
+import {
+	consoleAllowsAnyOperator,
+	permitsConsole,
+	permitsWrite,
+	writeAllowlist,
+} from "./write-access";
 
 describe("writeAllowlist", () => {
 	const tests: { name: string; raw: string | undefined; want: string[] }[] = [
@@ -43,4 +48,40 @@ describe("permitsWrite", () => {
 		expect(permitsWrite(allowed, undefined)).toBe(false);
 		expect(permitsWrite(allowed, "")).toBe(false);
 	});
+});
+
+describe("permitsConsole", () => {
+	it("is closed to everyone when the allowlist is empty", () => {
+		expect(permitsConsole([], "anyone@example.invalid", false)).toBe(false);
+		expect(permitsConsole([], undefined, false)).toBe(false);
+	});
+
+	it("opens to every operator with an empty allowlist only when told to", () => {
+		expect(permitsConsole([], "anyone@example.invalid", true)).toBe(true);
+	});
+
+	it("follows the allowlist when there is one, whatever the opt-in says", () => {
+		const allowed = ["one@example.invalid"];
+		expect(permitsConsole(allowed, "ONE@example.invalid", false)).toBe(true);
+		expect(permitsConsole(allowed, "two@example.invalid", true)).toBe(false);
+		expect(permitsConsole(allowed, undefined, true)).toBe(false);
+	});
+});
+
+describe("consoleAllowsAnyOperator", () => {
+	const tests: { raw: string | undefined; want: boolean }[] = [
+		{ raw: undefined, want: false },
+		{ raw: "", want: false },
+		{ raw: "false", want: false },
+		{ raw: "1", want: false },
+		{ raw: "yes", want: false },
+		{ raw: "true", want: true },
+		{ raw: " TRUE ", want: true },
+	];
+
+	for (const { raw, want } of tests) {
+		it(`${JSON.stringify(raw)} is ${want}`, () => {
+			expect(consoleAllowsAnyOperator(raw)).toBe(want);
+		});
+	}
 });

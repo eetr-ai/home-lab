@@ -12,13 +12,13 @@ admin:
   # in the release namespace, and the installer checks before Helm runs.
   imagePullSecrets: []
 
-  # One tag for all three images, and normally not set at all.
+  # One tag for every image, and normally not set at all.
   #
-  # The API, the panel and the agent are built from one commit by one pipeline
-  # and pushed under one tag, so a per-component tag could only ever express a
-  # mistake: three keys where the build produces one value is three chances to
-  # deploy a mismatched set and no way to express anything the pipeline can
-  # actually produce.
+  # The API, the panel, the agent and the console are built from one commit by
+  # one pipeline and pushed under one tag, so a per-component tag could only ever
+  # express a mistake: a key per image where the build produces one value is that
+  # many chances to deploy a mismatched set and no way to express anything the
+  # pipeline can actually produce.
   #
   # Empty means "the chart's appVersion", which is the same version the images
   # were published under -- release admin-v1.4.0 publishes chart 1.4.0 and images
@@ -475,3 +475,59 @@ admin:
         memory: 64Mi
       limits:
         memory: 256Mi
+
+  # A terminal in the cluster, for managing the whole lab from the panel.
+  #
+  # One pod, two containers. `gate` runs from the panel's image and is the only
+  # thing with a port: it reads the panel's session cookie, refuses anyone outside
+  # admin.web.writeEmails, and only then pipes the WebSocket through to `shell`,
+  # which runs ttyd and tmux bound to loopback. So the panel's route reaches the
+  # gate and nothing can reach the shell except through it.
+  #
+  # ITS SERVICEACCOUNT IS BOUND TO cluster-admin, and the pod has no egress
+  # policy, because managing the lab is what it is for -- kubectl against anything,
+  # ssh to the host and the machines beside it. That makes admin.web.writeEmails
+  # the cluster-admin boundary, not just the panel's write boundary. Set it.
+  #
+  # On by default, like everything else here: a console that is off is a console
+  # nobody tried.
+  console:
+    enabled: true
+
+    # What an empty admin.web.writeEmails means for the console. For the panel it
+    # means every operator may write; for a cluster-admin shell that is too much to
+    # happen by omission, so the console stays closed until writeEmails names
+    # someone -- or until this says, in writing, that every operator who can sign
+    # in should have it. Ignored once writeEmails is set.
+    allowAnyOperator: false
+
+    image:
+      repository: registry.example.invalid/home-lab/admin-console
+      pullPolicy: IfNotPresent
+
+    # The whole home directory, /home/lab: the ssh key generated on first use,
+    # shell history, kubeconfigs, anything cloned. Losing it means registering a
+    # new key on every host, so it is a claim rather than an emptyDir.
+    #
+    # ReadWriteOnce, because the Deployment runs one pod and is Recreate -- two
+    # tmux servers writing one history file is not something worth supporting.
+    storage:
+      className: nfs-client
+      size: 2Gi
+
+    # The machines the console can reach by name, rendered into
+    # /etc/ssh/ssh_config.d/lab.conf as Host blocks, so `ssh <name>` works with no
+    # setup beyond putting the console's public key on the host.
+    #
+    # Empty here because the real addresses belong in values.local.yaml and never
+    # in Git. Each entry is {name, address, user, port}; port defaults to 22.
+    hosts: []
+
+    # Sized for an interactive shell with kubectl, helm and an editor. The ceiling
+    # is for the occasional heavier command, not for the idle tmux server.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 512Mi
