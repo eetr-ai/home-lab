@@ -124,3 +124,41 @@ go sooner. **Run now** starts one immediately, even on a suspended schedule.
 
 Deleting a schedule deletes the CronJob and its runs. **The backups in Drive
 are kept.**
+
+## Restoring
+
+Restoring isn't a button, on purpose. Overwriting a live database should be a
+decision someone makes with the file in front of them. Start with a scratch
+database, check it, and only then touch the real one.
+
+1. **Download the backup.** Find it on the schedule's page under *Backups in
+   Drive*, or in the folder itself. Trashed backups can be restored from Drive's
+   trash for 30 days.
+2. **Restore it somewhere disposable first.** These use the same images the
+   servers run:
+
+   ```bash
+   # PostgreSQL: the roles first, then the database (custom format)
+   docker run --rm -d --name restore-check -e POSTGRES_PASSWORD=check \
+     pgvector/pgvector:0.8.6-pg18-bookworm
+   gunzip -c nightly-postgres-@globals-*.sql.gz |
+     docker exec -i restore-check psql -U postgres
+   docker exec restore-check createdb -U postgres app
+   docker exec -i restore-check pg_restore -U postgres -d app --no-owner \
+     < nightly-postgres-app-*.dump
+
+   # MongoDB: one database per archive
+   docker run --rm -d --name restore-check-mongo mongo:7.0.40-jammy
+   docker exec -i restore-check-mongo mongorestore --archive --gzip \
+     < nightly-mongo-events-*.archive.gz
+   ```
+
+3. **Look at the data, then restore for real.** Use the same commands against
+   the lab's servers, over the Docker context from `databases/README.md`. For
+   PostgreSQL, drop and recreate the database first, or add `--clean` to
+   `pg_restore`. For MongoDB, `mongorestore --drop` replaces the collections it
+   restores.
+
+The globals dump holds every role, with its password verifier. It is as
+sensitive as the data, and so is every file in the folder: keep the folder
+private.
