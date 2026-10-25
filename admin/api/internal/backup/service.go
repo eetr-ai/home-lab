@@ -138,7 +138,9 @@ func (s *Service) Connect(ctx context.Context, request ConnectRequest) (GoogleSt
 			s.logger.Warn("could not revoke the previous Google grant", slog.Any("error", err))
 		}
 	}
-	s.logger.Info("connected Google Drive", slog.String("account", grant.Account))
+	// Without the account: it is somebody's email address, logs outlive the
+	// Secret, and the backups page already says who is connected.
+	s.logger.Info("connected Google Drive")
 	return s.GoogleStatus(ctx)
 }
 

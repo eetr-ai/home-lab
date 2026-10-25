@@ -76,6 +76,10 @@ func (r *Repository) ReadGrant(ctx context.Context) (Grant, error) {
 // Create first and update on a conflict, rather than get-then-decide: the RBAC
 // Role grants create on Secrets generally and update only on this one by name, and
 // a create that loses a race is the one case update exists for.
+//
+// The update carries the existing Secret's resourceVersion. The API server
+// refuses an update without one, so leaving it off made every reconnect fail
+// after the code had already been spent at Google.
 func (r *Repository) WriteGrant(ctx context.Context, grant Grant) error {
 	secrets := r.clientset.CoreV1().Secrets(r.namespace)
 	secret := &corev1.Secret{
@@ -92,10 +96,17 @@ func (r *Repository) WriteGrant(ctx context.Context, grant Grant) error {
 	}
 
 	_, err := secrets.Create(ctx, secret, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
-		_, err = secrets.Update(ctx, secret, metav1.UpdateOptions{})
+	if !apierrors.IsAlreadyExists(err) {
+		return translate(err, "store the Google grant")
 	}
-	return translate(err, "store the Google grant")
+
+	existing, err := secrets.Get(ctx, r.tokenSecret, metav1.GetOptions{})
+	if err != nil {
+		return translate(err, "read the Google grant to replace it")
+	}
+	secret.ResourceVersion = existing.ResourceVersion
+	_, err = secrets.Update(ctx, secret, metav1.UpdateOptions{})
+	return translate(err, "replace the Google grant")
 }
 
 // DeleteGrant forgets the connected account. Forgetting one that is not there is

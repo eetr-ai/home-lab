@@ -1724,7 +1724,7 @@
         },
         "/api/backups/google/access-token": {
             "post": {
-                "description": "A short-lived drive.file token for Google's Picker, which runs in the\noperator's browser and talks to Google directly. Expires within the hour.",
+                "description": "A short-lived drive.file token for Google's Picker, which runs in the\noperator's browser and talks to Google directly. Expires within the hour.\n400 google_refused means the grant was revoked or expired: connect again.",
                 "responses": {
                     "200": {
                         "content": {
@@ -1735,6 +1735,16 @@
                             }
                         },
                         "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "401": {
                         "content": {

@@ -105,10 +105,12 @@ func (h *Handler) disconnectGoogle(w http.ResponseWriter, r *http.Request) {
 //	@Summary		Mint a Picker access token
 //	@Description	A short-lived drive.file token for Google's Picker, which runs in the
 //	@Description	operator's browser and talks to Google directly. Expires within the hour.
+//	@Description	400 google_refused means the grant was revoked or expired: connect again.
 //	@Tags			backups
 //	@Produce		json
 //	@Security		BearerAuth
 //	@Success		200	{object}	backup.AccessToken
+//	@Failure		400	{object}	http.ErrorBody
 //	@Failure		401	{object}	http.ErrorBody
 //	@Failure		409	{object}	http.ErrorBody
 //	@Failure		501	{object}	http.ErrorBody
