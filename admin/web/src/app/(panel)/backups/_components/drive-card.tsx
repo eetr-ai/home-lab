@@ -33,23 +33,35 @@ export function DriveCard({
 	async function connect() {
 		setError(null);
 		setBusy(true);
-		const result = await beginGoogleConnect();
-		if (!result.ok) {
+		try {
+			const result = await beginGoogleConnect();
+			if (!result.ok) {
+				setError(result.error);
+				setBusy(false);
+				return;
+			}
+			// Stays busy: the page is about to be Google's.
+			window.location.assign(result.data.url);
+		} catch {
+			// An action that never answered, as opposed to one that said no.
+			setError("the panel could not reach its server; try again");
 			setBusy(false);
-			setError(result.error);
-			return;
 		}
-		// Stays busy: the page is about to be Google's.
-		window.location.assign(result.data.url);
 	}
 
 	async function disconnect() {
 		setConfirming(false);
+		setError(null);
 		setBusy(true);
-		const result = await disconnectGoogle();
-		setBusy(false);
-		if (!result.ok) setError(result.error);
-		else router.replace("/backups");
+		try {
+			const result = await disconnectGoogle();
+			if (!result.ok) setError(result.error);
+			else router.replace("/backups");
+		} catch {
+			setError("the panel could not reach its server; try again");
+		} finally {
+			setBusy(false);
+		}
 	}
 
 	return (

@@ -39,10 +39,15 @@ export function ScheduleDetail({
 	async function runNow() {
 		setError(null);
 		setStarting(true);
-		const result = await runSchedule(schedule.name);
-		setStarting(false);
-		if (!result.ok) setError(result.error);
-		else router.refresh();
+		try {
+			const result = await runSchedule(schedule.name);
+			if (!result.ok) setError(result.error);
+			else router.refresh();
+		} catch {
+			setError("the panel could not reach its server; try again");
+		} finally {
+			setStarting(false);
+		}
 	}
 
 	return (

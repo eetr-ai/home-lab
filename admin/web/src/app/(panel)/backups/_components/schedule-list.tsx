@@ -45,14 +45,19 @@ export function ScheduleList({
 	async function runNow(name: string) {
 		setError(null);
 		setStarting((current) => new Set(current).add(name));
-		const result = await runSchedule(name);
-		setStarting((current) => {
-			const next = new Set(current);
-			next.delete(name);
-			return next;
-		});
-		if (!result.ok) setError(result.error);
-		else router.push(`/backups/${encodeURIComponent(name)}`);
+		try {
+			const result = await runSchedule(name);
+			if (!result.ok) setError(result.error);
+			else router.push(`/backups/${encodeURIComponent(name)}`);
+		} catch {
+			setError("the panel could not reach its server; try again");
+		} finally {
+			setStarting((current) => {
+				const next = new Set(current);
+				next.delete(name);
+				return next;
+			});
+		}
 	}
 
 	return (
