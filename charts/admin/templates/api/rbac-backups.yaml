@@ -1,0 +1,48 @@
+{{- if .Values.admin.api.kubernetes.enabled }}
+{{- /*
+What the backups slice may touch: the Secret holding the connected Google account.
+
+Namespaced, and to the release namespace only. Every object backups own lives
+there.
+
+`create` on secrets cannot be narrowed by name -- RBAC checks resourceNames
+against an object that does not exist yet only for verbs that address one -- so
+the API can create any Secret in this namespace. It cannot read, change or
+delete any of them except the one named below, which is the half that would
+matter: a created Secret holds only what the creator already had.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-backups
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources:
+      - secrets
+    resourceNames:
+      - {{ .Values.admin.api.backups.google.tokenSecret }}
+    verbs: ["get", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-backups
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "home-lab-admin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-backups
+subjects:
+  - kind: ServiceAccount
+    name: admin-api
+    namespace: {{ .Release.Namespace }}
+{{- end }}
