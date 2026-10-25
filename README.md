@@ -335,7 +335,12 @@ task dev
 ```
 
 The panel is then at `http://localhost:3000`; `task logs` follows all the
-containers and `task stop` takes them down. `admin/.env` is ignored — it holds a client
+containers and `task stop` takes them down.
+
+That stack has no cluster, so the Kubernetes and Helm sections and the backup
+schedules have nothing to run against. `task cluster:deploy` runs the same chart
+on a local [k3d](https://k3d.io) cluster instead, with PostgreSQL and MongoDB as
+containers beside it; see the [local cluster guide](docs/local-cluster.md). `admin/.env` is ignored — it holds a client
 secret and two superuser passwords.
 
 The third of them is the [assistant](admin/agent/README.md), so `admin/.env`

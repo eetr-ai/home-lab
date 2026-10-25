@@ -1738,4 +1738,18 @@ for variable in ADMIN_GOOGLE_CLIENT_ID ADMIN_GOOGLE_CLIENT_SECRET; do
   fi
 done
 
+# The local k3d cluster installs the chart with local/values.yaml on top, and
+# nothing else renders it, so a chart change that breaks it would otherwise be
+# found on somebody's laptop. The settings are the ones the script passes.
+if ! helm template home-lab-admin "${repo_root}/charts/admin" \
+  --namespace admin \
+  --kube-version "$kube_version" \
+  --values "${repo_root}/local/values.yaml" \
+  --set admin.image.tag=local-test \
+  --set admin.api.oidc.issuer=https://auth.test.invalid \
+  --set admin.web.clientId=test-client >/dev/null; then
+  printf 'local/values.yaml no longer renders with the admin chart\n' >&2
+  exit 1
+fi
+
 printf 'Admin chart validation passed.\n'

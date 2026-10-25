@@ -1,0 +1,50 @@
+# The lab's two database servers, for the local k3d cluster.
+#
+# Outside the cluster on purpose, the same way the lab runs them: PostgreSQL and
+# MongoDB are Docker Compose projects beside the cluster, never pods in it. The
+# images are the ones databases/*.compose.yaml pins, so what the panel and the
+# backup jobs meet here is the same server versions they meet in the lab.
+#
+# Started by scripts/local-cluster.sh, which joins them to the k3d cluster's own
+# Docker network and publishes each to the cluster as a Service. Nothing is
+# published on the host: the only way in is through the cluster, or `docker exec`.
+
+name: home-lab-local-databases
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?run scripts/local-cluster.sh, which generates it}
+    volumes:
+      - postgres:/var/lib/postgresql
+    networks: [cluster]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 30
+
+  mongo:
+    image: mongo:7.0.40-jammy
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${LOCAL_MONGO_PASSWORD:?run scripts/local-cluster.sh, which generates it}
+    volumes:
+      - mongo:/data/db
+    networks: [cluster]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      retries: 30
+
+volumes:
+  postgres:
+  mongo:
+
+networks:
+  # The network k3d creates for the cluster. Joining it is what lets the cluster
+  # reach these containers at all.
+  cluster:
+    name: k3d-home-lab-local
+    external: true

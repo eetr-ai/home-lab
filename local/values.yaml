@@ -1,0 +1,49 @@
+# The admin chart's values for the local k3d cluster (scripts/local-cluster.sh).
+#
+# Tracked, because nothing here is specific to anyone's machine: the images are
+# built and imported locally, the databases are the containers in
+# local/compose.yaml, and everything secret or personal — the OIDC client, the
+# Google client — is read from admin/.env and passed as Secrets or --set by the
+# script, never written here.
+
+admin:
+  api:
+    image:
+      repository: home-lab/admin-api
+      # Imported straight into the cluster's containerd, so there is nothing to
+      # pull — and the backup jobs inherit this, which is why the script imports
+      # their dump images too.
+      pullPolicy: Never
+    replicas: 1
+    postgres:
+      enabled: true
+    mongo:
+      enabled: true
+    helm:
+      enabled: true
+      postgres:
+        enabled: true
+
+  web:
+    hostname: localhost
+    # Reached through a port-forward rather than the Gateway, so the derived URL
+    # would be a host nothing serves. Register
+    # http://localhost:3000/api/auth/callback/eetr with eetr-auth (task dev uses
+    # the same one), and for Drive add
+    # http://localhost:3000/api/backups/google/callback to the Google client.
+    authUrl: http://localhost:3000
+    image:
+      repository: home-lab/admin-web
+      pullPolicy: Never
+    replicas: 1
+    # One replica coordinates its own token refreshes; there is no platform Redis
+    # on this cluster to share them through.
+    redis:
+      enabled: false
+
+  # Both need things this cluster does not have: the agent a model provider key,
+  # the console its own image and a Gateway route for its socket.
+  agent:
+    enabled: false
+  console:
+    enabled: false
