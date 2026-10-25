@@ -145,7 +145,9 @@ docker compose --env-file databases/.env \
 upstream upgrade notes and take a dump — a data directory cannot be moved
 between incompatible major versions.
 
-The dumps stream back over the SSH connection, so these write to your laptop:
+Scheduled backups into Google Drive are set up from the admin panel; see
+[docs/backups.md](../docs/backups.md). For a one-off dump by hand, these stream
+back over the SSH connection and write to your laptop:
 
 ```bash
 umask 077
