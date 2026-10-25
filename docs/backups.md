@@ -93,3 +93,31 @@ at Google and deletes the Secret.
 
 If Google ever says the panel did not get offline access, remove the panel under
 your Google account's **Security → Third-party access** and connect again.
+
+## Schedules
+
+A schedule names some databases, a cron line with an optional time zone, a
+folder, and how many backups of **each database** to keep. Saving one creates
+the CronJob `backup-<name>` in the panel's namespace.
+
+Each run does three things:
+
+1. **Dump.** One init container per engine dumps the chosen databases into a
+   scratch volume on the node (`admin.api.backups.job.workSize`, 10Gi by
+   default). It uses the same images the servers run, so the tools match:
+   - PostgreSQL: `pg_dump --format=custom` for each database, plus
+     `pg_dumpall --globals-only` for the roles.
+   - MongoDB: `mongodump --archive --gzip` for each database.
+2. **Upload.** Each dump lands in the folder as
+   `<schedule>-<engine>-<database>-<UTC time>.<ext>`, tagged with the schedule
+   and database.
+3. **Prune.** For each database that uploaded successfully *in this run*,
+   anything beyond the newest N goes to the trash. A database that failed keeps
+   all its history until a run succeeds again.
+
+A failed dump or upload fails the run, and the pod's log says which database it
+was. Runs never overlap, are never retried automatically, and stay readable for
+a week. **Run now** starts one immediately, even on a suspended schedule.
+
+Deleting a schedule deletes the CronJob and its runs. **The backups in Drive
+are kept.**

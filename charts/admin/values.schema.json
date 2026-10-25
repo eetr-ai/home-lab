@@ -244,6 +244,59 @@
                       "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
                     }
                   }
+                },
+                "job": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "images",
+                    "deadline",
+                    "ttlSecondsAfterFinished",
+                    "workSize"
+                  ],
+                  "properties": {
+                    "images": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "postgres",
+                        "mongo"
+                      ],
+                      "properties": {
+                        "postgres": {
+                          "type": "string",
+                          "pattern": "^[^:@]+(:[^:@]+)?(@sha256:[0-9a-f]{64})?$",
+                          "not": {
+                            "pattern": ":latest$"
+                          },
+                          "description": "An immutable image with pg_dump matching the server's major version."
+                        },
+                        "mongo": {
+                          "type": "string",
+                          "pattern": "^[^:@]+(:[^:@]+)?(@sha256:[0-9a-f]{64})?$",
+                          "not": {
+                            "pattern": ":latest$"
+                          },
+                          "description": "An immutable image with mongodump matching the server."
+                        }
+                      }
+                    },
+                    "deadline": {
+                      "type": "string",
+                      "pattern": "^([0-9]+(h|m|s))+$"
+                    },
+                    "ttlSecondsAfterFinished": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "workSize": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(Mi|Gi|Ti)$"
+                    },
+                    "resources": {
+                      "type": "object"
+                    }
+                  }
                 }
               }
             }

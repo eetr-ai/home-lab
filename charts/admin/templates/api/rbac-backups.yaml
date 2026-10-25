@@ -1,9 +1,28 @@
 {{- if .Values.admin.api.kubernetes.enabled }}
 {{- /*
-What the backups slice may touch: the Secret holding the connected Google account.
+What the backups slice may touch: the schedules, which are CronJobs, their runs,
+and the Secret holding the connected Google account.
 
 Namespaced, and to the release namespace only. Every object backups own lives
 there.
+
+READ THE WARNING AT THE TOP OF rbac-jobs.yaml FIRST; it applies here unchanged.
+`create` on a CronJob or a Job in this namespace is, in reach, the ability to run a
+pod as any ServiceAccount here -- including admin-helm-job and admin-console --
+because Kubernetes does not check whether the creator may use the account a pod
+names. What bounds it today is the Go code: buildCronJob takes the image, the
+account and every credential reference from the API's own configuration, never
+from a request, and a test pins that. The real fix is the same
+ValidatingAdmissionPolicy rbac-jobs.yaml records, restricting these creations to
+admin-backup and the configured images.
+
+update and delete on CronJobs are here, unlike on Helm Jobs, because a schedule is
+edited and removed from the panel. Jobs get no update or delete: a run is never
+edited, its CronJob's history limit and TTL reap it, and deleting a schedule takes
+its runs through ownership.
+
+Pods need nothing here. Finding a run's pod and reading its log go through the
+cluster-wide read grant in rbac.yaml.
 
 `create` on secrets cannot be narrowed by name -- RBAC checks resourceNames
 against an object that does not exist yet only for verbs that address one -- so
@@ -19,6 +38,14 @@ metadata:
   labels:
     {{- include "home-lab-admin.labels" . | nindent 4 }}
 rules:
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+    verbs: ["get", "list", "watch", "create"]
   - apiGroups: [""]
     resources:
       - secrets

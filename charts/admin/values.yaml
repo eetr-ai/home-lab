@@ -334,6 +334,31 @@ admin:
         # connect and deletes it on disconnect; the backup pods read it. Named
         # here because the RBAC Role names it too.
         tokenSecret: admin-google-drive-token
+      # The pods a schedule runs. Two dump images, then the API's own image to
+      # upload and prune.
+      job:
+        # The same images the databases run (databases/*.compose.yaml), so the
+        # dump tools are exactly the servers' versions: pg_dump refuses a server
+        # newer than itself, and mongodump is happiest matched. Bump these with
+        # the servers.
+        images:
+          postgres: pgvector/pgvector:0.8.6-pg18-bookworm
+          mongo: mongo:7.0.40-jammy
+        # How long one run may take before Kubernetes stops it.
+        deadline: 2h
+        # How long a finished run's pod and log stay readable: a week, so a
+        # Monday look at the weekend's failures still has something to read.
+        ttlSecondsAfterFinished: 604800
+        # The scratch volume the dumps land in before upload, on the node's
+        # disk. Large enough for this lab's databases; a dump past it evicts the
+        # pod, which reads as a failed run.
+        workSize: 10Gi
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
 
     # Reaching the API from outside the cluster, for a caller that is not the
     # panel's own browser session. Disabled until something needs it: the agent

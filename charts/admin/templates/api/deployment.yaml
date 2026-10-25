@@ -191,6 +191,55 @@ spec:
               value: {{ $google.picker.appId | quote }}
             - name: ADMIN_BACKUP_TOKEN_SECRET
               value: {{ $google.tokenSecret | quote }}
+            # What a schedule's pods are built from. All of it is named here and
+            # none of it per request -- see rbac-backups.yaml for why that is the
+            # only thing bounding what a CronJob created by the API can run.
+            {{- $job := .Values.admin.api.backups.job }}
+            - name: ADMIN_BACKUP_SERVICE_ACCOUNT
+              value: admin-backup
+            - name: ADMIN_BACKUP_UPLOAD_IMAGE
+              value: {{ include "home-lab-admin.apiImage" . | quote }}
+            - name: ADMIN_BACKUP_IMAGE_PULL_POLICY
+              value: {{ .Values.admin.api.image.pullPolicy | quote }}
+            {{- with .Values.admin.imagePullSecrets }}
+            {{- $names := list }}
+            {{- range . }}{{ $names = append $names .name }}{{ end }}
+            - name: ADMIN_BACKUP_PULL_SECRETS
+              value: {{ join "," $names | quote }}
+            {{- end }}
+            - name: ADMIN_BACKUP_POSTGRES_IMAGE
+              value: {{ $job.images.postgres | quote }}
+            - name: ADMIN_BACKUP_MONGO_IMAGE
+              value: {{ $job.images.mongo | quote }}
+            - name: ADMIN_BACKUP_DEADLINE
+              value: {{ $job.deadline | quote }}
+            - name: ADMIN_BACKUP_TTL_SECONDS
+              value: {{ $job.ttlSecondsAfterFinished | quote }}
+            - name: ADMIN_BACKUP_WORK_SIZE
+              value: {{ $job.workSize | quote }}
+            - name: ADMIN_BACKUP_RESOURCES
+              value: {{ $job.resources | toJson | quote }}
+            # The credentials as names and keys, never values: the API puts
+            # secretKeyRefs in the CronJob it creates and never copies a value
+            # into one, because a CronJob is not a Secret.
+            - name: ADMIN_GOOGLE_SECRET_NAME
+              value: {{ $google.secret.name | quote }}
+            - name: ADMIN_GOOGLE_CLIENT_ID_KEY
+              value: {{ $google.secret.clientIdKey | quote }}
+            - name: ADMIN_GOOGLE_CLIENT_SECRET_KEY
+              value: {{ $google.secret.clientSecretKey | quote }}
+            {{- if .Values.admin.api.postgres.enabled }}
+            - name: ADMIN_BACKUP_POSTGRES_SECRET_NAME
+              value: {{ .Values.admin.api.postgres.secret.name | quote }}
+            - name: ADMIN_BACKUP_POSTGRES_SECRET_KEY
+              value: {{ .Values.admin.api.postgres.secret.key | quote }}
+            {{- end }}
+            {{- if .Values.admin.api.mongo.enabled }}
+            - name: ADMIN_BACKUP_MONGO_SECRET_NAME
+              value: {{ .Values.admin.api.mongo.secret.name | quote }}
+            - name: ADMIN_BACKUP_MONGO_SECRET_KEY
+              value: {{ .Values.admin.api.mongo.secret.key | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
