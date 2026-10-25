@@ -178,4 +178,10 @@ func TestAManualRunIsOwnedByItsSchedule(t *testing.T) {
 	if !reflect.DeepEqual(run.Spec.Template.Spec, cronJob.Spec.JobTemplate.Spec.Template.Spec) {
 		t.Error("a manual run must run exactly what the schedule runs")
 	}
+
+	read := runFrom(run, "pod")
+	if read.Namespace != "admin" ||
+		!reflect.DeepEqual(read.Containers, []string{"dump-postgres", "dump-mongo", "upload"}) {
+		t.Errorf("a run must say where its log is and in which containers, got %+v", read)
+	}
 }

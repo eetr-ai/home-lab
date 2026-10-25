@@ -132,6 +132,13 @@
             },
             "backup.Run": {
                 "properties": {
+                    "containers": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "createdAt": {
                         "type": "string"
                     },
@@ -143,6 +150,10 @@
                         "type": "boolean"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "description": "Namespace and Containers are what reading that log needs: the pod lives in\nthe panel's namespace, and the dumps run as init containers, each with a\nlog of its own.",
                         "type": "string"
                     },
                     "phase": {

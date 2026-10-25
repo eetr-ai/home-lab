@@ -393,7 +393,14 @@ func runFrom(job *batchv1.Job, pod string) Run {
 		Reason:    reason,
 		Manual:    job.Annotations[annotationManual] != "",
 		Pod:       pod,
+		Namespace: job.Namespace,
 		CreatedAt: job.CreationTimestamp.Time,
+	}
+	// In the order they run, so the log picker reads top to bottom as the run did.
+	template := job.Spec.Template.Spec
+	for _, container := range append(append([]corev1.Container{}, template.InitContainers...),
+		template.Containers...) {
+		ret.Containers = append(ret.Containers, container.Name)
 	}
 	if job.Status.StartTime != nil {
 		ret.StartedAt = &job.Status.StartTime.Time

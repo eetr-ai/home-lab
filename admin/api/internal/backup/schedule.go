@@ -104,7 +104,12 @@ type Run struct {
 	Manual bool `json:"manual"`
 	// Pod is empty until one has been scheduled. Its log is where a run explains
 	// itself: which database failed to dump, which upload Google refused.
-	Pod        string     `json:"pod,omitempty"`
+	Pod string `json:"pod,omitempty"`
+	// Namespace and Containers are what reading that log needs: the pod lives in
+	// the panel's namespace, and the dumps run as init containers, each with a
+	// log of its own.
+	Namespace  string     `json:"namespace"`
+	Containers []string   `json:"containers"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	StartedAt  *time.Time `json:"startedAt,omitempty"`
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
