@@ -129,16 +129,17 @@ are kept.**
 
 Restoring isn't a button, on purpose. Overwriting a live database should be a
 decision someone makes with the file in front of them. Start with a scratch
-database, check it, and only then touch the real one.
+server, check it, and only then touch the real one.
 
 1. **Download the backup.** Find it on the schedule's page under *Backups in
    Drive*, or in the folder itself. Trashed backups can be restored from Drive's
    trash for 30 days.
 2. **Restore it somewhere disposable first.** These use the same images the
-   servers run:
+   servers run. The scratch server is empty, so replaying every role and
+   skipping ownership is fine here:
 
    ```bash
-   # PostgreSQL: the roles first, then the database (custom format)
+   # PostgreSQL: the roles, then the database (custom format)
    docker run --rm -d --name restore-check -e POSTGRES_PASSWORD=check \
      pgvector/pgvector:0.8.6-pg18-bookworm
    gunzip -c nightly-postgres-@globals-*.sql.gz |
@@ -153,11 +154,31 @@ database, check it, and only then touch the real one.
      < nightly-mongo-events-*.archive.gz
    ```
 
-3. **Look at the data, then restore for real.** Use the same commands against
-   the lab's servers, over the Docker context from `databases/README.md`. For
-   PostgreSQL, drop and recreate the database first, or add `--clean` to
-   `pg_restore`. For MongoDB, `mongorestore --drop` replaces the collections it
-   restores.
+3. **Look at the data, then restore for real.** Use the Docker context from
+   `databases/README.md` to reach the lab's servers.
+
+   - **Roles: create only the ones that are missing.** Do **not** replay the
+     globals dump against the live server. It holds every role with its password
+     verifier as of that night, and replaying it would reset the passwords of
+     roles that exist today. Find the database's owner and grantees in the
+     globals file (`gunzip -c … | grep -E 'CREATE ROLE|ALTER ROLE'`), and create
+     those that the live server lacks. Replaying the whole file is only for
+     rebuilding a server from nothing.
+   - **The database: drop it and create it again**, owned by its original
+     owner, then restore **without** `--no-owner`, so every object keeps the
+     owner it had:
+
+     ```bash
+     dropdb -U postgres app && createdb -U postgres -O app_owner app
+     pg_restore -U postgres -d app < nightly-postgres-app-*.dump
+     ```
+
+     `pg_restore --clean` is not a substitute. It drops only the objects that
+     are in the archive, so anything created since the backup is left behind,
+     mixed in with the restored data.
+   - **MongoDB:** `mongorestore --drop --archive --gzip` replaces each
+     collection it restores, and leaves collections that are not in the archive
+     alone. To replace the whole database, drop it first.
 
 The globals dump holds every role, with its password verifier. It is as
 sensitive as the data, and so is every file in the folder: keep the folder

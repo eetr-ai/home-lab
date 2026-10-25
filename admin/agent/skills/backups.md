@@ -60,9 +60,10 @@ is failing quietly. Say so before anyone asks.
 
 ## What you may do, and what belongs to a screen
 
-- **Run now:** `POST /api/backups/schedules/{name}/run`. It is harmless to the
-  backups already kept, and it answers 409 while a run is going. Say you are
-  starting it, then point to the runs.
+- **Run now:** `POST /api/backups/schedules/{name}/run`. It answers 409 while
+  a run is going. It is a full run, retention included: when it succeeds, the
+  oldest kept backup of each database can move to the trash to make room. Say
+  that, and that you are starting it, then point to the runs.
 - **Creating or editing a schedule needs a folder chosen in Google's Picker.**
   The Picker is a dialog in the operator's browser that you cannot open. Take
   them to `/backups` instead, or to `/backups/{name}` for an existing one.
