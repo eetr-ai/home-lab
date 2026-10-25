@@ -18,6 +18,70 @@
                 },
                 "type": "object"
             },
+            "backup.AccessToken": {
+                "properties": {
+                    "accessToken": {
+                        "type": "string"
+                    },
+                    "expiresAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "backup.ConnectRequest": {
+                "properties": {
+                    "code": {
+                        "description": "Code is the authorization code Google handed the panel's callback.",
+                        "type": "string"
+                    },
+                    "codeVerifier": {
+                        "description": "CodeVerifier is the PKCE secret the panel kept while the operator was at\nGoogle. Proof that whoever finishes the flow is whoever started it.",
+                        "type": "string"
+                    },
+                    "redirectUri": {
+                        "description": "RedirectURI is the callback the browser was sent back to, which Google\nchecks against the one the flow began with.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "backup.GoogleStatus": {
+                "properties": {
+                    "account": {
+                        "description": "Account is the connected account's email address, when Google shared it.",
+                        "type": "string"
+                    },
+                    "clientId": {
+                        "description": "ClientID is public by design — it is in the URL the browser is sent to.",
+                        "type": "string"
+                    },
+                    "configured": {
+                        "description": "Configured says whether this lab has an OAuth client at all. Without one,\nnothing else here means anything and the page explains how to add it.",
+                        "type": "boolean"
+                    },
+                    "connected": {
+                        "description": "Connected says whether an account is behind the client.",
+                        "type": "boolean"
+                    },
+                    "pickerApiKey": {
+                        "description": "PickerAPIKey and PickerAppID configure Google's Picker in the browser. Both\nare browser credentials, restricted by referrer on Google's side, and meant\nto be seen.",
+                        "type": "string"
+                    },
+                    "pickerAppId": {
+                        "type": "string"
+                    },
+                    "scopes": {
+                        "description": "Scopes is what the consent screen should ask for. The panel builds the\nauthorization URL with exactly these, so the two cannot drift.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "health.Response": {
                 "properties": {
                     "status": {
@@ -1585,6 +1649,231 @@
         "url": ""
     },
     "paths": {
+        "/api/backups/google": {
+            "delete": {
+                "description": "Revokes the grant at Google and deletes it here. Scheduled backups\nkeep their configuration and fail until an account is connected again.",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Disconnect Google Drive",
+                "tags": [
+                    "backups"
+                ]
+            },
+            "get": {
+                "description": "Whether this lab has an OAuth client, whether an account is connected\nto it, and what the panel needs to open Google's folder Picker. Never\ncarries the grant itself.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.GoogleStatus"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read the Google Drive connection",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/google/access-token": {
+            "post": {
+                "description": "A short-lived drive.file token for Google's Picker, which runs in the\noperator's browser and talks to Google directly. Expires within the hour.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.AccessToken"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Mint a Picker access token",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/google/connect": {
+            "post": {
+                "description": "Exchanges the authorization code for a grant and keeps it in a Secret\nthe backup jobs read. Replaces, and revokes, any account connected\nbefore.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/backup.ConnectRequest",
+                                        "summary": "request",
+                                        "description": "The code Google returned"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The code Google returned",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.GoogleStatus"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Connect a Google account",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
         "/api/helm/chart-versions": {
             "get": {
                 "description": "The reference is an OCI or HTTPS chart URL whose last path segment is the\nchart name — oci://ghcr.io/org/charts/podinfo, or\nhttps://stefanprodan.github.io/podinfo/podinfo. The registry is contacted\nwhen this is called, so an unreachable one is a 502 rather than an empty list.",
