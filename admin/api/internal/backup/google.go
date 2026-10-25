@@ -108,20 +108,28 @@ func (c *GoogleClient) Exchange(ctx context.Context, code, verifier, redirectURI
 
 // AccessToken mints a fresh access token from the stored refresh token.
 func (c *GoogleClient) AccessToken(ctx context.Context, refreshToken string) (AccessToken, error) {
-	token, err := c.TokenSource(ctx, refreshToken).Token()
+	token, err := c.config.TokenSource(c.context(ctx), &oauth2.Token{RefreshToken: refreshToken}).Token()
 	if err != nil {
 		return AccessToken{}, googleError("refresh the access token", err)
 	}
 	return AccessToken{AccessToken: token.AccessToken, ExpiresAt: token.Expiry}, nil
 }
 
-// TokenSource hands out access tokens for the stored grant, refreshing them as
-// they expire. The Drive client uses it, so one long upload outliving its first
-// token does not fail halfway.
+// Drive returns a Drive client acting with the stored grant.
 //
-//nolint:ireturn // oauth2.TokenSource is the library's own interface and the only shape it offers
-func (c *GoogleClient) TokenSource(ctx context.Context, refreshToken string) oauth2.TokenSource {
-	return c.config.TokenSource(c.context(ctx), &oauth2.Token{RefreshToken: refreshToken})
+// Its HTTP client has no timeout of its own, deliberately unlike every other call
+// here: an upload of a large dump legitimately takes longer than any fixed bound,
+// and it is the context — the run's deadline, or the caller's request — that ends
+// it. The token refresh rides the same client.
+func (c *GoogleClient) Drive(ctx context.Context, refreshToken string) *DriveClient {
+	unbounded := context.WithValue(ctx, oauth2.HTTPClient, &http.Client{})
+	source := c.config.TokenSource(unbounded, &oauth2.Token{RefreshToken: refreshToken})
+	return &DriveClient{httpClient: oauth2.NewClient(unbounded, source)}
+}
+
+// ListBackups lists what a schedule has kept in its folder.
+func (c *GoogleClient) ListBackups(ctx context.Context, refreshToken, folderID, schedule string) ([]File, error) {
+	return c.Drive(ctx, refreshToken).List(ctx, folderID, schedule)
 }
 
 // Revoke tells Google to forget the grant, so a copy of the token that leaked

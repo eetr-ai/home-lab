@@ -18,6 +18,9 @@ type fakeGoogle struct {
 
 	exchanged []string
 	revoked   []string
+
+	files        []File
+	listedFolder string
 }
 
 func (f *fakeGoogle) Exchange(_ context.Context, code, _, _ string) (Grant, error) {
@@ -27,6 +30,11 @@ func (f *fakeGoogle) Exchange(_ context.Context, code, _, _ string) (Grant, erro
 
 func (f *fakeGoogle) AccessToken(context.Context, string) (AccessToken, error) {
 	return AccessToken{AccessToken: "access"}, f.err
+}
+
+func (f *fakeGoogle) ListBackups(_ context.Context, _, folderID, _ string) ([]File, error) {
+	f.listedFolder = folderID
+	return f.files, f.err
 }
 
 func (f *fakeGoogle) Revoke(_ context.Context, refreshToken string) error {
@@ -67,13 +75,16 @@ var testGoogleConfig = GoogleConfig{
 }
 
 func newTestService(google Google, grants GrantStore) *Service {
-	return NewService(google, grants, testGoogleConfig, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewService(Dependencies{
+		Google: google, Grants: grants, Schedules: newFakeSchedules(), Config: testGoogleConfig,
+		Engines: map[string]bool{EnginePostgres: true, EngineMongo: true}, Logger: discard(),
+	})
 }
 
 // A lab with no OAuth client is a supported state, and the page needs to be able
 // to say so rather than fail: the status answers, and only the actions refuse.
 func TestAnUnconfiguredLabReportsItselfAndRefusesActions(t *testing.T) {
-	service := NewService(nil, &fakeGrants{}, GoogleConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service := NewService(Dependencies{Grants: &fakeGrants{}, Schedules: newFakeSchedules(), Logger: discard()})
 
 	status, err := service.GoogleStatus(context.Background())
 	if err != nil || status.Configured {
@@ -256,6 +267,8 @@ func TestAccessTokenNeedsAConnectedAccount(t *testing.T) {
 		t.Errorf("expected not connected, got %v", err)
 	}
 }
+
+func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 func validConnect() ConnectRequest {
 	return ConnectRequest{

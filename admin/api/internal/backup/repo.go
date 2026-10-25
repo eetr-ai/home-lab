@@ -34,10 +34,12 @@ type Repository struct {
 	// tokenSecret names the Secret holding the grant. It comes from the chart,
 	// because the RBAC Role names it too.
 	tokenSecret string
+	// schedules is what every backup pod is built from.
+	schedules ScheduleConfig
 }
 
 // NewRepository builds the repository. It contacts nothing.
-func NewRepository(namespace, tokenSecret string) (*Repository, error) {
+func NewRepository(tokenSecret string, schedules ScheduleConfig) (*Repository, error) {
 	config, err := restconfig.New()
 	if err != nil {
 		return nil, err
@@ -46,7 +48,16 @@ func NewRepository(namespace, tokenSecret string) (*Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build the Kubernetes client for backups: %w", err)
 	}
-	return &Repository{clientset: clientset, namespace: namespace, tokenSecret: tokenSecret}, nil
+	// The backup pods read the grant from the Secret this repository writes, so
+	// where it is comes from here rather than from a second piece of config.
+	schedules.RefreshToken = SecretRef{Name: tokenSecret, Key: refreshTokenKey}
+
+	return &Repository{
+		clientset:   clientset,
+		namespace:   schedules.Namespace,
+		tokenSecret: tokenSecret,
+		schedules:   schedules,
+	}, nil
 }
 
 // ReadGrant returns the connected account, or ErrNotConnected.

@@ -46,6 +46,54 @@
                 },
                 "type": "object"
             },
+            "backup.DatabaseRef": {
+                "properties": {
+                    "engine": {
+                        "description": "Engine is postgres or mongo.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "backup.File": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "database": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "description": "Size is in bytes. Drive reports it as a string; it is parsed on the way in.",
+                        "type": "integer"
+                    },
+                    "webViewLink": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "backup.Folder": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is for the panel to show. Drive is asked by ID, so a renamed folder\nkeeps receiving backups and only this label goes stale.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "backup.GoogleStatus": {
                 "properties": {
                     "account": {
@@ -78,6 +126,123 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "backup.Run": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "finishedAt": {
+                        "type": "string"
+                    },
+                    "manual": {
+                        "description": "Manual says somebody pressed \"run now\", rather than the clock.",
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "phase": {
+                        "description": "Phase is pending, running, succeeded, or failed.",
+                        "type": "string"
+                    },
+                    "pod": {
+                        "description": "Pod is empty until one has been scheduled. Its log is where a run explains\nitself: which database failed to dump, which upload Google refused.",
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "backup.Schedule": {
+                "properties": {
+                    "actor": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "cron": {
+                        "description": "Cron is a standard five-field cron expression, or a macro such as @daily.\nThe API server is what checks it; see Service.CreateSchedule.",
+                        "type": "string"
+                    },
+                    "databases": {
+                        "items": {
+                            "$ref": "#/components/schemas/backup.DatabaseRef"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "folder": {
+                        "$ref": "#/components/schemas/backup.Folder"
+                    },
+                    "keep": {
+                        "description": "Keep is how many backups of each database to keep in the folder.",
+                        "type": "integer"
+                    },
+                    "lastScheduled": {
+                        "description": "LastScheduled and LastSucceeded come from the CronJob's status. The gap\nbetween them is the first thing to look at when backups stop arriving.",
+                        "type": "string"
+                    },
+                    "lastSucceeded": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is required on create and ignored on replace, where the path names it.",
+                        "type": "string"
+                    },
+                    "running": {
+                        "description": "Running counts the runs in progress, which concurrencyPolicy keeps at one.",
+                        "type": "integer"
+                    },
+                    "suspended": {
+                        "type": "boolean"
+                    },
+                    "timeZone": {
+                        "description": "TimeZone is an IANA zone such as America/Los_Angeles. Empty is the\ncontroller's own, which on most clusters is UTC.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "backup.ScheduleRequest": {
+                "properties": {
+                    "cron": {
+                        "description": "Cron is a standard five-field cron expression, or a macro such as @daily.\nThe API server is what checks it; see Service.CreateSchedule.",
+                        "type": "string"
+                    },
+                    "databases": {
+                        "items": {
+                            "$ref": "#/components/schemas/backup.DatabaseRef"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "folder": {
+                        "$ref": "#/components/schemas/backup.Folder"
+                    },
+                    "keep": {
+                        "description": "Keep is how many backups of each database to keep in the folder.",
+                        "type": "integer"
+                    },
+                    "name": {
+                        "description": "Name is required on create and ignored on replace, where the path names it.",
+                        "type": "string"
+                    },
+                    "suspended": {
+                        "type": "boolean"
+                    },
+                    "timeZone": {
+                        "description": "TimeZone is an IANA zone such as America/Los_Angeles. Empty is the\ncontroller's own, which on most clusters is UTC.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1879,6 +2044,575 @@
                     }
                 ],
                 "summary": "Connect a Google account",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/schedules": {
+            "get": {
+                "description": "Each schedule is a CronJob in the panel's namespace, read back as it is.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/backup.Schedule"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List backup schedules",
+                "tags": [
+                    "backups"
+                ]
+            },
+            "post": {
+                "description": "Creates the CronJob. The cron line is checked by the Kubernetes API\nserver, and a refusal comes back as a 400 that names it.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/backup.ScheduleRequest",
+                                        "summary": "request",
+                                        "description": "The schedule"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The schedule",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.Schedule"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create a backup schedule",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/schedules/{name}": {
+            "delete": {
+                "description": "Deletes the CronJob and its runs. The backups already in Drive stay.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete a backup schedule",
+                "tags": [
+                    "backups"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.Schedule"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a backup schedule",
+                "tags": [
+                    "backups"
+                ]
+            },
+            "put": {
+                "description": "The path names the schedule; a name in the body is ignored.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/backup.ScheduleRequest",
+                                        "summary": "request",
+                                        "description": "The schedule"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The schedule",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.Schedule"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Replace a backup schedule",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/schedules/{name}/files": {
+            "get": {
+                "description": "Read from the Drive folder itself, so this is what is actually there.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/backup.File"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a schedule's backups",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/schedules/{name}/run": {
+            "post": {
+                "description": "Starts a Job from the schedule's template, owned by its CronJob. Runs\non a suspended schedule too: suspending stops the clock, not a person.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.Run"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Run a backup schedule now",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/schedules/{name}/runs": {
+            "get": {
+                "description": "Newest first, as many as the CronJob's history keeps.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/backup.Run"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a schedule's runs",
                 "tags": [
                     "backups"
                 ]

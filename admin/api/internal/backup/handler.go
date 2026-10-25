@@ -28,6 +28,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/backups/google", h.disconnectGoogle)
 	mux.HandleFunc("POST /api/backups/google/connect", h.connectGoogle)
 	mux.HandleFunc("POST /api/backups/google/access-token", h.googleAccessToken)
+	h.registerSchedules(mux)
 }
 
 // googleStatus reports whether Google Drive is set up and connected.

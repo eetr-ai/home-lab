@@ -27,6 +27,7 @@ type Google interface {
 	Exchange(ctx context.Context, code, verifier, redirectURI string) (Grant, error)
 	AccessToken(ctx context.Context, refreshToken string) (AccessToken, error)
 	Revoke(ctx context.Context, refreshToken string) error
+	ListBackups(ctx context.Context, refreshToken, folderID, schedule string) ([]File, error)
 }
 
 // GrantStore keeps the connected account.
@@ -60,16 +61,40 @@ const (
 type Service struct {
 	// google is nil when this lab has no OAuth client, and every Google route
 	// then answers ErrNotConfigured rather than calling through a nil.
-	google Google
-	grants GrantStore
-	config GoogleConfig
-	logger *slog.Logger
+	google    Google
+	grants    GrantStore
+	schedules ScheduleStore
+	config    GoogleConfig
+	// engines says which servers this lab has a credential for, and so which a
+	// schedule may name.
+	engines map[string]bool
+	logger  *slog.Logger
 }
 
-// NewService builds the service. A nil google is supported: it is a lab that has
+// Dependencies is what the service is built from. A struct rather than six
+// positional parameters, because two of them are the same repository seen
+// through different interfaces and the call site should say which is which.
+type Dependencies struct {
+	// Google is nil when this lab has no OAuth client.
+	Google    Google
+	Grants    GrantStore
+	Schedules ScheduleStore
+	Config    GoogleConfig
+	Engines   map[string]bool
+	Logger    *slog.Logger
+}
+
+// NewService builds the service. A nil Google is supported: it is a lab that has
 // not set up an OAuth client yet.
-func NewService(google Google, grants GrantStore, config GoogleConfig, logger *slog.Logger) *Service {
-	return &Service{google: google, grants: grants, config: config, logger: logger}
+func NewService(deps Dependencies) *Service {
+	return &Service{
+		google:    deps.Google,
+		grants:    deps.Grants,
+		schedules: deps.Schedules,
+		config:    deps.Config,
+		engines:   deps.Engines,
+		logger:    deps.Logger,
+	}
 }
 
 // GoogleStatus reports whether Drive is set up and connected, and what the panel
