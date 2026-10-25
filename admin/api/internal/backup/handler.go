@@ -142,6 +142,8 @@ func respondError(w http.ResponseWriter, err error) {
 			"connect a Google account on the backups page first")
 	case errors.Is(err, ErrAlreadyExists):
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
+	case errors.Is(err, ErrInProgress):
+		httpx.Error(w, http.StatusConflict, "in_progress", err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, ErrNotConfigured):

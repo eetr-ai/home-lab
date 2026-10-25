@@ -1704,8 +1704,17 @@ for variable in ADMIN_BACKUP_POSTGRES_IMAGE ADMIN_BACKUP_MONGO_IMAGE ADMIN_BACKU
     exit 1
   fi
 done
-if render --set admin.api.backups.job.images.postgres=postgres:latest >/dev/null 2>&1; then
-  printf 'The chart accepted a latest tag for the backup dump image\n' >&2
+# The schema is what refuses a moving image, so it is asked directly: latest with
+# and without a digest, and no tag at all. A registry with a port must still pass,
+# because its colon is not a tag.
+for image in postgres:latest postgres postgres:latest@sha256:0000000000000000000000000000000000000000000000000000000000000000; do
+  if render --set "admin.api.backups.job.images.postgres=$image" >/dev/null 2>&1; then
+    printf 'The chart accepted [%s] for the backup dump image\n' "$image" >&2
+    exit 1
+  fi
+done
+if ! render --set admin.api.backups.job.images.postgres=registry.example.invalid:5000/postgres:18.1 >/dev/null 2>&1; then
+  printf 'The chart refused a pinned dump image from a registry with a port\n' >&2
   exit 1
 fi
 

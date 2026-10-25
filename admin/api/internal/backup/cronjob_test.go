@@ -185,3 +185,24 @@ func TestAManualRunIsOwnedByItsSchedule(t *testing.T) {
 		t.Errorf("a run must say where its log is and in which containers, got %+v", read)
 	}
 }
+
+func TestOnlyAnUnfinishedRunBlocksAnother(t *testing.T) {
+	tests := []struct {
+		phases []string
+		active string
+	}{
+		{nil, ""},
+		{[]string{PhaseSucceeded, PhaseFailed}, ""},
+		{[]string{PhaseSucceeded, PhasePending}, "run-1"},
+		{[]string{PhaseRunning}, "run-0"},
+	}
+	for _, test := range tests {
+		var runs []Run
+		for i, phase := range test.phases {
+			runs = append(runs, Run{Name: "run-" + string(rune('0'+i)), Phase: phase})
+		}
+		if got := activeRun(runs); got != test.active {
+			t.Errorf("%v: got %q, want %q", test.phases, got, test.active)
+		}
+	}
+}

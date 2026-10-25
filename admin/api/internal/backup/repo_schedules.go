@@ -80,10 +80,25 @@ func (r *Repository) DeleteSchedule(ctx context.Context, name string) error {
 }
 
 // RunSchedule starts a run of a schedule now.
+//
+// Refused while another run is going. The CronJob's Forbid policy only governs
+// the runs the controller starts, so a manual one has to check for itself — and
+// it matters, because two runs at once would both prune.
+//
+// The check and the create are two calls, so two presses landing together can
+// still both start. That leaves one extra backup until the next run trims it,
+// which is the cost of not having a lock, and is said here rather than hidden.
 func (r *Repository) RunSchedule(ctx context.Context, name, actor string) (Run, error) {
 	cronJob, err := r.readCronJob(ctx, name)
 	if err != nil {
 		return Run{}, err
+	}
+	runs, err := r.ListRuns(ctx, name)
+	if err != nil {
+		return Run{}, err
+	}
+	if active := activeRun(runs); active != "" {
+		return Run{}, fmt.Errorf("%w: %s is still going", ErrInProgress, active)
 	}
 	created, err := r.clientset.BatchV1().Jobs(r.namespace).
 		Create(ctx, manualJob(cronJob, actor), metav1.CreateOptions{})
@@ -142,4 +157,14 @@ func (r *Repository) readCronJob(ctx context.Context, name string) (*batchv1.Cro
 		return nil, fmt.Errorf("%w: %s is not a schedule the panel made", ErrNotFound, name)
 	}
 	return found, nil
+}
+
+// activeRun names a run that has not finished, or returns empty.
+func activeRun(runs []Run) string {
+	for _, run := range runs {
+		if run.Phase == PhasePending || run.Phase == PhaseRunning {
+			return run.Name
+		}
+	}
+	return ""
 }

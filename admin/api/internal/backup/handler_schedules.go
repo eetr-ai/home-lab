@@ -141,6 +141,7 @@ func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Summary		Run a backup schedule now
 //	@Description	Starts a Job from the schedule's template, owned by its CronJob. Runs
 //	@Description	on a suspended schedule too: suspending stops the clock, not a person.
+//	@Description	Refused with 409 while another run of the schedule is still going.
 //	@Tags			backups
 //	@Produce		json
 //	@Security		BearerAuth
@@ -149,6 +150,7 @@ func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
+//	@Failure		409		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name}/run [post]
 func (h *Handler) runSchedule(w http.ResponseWriter, r *http.Request) {
 	run, err := h.service.RunSchedule(r.Context(), r.PathValue("name"), actorOf(r))

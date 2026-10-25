@@ -23,6 +23,10 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrAlreadyExists reports a schedule name already in use.
 	ErrAlreadyExists = errors.New("already exists")
+	// ErrInProgress reports a run of the schedule already going. Two runs at once
+	// would both prune, and each would count the other's upload and keep one
+	// fewer than asked.
+	ErrInProgress = errors.New("a run is already in progress")
 	// ErrForbidden reports something the panel's ServiceAccount may not do. It is
 	// a missing grant in the chart, never the caller's fault.
 	ErrForbidden = errors.New("forbidden")

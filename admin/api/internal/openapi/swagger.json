@@ -2494,7 +2494,7 @@
         },
         "/api/backups/schedules/{name}/run": {
             "post": {
-                "description": "Starts a Job from the schedule's template, owned by its CronJob. Runs\non a suspended schedule too: suspending stops the clock, not a person.",
+                "description": "Starts a Job from the schedule's template, owned by its CronJob. Runs\non a suspended schedule too: suspending stops the clock, not a person.\nRefused with 409 while another run of the schedule is still going.",
                 "parameters": [
                     {
                         "description": "Schedule name",
@@ -2546,6 +2546,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     }
                 },
                 "security": [
