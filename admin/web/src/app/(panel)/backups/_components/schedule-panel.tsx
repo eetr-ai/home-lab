@@ -49,8 +49,10 @@ export function SchedulePanel({
 	// The panel stays mounted for the life of the page; a schedule refreshed while
 	// it sits closed must reseed it, and an open one is somebody's edit.
 	if (!open && seededFrom !== schedule) {
+		const reseeded = initial();
 		setSeededFrom(schedule);
-		setForm(initial());
+		setForm(reseeded);
+		setCustom(presetFor(reseeded.cron) === CUSTOM_CRON);
 	}
 
 	const set = <K extends keyof ScheduleForm>(key: K, value: ScheduleForm[K]) =>

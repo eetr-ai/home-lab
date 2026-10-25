@@ -53,15 +53,23 @@ function loadPicker(): Promise<PickerNamespace> {
 		const script = document.createElement("script");
 		script.src = SCRIPT;
 		script.async = true;
-		script.onerror = () => {
+		// Every failure clears the cached promise, so the next press tries again
+		// rather than returning the same rejection forever.
+		const fail = (message: string) => {
 			loading = null;
-			reject(new Error("Google's picker could not be loaded"));
+			reject(new Error(message));
 		};
-		script.onload = () =>
-			window.gapi?.load("picker", () => {
+		script.onerror = () => fail("Google's picker could not be loaded");
+		script.onload = () => {
+			if (!window.gapi) {
+				fail("Google's script loaded without its loader in it");
+				return;
+			}
+			window.gapi.load("picker", () => {
 				if (window.google?.picker) resolve(window.google.picker);
-				else reject(new Error("Google's picker loaded without a picker in it"));
+				else fail("Google's picker loaded without a picker in it");
 			});
+		};
 		document.head.appendChild(script);
 	});
 	return loading;

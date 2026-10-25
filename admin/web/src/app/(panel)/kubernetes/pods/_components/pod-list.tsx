@@ -6,7 +6,7 @@ import { IconButton, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
 import { formatAge } from "@/lib/format/age";
 import type { Pod } from "@/lib/api/types";
-import { LogPanel } from "../../_components/log-panel";
+import { LogPanel } from "../../../_components/logs/log-panel";
 
 /**
  * The pods table, with a log panel that opens under it.

@@ -29,7 +29,8 @@ export function ScheduleList({
 }) {
 	const [error, setError] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
-	const [running, setRunning] = useState<string | null>(null);
+	// Per schedule: starting one run must not hold up the button of another.
+	const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
 	const rowDelete = useRowDelete(setError);
 	const router = useRouter();
 
@@ -43,9 +44,13 @@ export function ScheduleList({
 
 	async function runNow(name: string) {
 		setError(null);
-		setRunning(name);
+		setStarting((current) => new Set(current).add(name));
 		const result = await runSchedule(name);
-		setRunning(null);
+		setStarting((current) => {
+			const next = new Set(current);
+			next.delete(name);
+			return next;
+		});
 		if (!result.ok) setError(result.error);
 		else router.push(`/backups/${encodeURIComponent(name)}`);
 	}
@@ -116,7 +121,7 @@ export function ScheduleList({
 									<IconButton
 										type="button"
 										aria-label={`Run ${schedule.name} now`}
-										disabled={running !== null}
+										disabled={starting.has(schedule.name)}
 										onClick={() => runNow(schedule.name)}
 									>
 										<Play className="h-4 w-4" />

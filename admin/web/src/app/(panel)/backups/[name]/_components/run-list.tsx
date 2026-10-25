@@ -5,7 +5,7 @@ import { History, ScrollText } from "lucide-react";
 import { IconButton, Td, Th } from "@/components/ui";
 import { cn } from "@/components/ui/cn";
 import { ActionsHeader, Directory } from "../../../_components/directory";
-import { LogPanel } from "../../../kubernetes/_components/log-panel";
+import { LogPanel } from "../../../_components/logs/log-panel";
 import { formatAge } from "@/lib/format/age";
 import type { BackupRun, BackupRunPhase } from "@/lib/api/types";
 
