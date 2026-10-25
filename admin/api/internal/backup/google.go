@@ -160,6 +160,12 @@ func (c *GoogleClient) context(ctx context.Context) context.Context {
 func googleError(what string, err error) error {
 	var retrieve *oauth2.RetrieveError
 	if errors.As(err, &retrieve) {
+		// A 5xx is Google failing, not Google saying no, and the fix is to try again
+		// rather than to reconnect — so it is unreachable, whatever the body says.
+		if retrieve.Response != nil && retrieve.Response.StatusCode >= http.StatusInternalServerError {
+			return fmt.Errorf("%w: %s: Google answered %d", ErrGoogleUnreachable, what,
+				retrieve.Response.StatusCode)
+		}
 		// Google's own error code (invalid_grant, invalid_client) is kept: it is the
 		// one word that tells an operator whether to reconnect or fix the client.
 		return fmt.Errorf("%w: %s: %s", ErrGoogleRefused, what, retrieve.ErrorCode)

@@ -151,9 +151,58 @@ func TestConnectReplacesAndRevokesThePreviousAccount(t *testing.T) {
 	}
 }
 
+// Google revokes per account and client rather than per token, so revoking the
+// previous token of the same account would kill the one just issued. Neither an
+// unchanged account nor an unnamed one may be revoked.
+func TestReconnectingTheSameAccountRevokesNothing(t *testing.T) {
+	tests := []struct {
+		name     string
+		previous string
+		current  string
+	}{
+		{"same account", "op@example.invalid", "op@example.invalid"},
+		{"previous unnamed", "", "op@example.invalid"},
+		{"current unnamed", "op@example.invalid", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			google := &fakeGoogle{grant: Grant{RefreshToken: "new", Account: test.current}}
+			grants := &fakeGrants{grant: &Grant{RefreshToken: "old", Account: test.previous}}
+
+			if _, err := newTestService(google, grants).Connect(context.Background(), validConnect()); err != nil {
+				t.Fatal(err)
+			}
+			if len(google.revoked) != 0 {
+				t.Errorf("nothing should be revoked, revoked %v", google.revoked)
+			}
+			if grants.grant.RefreshToken != "new" {
+				t.Error("the new grant should be stored")
+			}
+		})
+	}
+}
+
+// A write that fails must leave the old grant both stored and alive.
+func TestAFailedWriteRevokesNothing(t *testing.T) {
+	google := &fakeGoogle{grant: Grant{RefreshToken: "new", Account: "new@example.invalid"}}
+	grants := &failingWrites{fakeGrants: fakeGrants{grant: &Grant{RefreshToken: "old", Account: "old@example.invalid"}}}
+
+	if _, err := newTestService(google, grants).Connect(context.Background(), validConnect()); err == nil {
+		t.Fatal("a failed write should fail the connect")
+	}
+	if len(google.revoked) != 0 {
+		t.Errorf("the old grant must not be revoked when the new one was not kept, revoked %v", google.revoked)
+	}
+}
+
+type failingWrites struct{ fakeGrants }
+
+func (f *failingWrites) WriteGrant(context.Context, Grant) error { return ErrForbidden }
+
 func TestConnectStillSucceedsWhenRevokingThePreviousAccountFails(t *testing.T) {
-	google := &fakeGoogle{grant: Grant{RefreshToken: "new"}, revokeErr: ErrGoogleUnreachable}
-	grants := &fakeGrants{grant: &Grant{RefreshToken: "old"}}
+	google := &fakeGoogle{grant: Grant{RefreshToken: "new", Account: "b@example.invalid"},
+		revokeErr: ErrGoogleUnreachable}
+	grants := &fakeGrants{grant: &Grant{RefreshToken: "old", Account: "a@example.invalid"}}
 
 	if _, err := newTestService(google, grants).Connect(context.Background(), validConnect()); err != nil {
 		t.Fatalf("a failed revoke must not stand in the way of the new account, got %v", err)

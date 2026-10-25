@@ -115,17 +115,28 @@ func (s *Service) Connect(ctx context.Context, request ConnectRequest) (GoogleSt
 		return GoogleStatus{}, fmt.Errorf("connect Google Drive: %w", err)
 	}
 
+	previous, previousErr := s.grants.ReadGrant(ctx)
+
+	// Written before anything is revoked, so a failed write leaves the old grant
+	// working rather than leaving no grant at all.
+	if err := s.grants.WriteGrant(ctx, grant); err != nil {
+		return GoogleStatus{}, err
+	}
+
 	// Replacing an account leaves the old grant alive at Google unless somebody
-	// tells it otherwise. Best effort: the new account is what was asked for, and
-	// a revoke that fails must not stand in the way of it.
-	if previous, err := s.grants.ReadGrant(ctx); err == nil && previous.RefreshToken != grant.RefreshToken {
+	// tells it otherwise. Only for a *different* account, though: Google revokes
+	// a grant per account and client, not per token, so revoking the previous
+	// token of the same account would revoke the one just issued along with it.
+	// An account Google did not name is treated as possibly the same one, which
+	// errs towards a stale grant over a dead connection.
+	//
+	// Best effort: the new account is what was asked for, and a revoke that fails
+	// must not stand in the way of it.
+	if previousErr == nil && previous.Account != "" && grant.Account != "" &&
+		previous.Account != grant.Account {
 		if err := s.google.Revoke(ctx, previous.RefreshToken); err != nil {
 			s.logger.Warn("could not revoke the previous Google grant", slog.Any("error", err))
 		}
-	}
-
-	if err := s.grants.WriteGrant(ctx, grant); err != nil {
-		return GoogleStatus{}, err
 	}
 	s.logger.Info("connected Google Drive", slog.String("account", grant.Account))
 	return s.GoogleStatus(ctx)

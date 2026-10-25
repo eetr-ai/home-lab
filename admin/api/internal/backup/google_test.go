@@ -89,6 +89,23 @@ func TestGoogleSayingNoIsARefusalAndKeepsItsReason(t *testing.T) {
 	}
 }
 
+// A 5xx is Google failing, and an operator told to reconnect for it would be
+// sent to fix something that was never broken.
+func TestGoogleFailingIsUnreachableNotARefusal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"backend_error"}`))
+	}))
+	defer server.Close()
+	pointGoogleAt(t, server)
+
+	_, err := NewGoogleClient("client", "secret").AccessToken(context.Background(), "refresh")
+	if !errors.Is(err, ErrGoogleUnreachable) || errors.Is(err, ErrGoogleRefused) {
+		t.Errorf("expected unreachable, got %v", err)
+	}
+}
+
 func TestRevokingAGrantGoogleAlreadyForgotIsSuccess(t *testing.T) {
 	tests := []struct {
 		name   string
