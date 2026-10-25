@@ -282,9 +282,14 @@ install_panel() {
 }
 
 stop_forward() {
-  local pid_file="${state_dir}/port-forward.pid"
-  if [[ -s $pid_file ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
-    kill "$(cat "$pid_file")"
+  local pid_file="${state_dir}/port-forward.pid" pid
+  if [[ -s $pid_file ]]; then
+    pid=$(cat "$pid_file")
+    # Only if it is still our port-forward. A pid outlives the process it named,
+    # and after a reboot it can belong to anything.
+    if ps -p "$pid" -o command= 2>/dev/null | grep -q 'kubectl.*port-forward.*admin-web'; then
+      kill "$pid"
+    fi
   fi
   rm -f "$pid_file"
 }
@@ -341,15 +346,26 @@ stop() {
 delete() {
   require docker k3d
   stop_forward
-  if [[ -s "${state_dir}/databases.env" ]]; then
-    say "Removing the databases and their data..."
-    "${compose[@]}" down --volumes >/dev/null
-  fi
+
+  # Whether or not the passwords file survived: a volume whose passwords were
+  # lost is exactly the case ensure_state sends people here to fix. Compose
+  # wants the passwords to read the file at all and never uses them to remove
+  # anything, so placeholders stand in for any that are missing.
+  say "Removing the databases and their data..."
+  LOCAL_POSTGRES_PASSWORD=${LOCAL_POSTGRES_PASSWORD:-removing} \
+    LOCAL_MONGO_PASSWORD=${LOCAL_MONGO_PASSWORD:-removing} \
+    docker compose --project-directory "${repo_root}/local" -f "${repo_root}/local/compose.yaml" \
+    down --volumes >/dev/null 2>&1 || true
+
   if cluster_exists; then
     say "Deleting the k3d cluster ${cluster}..."
     k3d cluster delete "$cluster" >/dev/null
   fi
-  rm -rf "$state_dir"
+
+  # The files this script wrote, and the directory only if that leaves it empty:
+  # HOME_LAB_LOCAL_STATE can point somewhere that holds other things.
+  rm -f "${state_dir}"/{databases.env,kubeconfig,images.tar,port-forward.pid,port-forward.log}
+  rmdir "$state_dir" 2>/dev/null || true
   printf '\nDeleted.\n'
 }
 

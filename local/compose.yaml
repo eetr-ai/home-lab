@@ -21,7 +21,9 @@ services:
       - postgres:/var/lib/postgresql
     networks: [cluster]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # Over TCP: while it initialises, the image runs a temporary server on the
+      # Unix socket only, and a socket check would call that one ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
       interval: 2s
       retries: 30
 
