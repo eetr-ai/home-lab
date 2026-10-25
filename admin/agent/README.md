@@ -4,13 +4,13 @@ An [Octo](https://juancavallotti.github.io/octo/) app that answers questions
 about this installation, reached from a drawer in the panel.
 
 It is not a service with a flow engine bolted on. `config.yaml` is the whole of
-it — one `ai-agent` block, six tools and six skills — run by Octo's public
+it — one `ai-agent` block, six tools and eight skills — run by Octo's public
 standalone runtime. There is no orchestrator and no Octo platform here: one
 process, one integration, in-process queues, and memory on disk.
 
 ```text
 config.yaml   the definition: connectors, the chat flow, the agent, its tools
-skills/       six instruction documents the model loads on demand
+skills/       eight instruction documents the model loads on demand
 Dockerfile    the standalone runtime's binary on a userland it can use
 lint.sh       the checks whose failure mode is a crash-loop rather than an error
 ```
@@ -39,10 +39,10 @@ and the skills carry instead are the manners: say what you are about to do befor
 you do it, one change at a time, never guess an identifier for a destructive call,
 and offer the page when there is no hurry.
 
-Skills — `home-lab`, `admin-api`, `diagnosing`, `databases`, `commands`, `voice`
-— are Markdown documents loaded on demand. Only each one's name and description
+Skills — `home-lab`, `admin-api`, `diagnosing`, `databases`, `helm`, `backups`,
+`commands`, `voice` — are Markdown documents loaded on demand. Only each one's name and description
 sit in the prompt; the body costs nothing until the model asks for it, which is
-why there are six of them and a short prompt.
+why there are eight of them and a short prompt.
 
 ## Three things that are load-bearing
 

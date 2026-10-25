@@ -75,4 +75,10 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	{ path: "/mongo/collections?database={database}", description: "The collections in one database, and creating or dropping one." },
 	{ path: "/mongo/users?database={database}", description: "The users on one database, and their roles." },
 	{ path: "/mongo/query?database={database}", description: "The read-only document console, opened on one database." },
+
+	{ path: "/backups", description: "The Google Drive connection and every backup schedule. Connecting Drive and creating a schedule happen here." },
+	{
+		path: "/backups/{name}",
+		description: "One backup schedule: its recent runs with their logs, the backups kept in Drive, Run now, and editing it.",
+	},
 ] as const;
