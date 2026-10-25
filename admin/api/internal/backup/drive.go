@@ -179,15 +179,16 @@ func (c *DriveClient) Trash(ctx context.Context, fileID string) error {
 func (c *DriveClient) do(request *http.Request, what string, into any) (http.Header, error) {
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		// The oauth2 transport reports a dead grant as a transport error, so this
-		// is also where "the refresh token was revoked" arrives.
-		if strings.Contains(err.Error(), "oauth2:") {
-			return nil, fmt.Errorf("%w: %s: %w", ErrGoogleRefused, what, err)
-		}
-		return nil, fmt.Errorf("%w: %s: %w", ErrGoogleUnreachable, what, err)
+		// The oauth2 transport reports a failed token refresh as a transport error,
+		// so this is also where "the refresh token was revoked" arrives — sorted
+		// by googleError, the same way the OAuth calls themselves are.
+		return nil, googleError(what, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
+	if transient(response.StatusCode) {
+		return nil, fmt.Errorf("%w: %s: Drive answered %d", ErrGoogleUnreachable, what, response.StatusCode)
+	}
 	if response.StatusCode >= http.StatusBadRequest {
 		var failure struct {
 			Error struct {

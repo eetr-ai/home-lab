@@ -131,6 +131,13 @@ func uploadRun(ctx context.Context, files Files, spec UploadSpec, now time.Time,
 	if err != nil {
 		return err
 	}
+	// The dump scripts leave a dump or a marker for every database they were
+	// given, so an empty directory means they never ran, or wrote somewhere this
+	// is not reading. Reporting that as success would be a backup job's worst
+	// possible answer: green, with nothing kept.
+	if len(dumps) == 0 && len(failed) == 0 {
+		return fmt.Errorf("found nothing to upload in %s; the dumps did not run or wrote elsewhere", spec.Dir)
+	}
 	for _, database := range failed {
 		logger.Error("this database was not dumped; see the dump container's log above",
 			slog.String("database", database))

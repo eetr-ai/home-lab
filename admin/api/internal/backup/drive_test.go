@@ -126,3 +126,20 @@ func TestDriveRefusalsKeepDrivesOwnSentence(t *testing.T) {
 		t.Errorf("expected Drive's own refusal, got %v", err)
 	}
 }
+
+// A 429 or a 5xx is Drive busy or failing. Calling it a refusal would tell the
+// operator to reconnect an account that is fine.
+func TestDriveBeingBusyIsUnreachableNotARefusal(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		}))
+		pointDriveAt(t, server)
+
+		_, err := (&DriveClient{httpClient: server.Client()}).List(context.Background(), "folder", "nightly")
+		server.Close()
+		if !errors.Is(err, ErrGoogleUnreachable) || errors.Is(err, ErrGoogleRefused) {
+			t.Errorf("status %d: expected unreachable, got %v", status, err)
+		}
+	}
+}

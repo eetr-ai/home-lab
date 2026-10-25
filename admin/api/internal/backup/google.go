@@ -128,8 +128,14 @@ func (c *GoogleClient) Drive(ctx context.Context, refreshToken string) *DriveCli
 }
 
 // ListBackups lists what a schedule has kept in its folder.
+//
+// Bounded, unlike the Drive client underneath, which has no timeout of its own so
+// an upload can take as long as it takes. This runs on a request path, and a
+// stalled Drive must not hold a handler past the time its caller gave up.
 func (c *GoogleClient) ListBackups(ctx context.Context, refreshToken, folderID, schedule string) ([]File, error) {
-	return c.Drive(ctx, refreshToken).List(ctx, folderID, schedule)
+	bounded, cancel := context.WithTimeout(ctx, googleTimeout)
+	defer cancel()
+	return c.Drive(bounded, refreshToken).List(bounded, folderID, schedule)
 }
 
 // Revoke tells Google to forget the grant, so a copy of the token that leaked
@@ -168,9 +174,10 @@ func (c *GoogleClient) context(ctx context.Context) context.Context {
 func googleError(what string, err error) error {
 	var retrieve *oauth2.RetrieveError
 	if errors.As(err, &retrieve) {
-		// A 5xx is Google failing, not Google saying no, and the fix is to try again
-		// rather than to reconnect — so it is unreachable, whatever the body says.
-		if retrieve.Response != nil && retrieve.Response.StatusCode >= http.StatusInternalServerError {
+		// A 5xx or a 429 is Google failing or busy, not Google saying no, and the
+		// fix is to try again rather than to reconnect — so it is unreachable,
+		// whatever the body says.
+		if retrieve.Response != nil && transient(retrieve.Response.StatusCode) {
 			return fmt.Errorf("%w: %s: Google answered %d", ErrGoogleUnreachable, what,
 				retrieve.Response.StatusCode)
 		}
@@ -179,6 +186,11 @@ func googleError(what string, err error) error {
 		return fmt.Errorf("%w: %s: %s", ErrGoogleRefused, what, retrieve.ErrorCode)
 	}
 	return fmt.Errorf("%w: %s: %w", ErrGoogleUnreachable, what, err)
+}
+
+// transient reports a status that means "try again later" rather than "no".
+func transient(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
 
 // accountOf reads the email address out of the ID token Google returned alongside

@@ -193,3 +193,18 @@ func TestTheUploaderSaysWhatIsMissing(t *testing.T) {
 		t.Errorf("expected not connected, got %v", err)
 	}
 }
+
+// Green with nothing kept is the worst thing a backup job can say.
+func TestARunWithNothingToUploadFails(t *testing.T) {
+	dir := workWith(t, ".bash_history")
+	files := &fakeFiles{existing: []File{old("postgres/app", 1), old("postgres/app", 2)}}
+
+	err := uploadRun(context.Background(), files, UploadSpec{Schedule: "nightly", FolderID: "f", Keep: 1, Dir: dir},
+		runTime, discard())
+	if err == nil {
+		t.Error("an empty work directory must fail the run")
+	}
+	if len(files.trashed) != 0 {
+		t.Error("nothing may be pruned by a run that uploaded nothing")
+	}
+}
