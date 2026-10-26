@@ -72,6 +72,10 @@ export interface BackupRun {
 	phase: BackupRunPhase;
 	reason?: string;
 	manual: boolean;
+	/** backup or restore; a restore is always manual. */
+	operation: "backup" | "restore";
+	/** What a restore restores into, as engine/database. */
+	target?: string;
 	pod?: string;
 	namespace: string;
 	/** In the order they run: the dumps, then the upload. */
@@ -89,4 +93,15 @@ export interface BackupFile {
 	size: number;
 	createdAt: string;
 	webViewLink?: string;
+}
+
+export type RestoreMode = "new" | "replace";
+
+/** POST /api/backups/schedules/{name}/files/{file}/restore */
+export interface RestoreBackup {
+	mode: RestoreMode;
+	/** The new database's name; empty takes <database>_restored_<date>. */
+	target?: string;
+	/** The database's name typed back, for replace. */
+	confirm?: string;
 }

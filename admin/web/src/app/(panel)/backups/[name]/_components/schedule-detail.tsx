@@ -94,7 +94,7 @@ export function ScheduleDetail({
 			</SectionCard>
 
 			<RunList runs={runs} loadError={runsError} now={live.at} />
-			<FileList files={files} loadError={filesError} now={now} />
+			<FileList schedule={schedule.name} files={files} loadError={filesError} busy={busy} now={now} />
 
 			<SchedulePanel
 				open={editing}

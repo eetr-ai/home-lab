@@ -78,6 +78,7 @@ is failing quietly. Say so before anyone asks.
   them to `/backups` instead, or to `/backups/{name}` for an existing one.
 - **Connecting and disconnecting Drive** is a trip through Google's consent
   screen. That is the page's job too.
+- **Restoring** is the page's job as well. See below.
 - **Deleting a schedule** keeps its backups in Drive. Say that, because people
   expect the opposite.
 - **Never** describe pruning as deleting. It moves backups to the trash, which
@@ -85,6 +86,19 @@ is failing quietly. Say so before anyone asks.
 
 ## Restoring
 
-Restoring is deliberately not a button. Point to the "Restoring" section of
-docs/backups.md. It downloads the file from Drive and uses `pg_restore` or
-`mongorestore` against a scratch database first.
+Each backup on a schedule's page has a **Restore** button. Take people to
+`/backups/{name}` for it rather than restoring yourself:
+
+- A restore into a new database (`<database>_restored_<date>`) is the default,
+  and it leaves the live database alone.
+- Replacing the original drops it first, and the page asks for its name typed
+  back. **Never replace a database through the API on anyone's behalf**, even
+  when asked. The confirmation belongs to the person, on the page.
+- Missing PostgreSQL roles are created NOLOGIN with no password. Existing roles
+  are never changed.
+
+A restore shows under the schedule's runs with `operation: "restore"` and its
+`target`. Read its `download` then `restore-postgres` or `restore-mongo` logs,
+in that order, to explain a failed one. A new database that already exists is
+the most common reason. Rebuilding a whole server is the by-hand section of
+docs/backups.md.

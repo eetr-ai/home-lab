@@ -275,6 +275,8 @@ export type {
 	BackupRunPhase,
 	BackupRun,
 	BackupFile,
+	RestoreMode,
+	RestoreBackup,
 } from "./backups-types";
 
 export type { ClusterCronJob, ClusterJob, ClusterJobStatus, JobListing } from "./jobs-types";

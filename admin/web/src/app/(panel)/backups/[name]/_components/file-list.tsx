@@ -1,23 +1,35 @@
-import { ExternalLink, FileArchive } from "lucide-react";
-import { Td, Th } from "@/components/ui/table";
+"use client";
+
+import { useState } from "react";
+import { ArchiveRestore, ExternalLink, FileArchive } from "lucide-react";
+import { IconButton, Td, Th } from "@/components/ui";
+import { ActionsHeader } from "../../../_components/directory";
 import { Directory } from "../../../_components/directory";
 import { formatAge } from "@/lib/format/age";
 import { formatBytes } from "@/lib/format/bytes";
+import { sourceOf } from "@/lib/backups/restore";
 import type { BackupFile } from "@/lib/api/types";
+import { RestorePanel } from "./restore-panel";
 
 /**
  * What the schedule has kept, read from the Drive folder itself rather than from
  * the runs: a file somebody deleted in Drive is gone from here too.
  */
 export function FileList({
+	schedule,
 	files,
 	loadError,
+	busy,
 	now,
 }: {
+	schedule: string;
 	files: BackupFile[];
 	loadError: string | null;
+	/** A run is going; the API refuses a restore then, so the buttons say so first. */
+	busy: boolean;
 	now: Date;
 }) {
+	const [restoring, setRestoring] = useState<BackupFile | null>(null);
 	const sorted = [...files].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
 	return (
@@ -39,6 +51,7 @@ export function FileList({
 						<Th>Database</Th>
 						<Th className="w-px whitespace-nowrap text-right">Size</Th>
 						<Th className="w-px whitespace-nowrap text-right">Taken</Th>
+						<ActionsHeader />
 					</>
 				}
 				rows={sorted.map((file) => (
@@ -63,9 +76,22 @@ export function FileList({
 						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
 							{formatAge(file.createdAt, now)} ago
 						</Td>
+						<Td className="text-right">
+							{sourceOf(file) ? (
+								<IconButton
+									type="button"
+									aria-label={`Restore ${file.name}`}
+									disabled={busy}
+									onClick={() => setRestoring(file)}
+								>
+									<ArchiveRestore className="h-4 w-4" />
+								</IconButton>
+							) : null}
+						</Td>
 					</tr>
 				))}
 			/>
+			<RestorePanel schedule={schedule} file={restoring} onClose={() => setRestoring(null)} />
 		</>
 	);
 }
