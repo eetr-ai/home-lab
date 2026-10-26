@@ -398,8 +398,14 @@ so the panel already running has to be a version that has one. The build that
 first introduces the endpoint cannot use it. Publish, upgrade once by hand, then
 turn it on.
 
-It needs three more substitutions — `_PANEL_URL`, `_CHART_ID` (the deployment id
-from the panel's URL), and `_API_KEY_SECRET`, a Secret Manager secret holding the
+Turn it on in `terraform/gcp`, not on the trigger by hand: set `deploy_admin = true`
+and `admin_chart_id` (the deployment id from the panel's URL) in its ignored
+`terraform.tfvars`, and the trigger carries `_DEPLOY` and `_CHART_ID`. Set on the
+trigger directly, they are drift, and the next apply of that module removes them
+and quietly switches the deploy off.
+
+It needs two more substitutions, whose defaults in `cloudbuild.yaml` are this
+lab's — `_PANEL_URL`, and `_API_KEY_SECRET`, a Secret Manager secret holding the
 `eak_…` key. The deploy step reads that secret itself rather than declaring it in
 `availableSecrets`, so a build with `_DEPLOY` unset never needs the secret to
 exist at all — which is what keeps a fork of this repository able to publish.

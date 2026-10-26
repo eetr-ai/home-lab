@@ -1,7 +1,14 @@
 # Copy to terraform.tfvars, which is ignored, and replace the values.
 #
-# Only these two are environment-specific. The repository, registry name, and tag
-# pattern have working defaults in variables.tf; override them only in a fork.
+# Only these two are required and environment-specific; the deploy pair at the
+# end is optional. The repository, registry name, and tag pattern have working
+# defaults in variables.tf; override them only in a fork.
 
 project_id = "YOUR_GCP_PROJECT_ID"
 region     = "us-west1"
+
+# Roll this lab's own panel onto each release once it is published. Leave it off
+# until the running panel serves the pipeline endpoint (docs/deploying-from-a-
+# pipeline.md), then set both. The id is in the URL of the deployment's page.
+# deploy_admin   = true
+# admin_chart_id = "00000000-0000-0000-0000-000000000000"

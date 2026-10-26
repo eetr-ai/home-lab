@@ -26,13 +26,25 @@ resource "google_cloudbuild_trigger" "admin_publish" {
     }
   }
 
-  substitutions = {
-    _IMAGE_BASE = local.image_base
-    _REGION     = var.region
-    # Resolved by Cloud Build from the tag that fired the trigger, so a build is
-    # always addressed by the version it came from and never by a moving name.
-    _TAG = "$TAG_NAME"
-  }
+  # The deploy pair is merged in only when deploying is on. Off, the trigger
+  # carries exactly what publishing needs and cloudbuild.yaml's own empty
+  # defaults stand, which is what a fork should get. On, they live here rather
+  # than being set on the trigger by hand -- set by hand, every apply of this
+  # module quietly removed them and switched the deploy off.
+  substitutions = merge(
+    {
+      _IMAGE_BASE = local.image_base
+      _REGION     = var.region
+      # Resolved by Cloud Build from the tag that fired the trigger, so a build
+      # is always addressed by the version it came from and never by a moving
+      # name.
+      _TAG = "$TAG_NAME"
+    },
+    var.deploy_admin ? {
+      _DEPLOY   = "true"
+      _CHART_ID = var.admin_chart_id
+    } : {},
+  )
 
   depends_on = [
     google_project_service.cloud_build,
