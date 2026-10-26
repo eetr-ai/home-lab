@@ -4,6 +4,7 @@ import { listDatabases as listMongo } from "@/app/actions/mongo";
 import { DriveCard } from "./_components/drive-card";
 import { ScheduleList } from "./_components/schedule-list";
 import { availableDatabases } from "./_components/available-databases";
+import { connectErrorMessage } from "@/lib/backups/connect-outcome";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export default async function BackupsPage({
 				status={status.ok ? status.data : null}
 				loadError={status.ok ? null : status.error}
 				justConnected={drive === "connected"}
-				connectError={driveError ?? null}
+				connectError={connectErrorMessage(driveError)}
 			/>
 			<ScheduleList
 				schedules={schedules.ok ? schedules.data : []}

@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { denyUnlessSignedIn } from "@/app/actions/_auth";
 import { connectGoogle } from "@/lib/api/backups";
 import { permitsWrite, writeAllowlist } from "@/lib/auth/write-access";
+import { type ConnectError, googleRefusal } from "@/lib/backups/connect-outcome";
 import { CALLBACK_PATH, FLOW_COOKIE, openFlow, redirectUriFor, sameState } from "@/lib/backups/oauth";
 
 export const runtime = "nodejs";
@@ -19,9 +20,10 @@ export const dynamic = "force-dynamic";
  * anything: a signed-in operator, one allowed to make changes, a flow cookie this
  * deployment sealed in the last ten minutes, and a state that matches it.
  *
- * Every outcome is a redirect back to the backups page, carrying a short message
- * when something went wrong: the operator arrives here mid-flow, and a JSON body
- * would be a dead end.
+ * Every outcome is a redirect back to the backups page, carrying a code when
+ * something went wrong: the operator arrives here mid-flow, and a JSON body would
+ * be a dead end. A code and not a sentence, because the page's URL is one anybody
+ * can write; the page only ever shows its own sentence for it.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
 	const jar = await cookies();
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 	// One use: whatever happens next, this flow is over.
 	jar.delete({ name: FLOW_COOKIE, path: CALLBACK_PATH });
 
-	const back = (error?: string) => {
+	const back = (error?: ConnectError) => {
 		const target = new URL("/backups", redirectUriFor(process.env.AUTH_URL) ?? request.url);
 		if (error) target.searchParams.set("driveError", error);
 		else target.searchParams.set("drive", "connected");
@@ -37,36 +39,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 	};
 
 	const denied = await denyUnlessSignedIn();
-	if (denied) return back(denied.error);
+	if (denied) return back("signed_out");
 	const session = await auth();
 	if (!permitsWrite(writeAllowlist(process.env.ADMIN_WRITE_EMAILS), session?.user?.email)) {
-		return back("this account may view the panel but not change anything");
+		return back("not_allowed");
 	}
 
 	const params = request.nextUrl.searchParams;
 	const secret = process.env.AUTH_SECRET ?? "";
 	const flow = sealed ? await openFlow(sealed, secret, Date.now()) : null;
 	if (!flow || !sameState(flow.state, params.get("state"))) {
-		return back("the connection attempt expired or did not start here; try again");
+		return back("expired");
 	}
 
-	// The operator said no, or Google refused before asking them. Read only after
-	// the flow checks out, so a link from anywhere else cannot put words in the
-	// Drive card, and only when it has the shape of an OAuth error code; anything
-	// else gets a fixed sentence rather than being echoed.
+	// The operator said no, or Google refused before asking them.
 	const refusal = params.get("error");
-	if (refusal) {
-		return back(
-			/^[a-z_]{1,40}$/.test(refusal)
-				? `Google answered ${refusal}`
-				: "Google refused the connection",
-		);
-	}
+	if (refusal) return back(googleRefusal(refusal));
 
 	const code = params.get("code");
 	const redirectUri = redirectUriFor(process.env.AUTH_URL);
-	if (!code || !redirectUri) return back("Google returned no authorization code");
+	if (!code || !redirectUri) return back("no_code");
 
 	const result = await connectGoogle({ code, codeVerifier: flow.verifier, redirectUri });
-	return result.ok ? back() : back(result.error);
+	if (result.ok) return back();
+	// The reason stays here rather than riding the redirect.
+	console.error(`connecting Google Drive failed: ${result.error}`);
+	return back("connect_failed");
 }
