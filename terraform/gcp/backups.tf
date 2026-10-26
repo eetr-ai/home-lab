@@ -43,7 +43,7 @@ resource "google_apikeys_key" "picker" {
 
   restrictions {
     browser_key_restrictions {
-      allowed_referrers = ["${var.panel_origin}/*"]
+      allowed_referrers = [for origin in concat([var.panel_origin], var.picker_extra_origins) : "${origin}/*"]
     }
     api_targets {
       service = "picker.googleapis.com"

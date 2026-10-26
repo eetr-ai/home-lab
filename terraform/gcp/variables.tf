@@ -84,3 +84,14 @@ variable "panel_origin" {
     error_message = "panel_origin must be a scheme and a host, with no path and no trailing slash."
   }
 }
+
+variable "picker_extra_origins" {
+  description = "More origins the Picker key is accepted from, such as http://localhost:3000 for the local k3d cluster. The key is browser-public; each origin added is one more page that can use it."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for origin in var.picker_extra_origins : can(regex("^https?://[A-Za-z0-9.-]+(:[0-9]+)?$", origin))])
+    error_message = "Each of picker_extra_origins must be a scheme and a host, with no path and no trailing slash."
+  }
+}

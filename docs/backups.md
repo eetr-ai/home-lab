@@ -45,6 +45,10 @@ terraform -chdir=terraform/gcp output -raw picker_app_id
 Those two outputs go in the panel's values, as
 `admin.api.backups.google.picker.apiKey` and `.appId`.
 
+To use the Picker on the local k3d cluster too, add
+`picker_extra_origins = ["http://localhost:3000"]` to the same file and apply
+again. The key itself does not change, only where it is accepted from.
+
 ### 2. The consent screen
 
 Under **Google Auth Platform → Branding/Audience**:
