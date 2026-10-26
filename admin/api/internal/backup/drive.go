@@ -125,7 +125,9 @@ func (c *DriveClient) List(ctx context.Context, folderID, schedule string) ([]Fi
 	query := fmt.Sprintf("'%s' in parents and trashed = false and "+
 		"appProperties has { key='%s' and value='%s' }", folderID, propertySchedule, schedule)
 
-	var ret []File
+	// Empty, never nil: a nil slice encodes as null, and an empty folder must
+	// reach the panel as a list it can walk, not as nothing at all.
+	ret := []File{}
 	pageToken := ""
 	for {
 		values := url.Values{

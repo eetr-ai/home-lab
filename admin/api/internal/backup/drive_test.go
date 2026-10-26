@@ -143,3 +143,21 @@ func TestDriveBeingBusyIsUnreachableNotARefusal(t *testing.T) {
 		}
 	}
 }
+
+// An empty folder must encode as [] — the panel iterates it, and null is what
+// crashed the schedule page on a folder with nothing in it yet.
+func TestAnEmptyFolderListsAsAnEmptyArray(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"files":[]}`))
+	}))
+	defer server.Close()
+	pointDriveAt(t, server)
+
+	files, err := (&DriveClient{httpClient: server.Client()}).List(context.Background(), "folder", "nightly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := json.Marshal(files); string(raw) != "[]" {
+		t.Errorf("an empty folder must encode as [], got %s", raw)
+	}
+}

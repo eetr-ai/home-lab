@@ -374,6 +374,11 @@ func scheduleFrom(cronJob *batchv1.CronJob) Schedule {
 	}
 	ret.Keep, _ = strconv.Atoi(cronJob.Annotations[annotationKeep])
 	_ = json.Unmarshal([]byte(cronJob.Annotations[annotationDatabases]), &ret.Databases)
+	// An annotation that would not read leaves the list nil, which encodes as
+	// null; the panel walks this list, so it gets an empty one instead.
+	if ret.Databases == nil {
+		ret.Databases = []DatabaseRef{}
+	}
 
 	if cronJob.Status.LastScheduleTime != nil {
 		ret.LastScheduled = &cronJob.Status.LastScheduleTime.Time

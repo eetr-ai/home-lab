@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -204,5 +205,17 @@ func TestOnlyAnUnfinishedRunBlocksAnother(t *testing.T) {
 		if got := activeRun(runs); got != test.active {
 			t.Errorf("%v: got %q, want %q", test.phases, got, test.active)
 		}
+	}
+}
+
+// A schedule somebody edited by hand still lists, and its databases still
+// encode as a list the panel can walk.
+func TestAnUnreadableDatabasesAnnotationReadsAsAnEmptyList(t *testing.T) {
+	job := buildCronJob(validSchedule(), "", testScheduleConfig())
+	job.Annotations[annotationDatabases] = "not json"
+
+	raw, _ := json.Marshal(scheduleFrom(job).Databases)
+	if string(raw) != "[]" {
+		t.Errorf("databases must encode as [], got %s", raw)
 	}
 }
