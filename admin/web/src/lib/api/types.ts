@@ -277,6 +277,8 @@ export type {
 	BackupFile,
 } from "./backups-types";
 
+export type { ClusterCronJob, ClusterJob, ClusterJobStatus, JobListing } from "./jobs-types";
+
 /** One minted credential. See admin/api/internal/secretgen. */
 export interface GeneratedValue {
 	shape: string;

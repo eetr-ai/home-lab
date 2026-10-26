@@ -21,6 +21,7 @@ type repository interface {
 	DeleteNamespace(ctx context.Context, name, uid string) error
 	ListWorkloads(ctx context.Context, namespace string) ([]Workload, error)
 	ListPods(ctx context.Context, namespace string) ([]Pod, error)
+	ListJobs(ctx context.Context, namespace string) (JobListing, error)
 	ListEvents(ctx context.Context, namespace string) ([]Event, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ReadStorage(ctx context.Context) (Storage, error)

@@ -16,6 +16,7 @@ export type NamespaceScopeUse = "none" | "optional" | "required";
 const scopedRoutes: Record<string, NamespaceScopeUse> = {
 	"/kubernetes/workloads": "optional",
 	"/kubernetes/pods": "optional",
+	"/kubernetes/jobs": "optional",
 	"/kubernetes/events": "optional",
 	"/kubernetes/secrets": "required",
 	"/helm/dashboard": "optional",

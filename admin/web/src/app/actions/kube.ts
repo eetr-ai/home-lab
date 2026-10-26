@@ -20,6 +20,7 @@ import type {
 	Storage,
 	Workload,
 	WorkloadDetail,
+	JobListing,
 } from "@/lib/api/types";
 
 /**
@@ -143,6 +144,10 @@ export async function listWorkloads(scope: NamespaceScope): Promise<ActionResult
 
 export async function listPods(scope: NamespaceScope): Promise<ActionResult<Pod[]>> {
 	return withRead(() => kube.listPods(scope));
+}
+
+export async function listJobs(scope: NamespaceScope): Promise<ActionResult<JobListing>> {
+	return withRead(() => kube.listJobs(scope));
 }
 
 export async function listEvents(scope: NamespaceScope): Promise<ActionResult<ClusterEvent[]>> {

@@ -5,6 +5,7 @@ describe("namespaceScopeFor", () => {
 	it.each([
 		["/kubernetes/workloads", "optional"],
 		["/kubernetes/pods", "optional"],
+		["/kubernetes/jobs", "optional"],
 		["/kubernetes/events", "optional"],
 		["/helm/dashboard", "optional"],
 		["/helm/deployments", "optional"],

@@ -15,6 +15,7 @@ import type {
 	Storage,
 	Workload,
 	WorkloadDetail,
+	JobListing,
 } from "./types";
 
 /**
@@ -162,6 +163,12 @@ export function listPods(scope: NamespaceScope): Promise<ActionResult<Pod[]>> {
 	return isAllNamespaces(scope)
 		? call<Pod[]>("GET", "/api/kubernetes/pods")
 		: call<Pod[]>("GET", `/api/kubernetes/namespaces/${seg(scope)}/pods`);
+}
+
+export function listJobs(scope: NamespaceScope): Promise<ActionResult<JobListing>> {
+	return isAllNamespaces(scope)
+		? call<JobListing>("GET", "/api/kubernetes/jobs")
+		: call<JobListing>("GET", `/api/kubernetes/namespaces/${seg(scope)}/jobs`);
 }
 
 export function listEvents(scope: NamespaceScope): Promise<ActionResult<ClusterEvent[]>> {

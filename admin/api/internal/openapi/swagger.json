@@ -728,6 +728,42 @@
                 },
                 "type": "object"
             },
+            "kube.CronJob": {
+                "properties": {
+                    "active": {
+                        "description": "Active counts the Jobs it has running now.",
+                        "type": "integer"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "lastScheduled": {
+                        "description": "LastScheduled and LastSucceeded are the controller's account. A gap between\nthem is the first sign a schedule is failing quietly.",
+                        "type": "string"
+                    },
+                    "lastSucceeded": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "schedule": {
+                        "description": "Schedule is the cron line, as written.",
+                        "type": "string"
+                    },
+                    "suspended": {
+                        "type": "boolean"
+                    },
+                    "timeZone": {
+                        "description": "TimeZone is empty when the controller's own zone applies.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "kube.Event": {
                 "properties": {
                     "count": {
@@ -765,6 +801,64 @@
                     },
                     "usedBytes": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.Job": {
+                "properties": {
+                    "completions": {
+                        "type": "integer"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "cronJob": {
+                        "description": "CronJob names the schedule that made it, when one did. A Job started by\nhand from a schedule (kubectl create job --from) names it too.",
+                        "type": "string"
+                    },
+                    "finishedAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "description": "Reason says why, when a Job failed for a reason Kubernetes named.",
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is one word: pending, running, succeeded, or failed.",
+                        "type": "string"
+                    },
+                    "succeeded": {
+                        "description": "Succeeded and Completions read as \"1/1\". Completions is absent for a\nwork-queue Job, which has no target: it is done when its pods say so.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "kube.JobListing": {
+                "properties": {
+                    "cronJobs": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.CronJob"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "jobs": {
+                        "items": {
+                            "$ref": "#/components/schemas/kube.Job"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -4629,6 +4723,51 @@
                 ]
             }
         },
+        "/api/kubernetes/jobs": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.JobListing"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List cron jobs and jobs in every namespace",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
         "/api/kubernetes/namespaces": {
             "get": {
                 "responses": {
@@ -5153,6 +5292,73 @@
                     }
                 ],
                 "summary": "Enrol a namespace as a Helm target",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
+        "/api/kubernetes/namespaces/{namespace}/jobs": {
+            "get": {
+                "description": "The schedules and their runs together, runs newest first. A job made by\na schedule names it in `cronJob`.",
+                "parameters": [
+                    {
+                        "description": "Namespace",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.JobListing"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List cron jobs and jobs",
                 "tags": [
                     "kubernetes"
                 ]
