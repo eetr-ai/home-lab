@@ -54,7 +54,7 @@ export function RunList({
 					<tr key={run.name}>
 						<Td className="text-muted-foreground">{formatAge(run.startedAt ?? run.createdAt, now)} ago</Td>
 						<Td>
-							<span className={cn("rounded border px-2 py-0.5 text-xs", PHASE_TONE[run.phase])}>
+							<span className={cn("rounded-chip border px-2 py-0.5 text-xs", PHASE_TONE[run.phase])}>
 								{run.phase}
 								{run.reason ? ` — ${run.reason}` : ""}
 							</span>
