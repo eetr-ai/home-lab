@@ -338,7 +338,7 @@ The panel is then at `http://localhost:3000`; `task logs` follows all the
 containers and `task stop` takes them down. `admin/.env` is ignored — it holds a client
 secret and two superuser passwords.
 
-The third of them is the [assistant](admin/agent/README.md), so `admin/.env`
+The third container `task dev` starts is the [assistant](admin/agent/README.md), so `admin/.env`
 needs an `OPENROUTER_API_KEY` as well. The task checks
 for one before starting anything rather than leaving you with a stack whose
 assistant is dead. In the cluster the agent is a deliberate opt-in; locally it is
@@ -348,6 +348,12 @@ These tasks pin `DOCKER_CONTEXT=default`. The database module has you point your
 Docker context at the server, and leaving it there would start the development
 stack on the virtualization host, where nothing answers on `localhost:3000` and
 the registered redirect URI does not lead.
+
+That stack has no cluster, so the Kubernetes and Helm sections and the backup
+schedules have nothing to run against there. `task cluster:deploy` runs the same
+chart on a local [k3d](https://k3d.io) cluster instead, with PostgreSQL and
+MongoDB as containers beside it, and reads the same `admin/.env`; see the
+[local cluster guide](docs/local-cluster.md).
 
 ## Releasing the admin panel
 

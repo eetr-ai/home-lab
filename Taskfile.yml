@@ -283,6 +283,34 @@ tasks:
     cmds:
       - ./scripts/validate-platform.sh
 
+  # --- The local k3d cluster -------------------------------------------------
+  #
+  # A throwaway cluster on this machine running the same chart, with PostgreSQL
+  # and MongoDB as containers beside it the way the lab runs them. Unlike `task
+  # dev` it exercises everything that needs a cluster — the Kubernetes and Helm
+  # sections, backup CronJobs. scripts/local-cluster.sh has the details.
+
+  cluster:deploy:
+    desc: Build the panel and run it on a local k3d cluster at http://localhost:3000 (reads admin/.env)
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - ./scripts/local-cluster.sh deploy
+
+  cluster:stop:
+    desc: Stop the local k3d cluster and its databases, keeping the data
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - ./scripts/local-cluster.sh stop
+
+  cluster:delete:
+    desc: Remove the local k3d cluster and its databases, data included
+    env:
+      DOCKER_CONTEXT: '{{.DEV_DOCKER_CONTEXT | default "default"}}'
+    cmds:
+      - ./scripts/local-cluster.sh delete
+
   cluster:validate:
     desc: Validate the Kubernetes cluster
     cmds:
