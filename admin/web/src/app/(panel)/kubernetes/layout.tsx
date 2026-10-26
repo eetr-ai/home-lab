@@ -8,6 +8,7 @@ const tabs = [
 	{ href: "/kubernetes/secrets", label: "Secrets" },
 	{ href: "/kubernetes/workloads", label: "Workloads" },
 	{ href: "/kubernetes/pods", label: "Pods" },
+	{ href: "/kubernetes/jobs", label: "Jobs" },
 	{ href: "/kubernetes/events", label: "Events" },
 	{ href: "/kubernetes/nodes", label: "Nodes" },
 	{ href: "/kubernetes/storage", label: "Storage" },

@@ -26,6 +26,7 @@ the rules for them are in your prompt rather than here.
 | `/api/kubernetes/namespaces/{ns}/workloads/{kind}/{name}` | One workload in full. `kind` is `deployment`, `statefulset` or `daemonset`. |
 | `/api/kubernetes/namespaces/{ns}/pods` | The pods, with phase, restarts and container status. |
 | `/api/kubernetes/namespaces/{ns}/events` | The namespace's events — where a pod that will not start says why. |
+| `/api/kubernetes/namespaces/{ns}/jobs` | The CronJobs (schedule, last success) and Jobs (status, which schedule made them) in one namespace; `/api/kubernetes/jobs` for every namespace. |
 | `/api/kubernetes/namespaces/{ns}/pods/{pod}/logs` | A pod's log. See below. |
 | `/api/kubernetes/namespaces/{ns}/secrets` | The Secrets: names, types, keys, and whether the panel will touch each one. **Never any values** — see below. |
 

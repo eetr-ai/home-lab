@@ -297,6 +297,12 @@ fi
 # admin/api/internal/kube; a standing grant for anything else is a permission
 # nobody is reviewing. Add one back in the change that reads it.
 expected_pairs=$(LC_ALL=C sort -u <<'PAIRS'
+batch/cronjobs get
+batch/cronjobs list
+batch/cronjobs watch
+batch/jobs get
+batch/jobs list
+batch/jobs watch
 apps/daemonsets get
 apps/daemonsets list
 apps/daemonsets watch

@@ -98,6 +98,11 @@ func (f *fakeRepo) ListWorkloads(_ context.Context, namespace string) ([]Workloa
 	return make([]Workload, f.workloads), nil
 }
 
+func (f *fakeRepo) ListJobs(_ context.Context, namespace string) (JobListing, error) {
+	f.asked = append(f.asked, "jobs:"+namespace)
+	return JobListing{}, nil
+}
+
 func (f *fakeRepo) ListPods(_ context.Context, namespace string) ([]Pod, error) {
 	f.asked = append(f.asked, "pods:"+namespace)
 	return nil, nil
@@ -217,6 +222,7 @@ func TestNamespaceIsValidatedBeforeTheClusterIsAsked(t *testing.T) {
 	calls := map[string]func(*Service, string) error{
 		"workloads": func(s *Service, ns string) error { _, err := s.ListWorkloads(t.Context(), ns); return err },
 		"pods":      func(s *Service, ns string) error { _, err := s.ListPods(t.Context(), ns); return err },
+		"jobs":      func(s *Service, ns string) error { _, err := s.ListJobs(t.Context(), ns); return err },
 		"events":    func(s *Service, ns string) error { _, err := s.ListEvents(t.Context(), ns); return err },
 	}
 
@@ -438,6 +444,7 @@ func TestTheNamespacedListingsRefuseAnEmptyNamespace(t *testing.T) {
 	calls := map[string]func(*Service, string) error{
 		"workloads": func(s *Service, ns string) error { _, err := s.ListWorkloads(t.Context(), ns); return err },
 		"pods":      func(s *Service, ns string) error { _, err := s.ListPods(t.Context(), ns); return err },
+		"jobs":      func(s *Service, ns string) error { _, err := s.ListJobs(t.Context(), ns); return err },
 		"events":    func(s *Service, ns string) error { _, err := s.ListEvents(t.Context(), ns); return err },
 	}
 

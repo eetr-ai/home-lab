@@ -37,6 +37,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.deleteNamespace)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/workloads", h.listWorkloads)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/pods", h.listPods)
+	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/jobs", h.listJobs)
 	mux.HandleFunc("GET /api/kubernetes/namespaces/{namespace}/events", h.listEvents)
 	// The same three across the whole cluster. Their own routes rather than the
 	// namespaced ones with the segment left off: an absent path segment is a
@@ -45,6 +46,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// cluster-wide Secrets route — see the note on Service.ListAllWorkloads.
 	mux.HandleFunc("GET /api/kubernetes/workloads", h.listAllWorkloads)
 	mux.HandleFunc("GET /api/kubernetes/pods", h.listAllPods)
+	mux.HandleFunc("GET /api/kubernetes/jobs", h.listAllJobs)
 	mux.HandleFunc("GET /api/kubernetes/events", h.listAllEvents)
 	mux.HandleFunc("GET /api/kubernetes/nodes", h.listNodes)
 	mux.HandleFunc("GET /api/kubernetes/storage", h.readStorage)
@@ -220,6 +222,48 @@ func (h *Handler) listPods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, pods)
+}
+
+// listJobs returns the CronJobs and Jobs in one namespace.
+//
+//	@Summary		List cron jobs and jobs
+//	@Description	The schedules and their runs together, runs newest first. A job made by
+//	@Description	a schedule names it in `cronJob`.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace"
+//	@Success		200			{object}	kube.JobListing
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/jobs [get]
+func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := h.service.ListJobs(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, jobs)
+}
+
+// listAllJobs returns every CronJob and Job on the cluster.
+//
+//	@Summary		List cron jobs and jobs in every namespace
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{object}	kube.JobListing
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
+//	@Router			/api/kubernetes/jobs [get]
+func (h *Handler) listAllJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := h.service.ListAllJobs(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, jobs)
 }
 
 // listEvents returns the recent events in one namespace, most recent first.

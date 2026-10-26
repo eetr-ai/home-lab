@@ -47,6 +47,7 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 		path: "/kubernetes/workloads/{kind}/{name}?namespace={namespace}",
 		description: "One workload in detail: its pods, its rollout state, and its logs. `kind` is deployment, statefulset or daemonset. The namespace is required — without it this page is a 404, not a default.",
 	},
+	{ path: "/kubernetes/jobs?namespace={namespace}", description: "CronJobs with their schedules and last success, and the Jobs they ran with their outcome, in the chosen namespace or in every namespace." },
 	{ path: "/kubernetes/pods?namespace={namespace}", description: "Pods with phase and restart counts, in the chosen namespace or in every namespace. Naming one moves the panel's shared scope to it." },
 	{ path: "/kubernetes/events?namespace={namespace}", description: "Recent events — where a pod that will not start says why. Naming a namespace moves the panel's shared scope to it; without one this is the whole cluster, capped at the hundred most recent." },
 	{ path: "/kubernetes/namespaces", description: "Every namespace, whether the panel may delete it, and creating one. A protected namespace shows why it is protected instead of a delete action." },

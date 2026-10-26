@@ -86,6 +86,14 @@ rules:
       - statefulsets
       - daemonsets
     verbs: ["get", "list", "watch"]
+  # ListJobs: the schedules and their runs, read-only, in every namespace like
+  # the pods beside them. Nothing here starts, stops or deletes one; the backups
+  # slice's own Role, scoped to the release namespace, is what creates its runs.
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["get", "list", "watch"]
   # RestartWorkload. See the warning above: this is patch on any field, and only
   # the Go code confines it to the restartedAt annotation.
   #
