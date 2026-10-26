@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.10.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.9.0...admin-v1.10.0) (2026-10-26)
+
+
+### Features
+
+* **admin:** a Backups section to connect Drive and manage schedules ([#118](https://github.com/eetr-ai/home-lab/issues/118)) ([679aeb9](https://github.com/eetr-ai/home-lab/commit/679aeb98ec0f92b2b21a90c9c16ea8c68c2d8285))
+* **admin:** connect a Google Drive account for database backups ([#116](https://github.com/eetr-ai/home-lab/issues/116)) ([7d0236c](https://github.com/eetr-ai/home-lab/commit/7d0236cb9e5b22fb1994afd5d1c26aae21b97806))
+* **admin:** list CronJobs and Jobs in the Kubernetes section ([#123](https://github.com/eetr-ai/home-lab/issues/123)) ([18c041d](https://github.com/eetr-ai/home-lab/commit/18c041dde6d68c83da415a712795ea7bb3dacf2b))
+* **admin:** restore a backup from Drive, into a new database or over the original ([#124](https://github.com/eetr-ai/home-lab/issues/124)) ([ec4db86](https://github.com/eetr-ai/home-lab/commit/ec4db86f2e2d0fe47db65c92fe12b1bbedfc2b35))
+* **admin:** schedule database backups into Google Drive ([#117](https://github.com/eetr-ai/home-lab/issues/117)) ([d280302](https://github.com/eetr-ai/home-lab/commit/d2803021dc7d520111e5319e1b381e4f778cd3d6))
+* **agent:** teach the assistant about backups, and document restoring ([#119](https://github.com/eetr-ai/home-lab/issues/119)) ([535603a](https://github.com/eetr-ai/home-lab/commit/535603a8b141d8fb11876209f9c1044ec61f0461))
+* run the panel on a local k3d cluster with task cluster:deploy ([#120](https://github.com/eetr-ai/home-lab/issues/120)) ([3a4f019](https://github.com/eetr-ai/home-lab/commit/3a4f019b98fdb4ee17437770fe2fbefa4287e2a7))
+
 ## [1.9.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.8.0...admin-v1.9.0) (2026-10-24)
 
 
