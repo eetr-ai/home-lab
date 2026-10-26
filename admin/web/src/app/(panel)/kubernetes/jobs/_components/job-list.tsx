@@ -60,7 +60,7 @@ export function JobList({
 							</span>
 						</Td>
 						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
-							{job.succeeded}/{job.completions}
+							{job.completions === undefined ? job.succeeded : `${job.succeeded}/${job.completions}`}
 						</Td>
 						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
 							{formatAge(job.startedAt ?? job.createdAt, now)}

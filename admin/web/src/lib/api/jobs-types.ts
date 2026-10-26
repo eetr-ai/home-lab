@@ -31,7 +31,8 @@ export interface ClusterJob {
 	status: ClusterJobStatus;
 	reason?: string;
 	succeeded: number;
-	completions: number;
+	/** Absent for a work-queue Job, which has no target count. */
+	completions?: number;
 	startedAt?: string;
 	finishedAt?: string;
 	createdAt: string;

@@ -838,7 +838,7 @@
                         "type": "string"
                     },
                     "succeeded": {
-                        "description": "Succeeded and Completions read as \"1/1\"; Completions is 1 when unset.",
+                        "description": "Succeeded and Completions read as \"1/1\". Completions is absent for a\nwork-queue Job, which has no target: it is done when its pods say so.",
                         "type": "integer"
                     }
                 },

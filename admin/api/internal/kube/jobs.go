@@ -40,9 +40,10 @@ type Job struct {
 	Status string `json:"status"`
 	// Reason says why, when a Job failed for a reason Kubernetes named.
 	Reason string `json:"reason,omitempty"`
-	// Succeeded and Completions read as "1/1"; Completions is 1 when unset.
+	// Succeeded and Completions read as "1/1". Completions is absent for a
+	// work-queue Job, which has no target: it is done when its pods say so.
 	Succeeded   int32      `json:"succeeded"`
-	Completions int32      `json:"completions"`
+	Completions *int32     `json:"completions,omitempty"`
 	StartedAt   *time.Time `json:"startedAt,omitempty"`
 	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
@@ -136,11 +137,8 @@ func summarizeJob(job *batchv1.Job) Job {
 		Status:      status,
 		Reason:      reason,
 		Succeeded:   job.Status.Succeeded,
-		Completions: 1,
+		Completions: job.Spec.Completions,
 		CreatedAt:   job.CreationTimestamp.Time,
-	}
-	if job.Spec.Completions != nil {
-		ret.Completions = *job.Spec.Completions
 	}
 	for _, owner := range job.OwnerReferences {
 		if owner.Kind == "CronJob" {

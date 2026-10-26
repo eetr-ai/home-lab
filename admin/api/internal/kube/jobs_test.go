@@ -45,6 +45,23 @@ func TestJobStatusPutsTheVerdictBeforeTheActivePod(t *testing.T) {
 	}
 }
 
+// A work-queue Job has no target count, and must not be given one: "3/1"
+// would read as a Job that overshot.
+func TestAWorkQueueJobHasNoCompletionTarget(t *testing.T) {
+	queue := job("apps", "drain", time.Now())
+	queue.Status.Succeeded = 3
+	if got := summarizeJob(queue); got.Completions != nil {
+		t.Errorf("a Job without spec.completions reported a target of %d", *got.Completions)
+	}
+
+	three := int32(3)
+	fixed := job("apps", "batch", time.Now())
+	fixed.Spec.Completions = &three
+	if got := summarizeJob(fixed); got.Completions == nil || *got.Completions != 3 {
+		t.Errorf("a Job with spec.completions 3 reported %v", got.Completions)
+	}
+}
+
 // A Job names the schedule that made it, and runs list newest first within a
 // namespace — the latest is the one somebody came to look at.
 func TestJobsListWithTheirScheduleNewestFirst(t *testing.T) {
