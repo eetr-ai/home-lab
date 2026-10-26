@@ -48,14 +48,27 @@ task cluster:delete   # remove it all, data included
    `task cluster:stop` ends it.
 
 The generated passwords, the kubeconfig and the port-forward's pid and log live
-in `~/.local/state/home-lab/local-cluster`, outside the repository. There is one
-per machine, not one per checkout, because the cluster and the database volumes
-are per machine too. Set `HOME_LAB_LOCAL_STATE` to put them somewhere else.
+in a state directory outside the repository. It is the first of these that
+applies:
 
-To use kubectl on the cluster:
+1. `$HOME_LAB_LOCAL_STATE`, when set
+2. `$XDG_STATE_HOME/home-lab/local-cluster`, when `XDG_STATE_HOME` is set
+3. `~/.local/state/home-lab/local-cluster`
+
+There is one per machine, not one per checkout, because the cluster and the
+database volumes are per machine too.
+
+To use kubectl on the cluster, point it at the kubeconfig there. The cluster is
+deliberately not added to `~/.kube/config`:
 
 ```bash
-export KUBECONFIG="$HOME/.local/state/home-lab/local-cluster/kubeconfig"
+export KUBECONFIG="${HOME_LAB_LOCAL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/home-lab/local-cluster}/kubeconfig"
+```
+
+Or merge it into `~/.kube/config` once, as the context `k3d-home-lab-local`:
+
+```bash
+k3d kubeconfig merge home-lab-local --kubeconfig-merge-default
 ```
 
 Run `task cluster:deploy` again after changing the code. It rebuilds and
