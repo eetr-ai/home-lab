@@ -8,13 +8,15 @@ import { Banner, Button, SectionCard } from "@/components/ui";
 import { describeCron } from "@/lib/backups/cron";
 import { formatAge } from "@/lib/format/age";
 import type { BackupDatabase, BackupFile, BackupRun, BackupSchedule, GoogleStatus } from "@/lib/api/types";
+import { isActive } from "@/lib/backups/schedule-events";
 import { SchedulePanel } from "../../_components/schedule-panel";
+import { useScheduleStream } from "./use-schedule-stream";
 import { RunList } from "./run-list";
 import { FileList } from "./file-list";
 
 export function ScheduleDetail({
-	schedule,
-	runs,
+	schedule: initialSchedule,
+	runs: initialRuns,
 	runsError,
 	files,
 	filesError,
@@ -34,7 +36,19 @@ export function ScheduleDetail({
 	const [editing, setEditing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [starting, setStarting] = useState(false);
+	// The run just started, until the stream has seen it: between the click and
+	// the next reading the run exists and the page does not know it yet, and the
+	// button must not come back in that gap.
+	const [awaiting, setAwaiting] = useState<string | null>(null);
 	const router = useRouter();
+
+	// A finished run is the moment what is kept in Drive changes, and the stream
+	// does not carry the files, so the page re-reads them then.
+	const live = useScheduleStream({ schedule: initialSchedule, runs: initialRuns }, now, () =>
+		router.refresh(),
+	);
+	const { schedule, runs } = live.state;
+	const busy = starting || runs.some(isActive) || (awaiting !== null && !runs.some((run) => run.name === awaiting));
 
 	async function runNow() {
 		setError(null);
@@ -42,7 +56,7 @@ export function ScheduleDetail({
 		try {
 			const result = await runSchedule(schedule.name);
 			if (!result.ok) setError(result.error);
-			else router.refresh();
+			else setAwaiting(result.data.name);
 		} catch {
 			setError("the panel could not reach its server; try again");
 		} finally {
@@ -67,11 +81,11 @@ export function ScheduleDetail({
 					<dt className="text-muted-foreground">Keeps</dt>
 					<dd>The newest {schedule.keep} of each database</dd>
 					<dt className="text-muted-foreground">Last success</dt>
-					<dd>{schedule.lastSucceeded ? formatAge(schedule.lastSucceeded, now) + " ago" : "never"}</dd>
+					<dd>{schedule.lastSucceeded ? formatAge(schedule.lastSucceeded, live.at) + " ago" : "never"}</dd>
 				</dl>
 				<div className="mt-4 flex gap-2">
-					<Button icon={Play} disabled={starting || schedule.running > 0} onClick={runNow}>
-						{schedule.running > 0 ? "Running…" : "Run now"}
+					<Button icon={Play} loading={busy} onClick={runNow}>
+						{busy ? "Running…" : "Run now"}
 					</Button>
 					<Button variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>
 						Edit
@@ -79,7 +93,7 @@ export function ScheduleDetail({
 				</div>
 			</SectionCard>
 
-			<RunList runs={runs} loadError={runsError} now={now} />
+			<RunList runs={runs} loadError={runsError} now={live.at} />
 			<FileList files={files} loadError={filesError} now={now} />
 
 			<SchedulePanel
