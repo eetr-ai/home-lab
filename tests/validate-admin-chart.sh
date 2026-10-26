@@ -1635,6 +1635,16 @@ fi
 
 backups_pairs=$(printf '%s\n' "$backups_role" | extract_pairs)
 expected_backups_pairs=$(LC_ALL=C sort <<'BACKUPPAIRS'
+batch/cronjobs create
+batch/cronjobs delete
+batch/cronjobs get
+batch/cronjobs list
+batch/cronjobs update
+batch/cronjobs watch
+batch/jobs create
+batch/jobs get
+batch/jobs list
+batch/jobs watch
 core/secrets create
 core/secrets delete
 core/secrets get
@@ -1662,6 +1672,60 @@ unnarrowed=$(printf '%s\n' "$backups_role" | awk '
 ')
 if [[ -n $unnarrowed ]]; then
   printf 'A backups rule reaches Secrets beyond the Google token:\n%s\n' "$unnarrowed" >&2
+  exit 1
+fi
+
+# The backup pods' account holds nothing and mounts nothing: they never talk to
+# the Kubernetes API, so a token in them would be a credential with no use.
+backup_account=$(render --show-only templates/api/serviceaccount.yaml | doc_named admin-backup)
+if ! grep -q '^automountServiceAccountToken: false$' <<<"$backup_account"; then
+  printf 'The admin-backup ServiceAccount must not automount a token\n' >&2
+  exit 1
+fi
+# Per document rather than by a grep window: a binding's subjects can sit any
+# distance below its kind line.
+bound_backup=$(awk '
+  /^---$/ { if (binding && subject) found = 1; binding = 0; subject = 0; next }
+  /^kind: (Cluster)?RoleBinding$/ { binding = 1 }
+  /^ +name: admin-backup$/ { subject = 1 }
+  END { if (binding && subject) found = 1; print found + 0 }
+' "$output_file")
+if [[ $bound_backup != 0 ]]; then
+  printf 'Nothing may be bound to admin-backup\n' >&2
+  exit 1
+fi
+
+# The dump images are pinned like every other, and the API is told about each.
+for variable in ADMIN_BACKUP_POSTGRES_IMAGE ADMIN_BACKUP_MONGO_IMAGE ADMIN_BACKUP_UPLOAD_IMAGE; do
+  image=$(grep -A1 "name: $variable\$" <<<"$(render --show-only templates/api/deployment.yaml)" |
+    sed -n 's/^ *value: "\(.*\)"$/\1/p')
+  if [[ -z $image || $image == *:latest || $image != *:* ]]; then
+    printf '%s must be a pinned image, and is [%s]\n' "$variable" "$image" >&2
+    exit 1
+  fi
+done
+# The schema is what refuses a moving image, so it is asked directly: latest with
+# and without a digest, and no tag at all. A registry with a port must still pass,
+# because its colon is not a tag.
+for image in postgres:latest postgres postgres:latest@sha256:0000000000000000000000000000000000000000000000000000000000000000; do
+  if render --set "admin.api.backups.job.images.postgres=$image" >/dev/null 2>&1; then
+    printf 'The chart accepted [%s] for the backup dump image\n' "$image" >&2
+    exit 1
+  fi
+done
+if ! render --set admin.api.backups.job.images.postgres=registry.example.invalid:5000/postgres:18.1 >/dev/null 2>&1; then
+  printf 'The chart refused a pinned dump image from a registry with a port\n' >&2
+  exit 1
+fi
+
+# The API reads the run TTL as a 32-bit integer and refuses to start on anything
+# bigger, so the schema has to refuse it first; the largest one still renders.
+if render --set admin.api.backups.job.ttlSecondsAfterFinished=2147483648 >/dev/null 2>&1; then
+  printf 'The chart accepted a backup run TTL the API cannot parse\n' >&2
+  exit 1
+fi
+if ! render --set admin.api.backups.job.ttlSecondsAfterFinished=2147483647 >/dev/null 2>&1; then
+  printf 'The chart refused the largest backup run TTL the API can parse\n' >&2
   exit 1
 fi
 

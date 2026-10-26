@@ -80,6 +80,7 @@ tasks:
       - task: admin-console:test
       - task: tests:inventory
       - task: tests:databases
+      - task: tests:backups
       - task: tests:chart
 
   check:
@@ -196,6 +197,11 @@ tasks:
     desc: Validate the PostgreSQL and MongoDB Compose projects
     cmds:
       - ./tests/validate-databases.sh
+
+  tests:backups:
+    desc: Test the backup pod's dump scripts against fake database tools
+    cmds:
+      - ./tests/backup-dump-scripts.sh
 
   tests:chart:
     desc: Render the charts and assert the properties the cluster depends on

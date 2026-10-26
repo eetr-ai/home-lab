@@ -244,6 +244,75 @@
                       "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
                     }
                   }
+                },
+                "job": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "images",
+                    "deadline",
+                    "ttlSecondsAfterFinished",
+                    "workSize"
+                  ],
+                  "properties": {
+                    "images": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "postgres",
+                        "mongo"
+                      ],
+                      "properties": {
+                        "postgres": {
+                          "type": "string",
+                          "description": "An immutable image with pg_dump matching the server's major version: a tag other than latest, or a digest.",
+                          "anyOf": [
+                            {
+                              "pattern": "^([^\\s@/]+/)*[^\\s@/:]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}(@sha256:[0-9a-f]{64})?$"
+                            },
+                            {
+                              "pattern": "^([^\\s@/]+/)*[^\\s@/:]+@sha256:[0-9a-f]{64}$"
+                            }
+                          ],
+                          "not": {
+                            "pattern": ":latest(@|$)"
+                          }
+                        },
+                        "mongo": {
+                          "type": "string",
+                          "description": "An immutable image with mongodump matching the server: a tag other than latest, or a digest.",
+                          "anyOf": [
+                            {
+                              "pattern": "^([^\\s@/]+/)*[^\\s@/:]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}(@sha256:[0-9a-f]{64})?$"
+                            },
+                            {
+                              "pattern": "^([^\\s@/]+/)*[^\\s@/:]+@sha256:[0-9a-f]{64}$"
+                            }
+                          ],
+                          "not": {
+                            "pattern": ":latest(@|$)"
+                          }
+                        }
+                      }
+                    },
+                    "deadline": {
+                      "type": "string",
+                      "pattern": "^([0-9]+(h|m|s))+$"
+                    },
+                    "ttlSecondsAfterFinished": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2147483647,
+                      "description": "How long a finished backup run and its log are kept. The API reads it as a 32-bit integer, so the maximum is that type's."
+                    },
+                    "workSize": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(Mi|Gi|Ti)$"
+                    },
+                    "resources": {
+                      "type": "object"
+                    }
+                  }
                 }
               }
             }

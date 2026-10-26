@@ -28,6 +28,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/backups/google", h.disconnectGoogle)
 	mux.HandleFunc("POST /api/backups/google/connect", h.connectGoogle)
 	mux.HandleFunc("POST /api/backups/google/access-token", h.googleAccessToken)
+	h.registerSchedules(mux)
 }
 
 // googleStatus reports whether Google Drive is set up and connected.
@@ -141,6 +142,8 @@ func respondError(w http.ResponseWriter, err error) {
 			"connect a Google account on the backups page first")
 	case errors.Is(err, ErrAlreadyExists):
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
+	case errors.Is(err, ErrInProgress):
+		httpx.Error(w, http.StatusConflict, "in_progress", err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, ErrNotConfigured):

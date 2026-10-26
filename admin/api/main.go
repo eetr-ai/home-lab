@@ -24,6 +24,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
 	"github.com/eetr-ai/home-lab/admin/api/internal/backup"
@@ -72,6 +73,16 @@ func main() {
 		// failure that exited zero would be reported as a successful deploy.
 		if err := helm.RunJob(context.Background(), os.Args[2:], logger); err != nil {
 			logger.Error("the helm operation failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == backup.UploadCommand {
+		// The same rule as the Helm job: the exit code becomes the run's status,
+		// which is what the backups page shows.
+		if err := backup.RunUpload(context.Background(), os.Args[2:], logger); err != nil {
+			logger.Error("the backup did not complete", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return
@@ -358,14 +369,16 @@ func registerBackups(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 		return nil
 	}
 
-	namespace := os.Getenv("POD_NAMESPACE")
 	tokenSecret := os.Getenv("ADMIN_BACKUP_TOKEN_SECRET")
-	if namespace == "" || tokenSecret == "" {
-		return errors.New("POD_NAMESPACE and ADMIN_BACKUP_TOKEN_SECRET must be set, " +
-			"and they are where the Google grant is kept")
+	if tokenSecret == "" {
+		return errors.New("ADMIN_BACKUP_TOKEN_SECRET is unset, and it is where the Google grant is kept")
+	}
+	schedules, err := backupScheduleConfig()
+	if err != nil {
+		return err
 	}
 
-	repo, err := backup.NewRepository(namespace, tokenSecret)
+	repo, err := backup.NewRepository(tokenSecret, schedules)
 	if err != nil {
 		return err
 	}
@@ -387,9 +400,95 @@ func registerBackups(mux *stdhttp.ServeMux, logger *slog.Logger) error {
 		logger.Warn("no Google OAuth client is configured; backups cannot be connected to Drive")
 	}
 
-	backup.NewHandler(backup.NewService(google, repo, config, logger)).Register(mux)
+	backup.NewHandler(backup.NewService(backup.Dependencies{
+		Google:    google,
+		Grants:    repo,
+		Schedules: repo,
+		Config:    config,
+		Engines:   schedules.Engines(),
+		Logger:    logger,
+	})).Register(mux)
 	logger.Info("serving the backup endpoints", slog.Bool("google", google != nil))
 	return nil
+}
+
+// backupScheduleConfig describes the pods a backup schedule runs.
+//
+// Every field is read here and none of it is ever influenced by a request, for the
+// reason helmJobConfig gives: the API may create CronJobs in this namespace, and a
+// request able to name an image or an account would be one able to run anything
+// as anyone here. Read at startup, so a typo in the chart fails the pod now rather
+// than the first backup weeks from now.
+func backupScheduleConfig() (backup.ScheduleConfig, error) {
+	config := backup.ScheduleConfig{
+		Namespace:       os.Getenv("POD_NAMESPACE"),
+		ServiceAccount:  os.Getenv("ADMIN_BACKUP_SERVICE_ACCOUNT"),
+		UploadImage:     os.Getenv("ADMIN_BACKUP_UPLOAD_IMAGE"),
+		PostgresImage:   os.Getenv("ADMIN_BACKUP_POSTGRES_IMAGE"),
+		MongoImage:      os.Getenv("ADMIN_BACKUP_MONGO_IMAGE"),
+		ImagePullPolicy: corev1.PullPolicy(os.Getenv("ADMIN_BACKUP_IMAGE_PULL_POLICY")),
+		PullSecrets:     splitList(os.Getenv("ADMIN_BACKUP_PULL_SECRETS")),
+		// Names and keys, never values; see ScheduleConfig.
+		Postgres: backup.SecretRef{
+			Name: os.Getenv("ADMIN_BACKUP_POSTGRES_SECRET_NAME"),
+			Key:  os.Getenv("ADMIN_BACKUP_POSTGRES_SECRET_KEY"),
+		},
+		Mongo: backup.SecretRef{
+			Name: os.Getenv("ADMIN_BACKUP_MONGO_SECRET_NAME"),
+			Key:  os.Getenv("ADMIN_BACKUP_MONGO_SECRET_KEY"),
+		},
+		ClientID: backup.SecretRef{
+			Name: os.Getenv("ADMIN_GOOGLE_SECRET_NAME"),
+			Key:  os.Getenv("ADMIN_GOOGLE_CLIENT_ID_KEY"),
+		},
+		ClientSecret: backup.SecretRef{
+			Name: os.Getenv("ADMIN_GOOGLE_SECRET_NAME"),
+			Key:  os.Getenv("ADMIN_GOOGLE_CLIENT_SECRET_KEY"),
+		},
+	}
+
+	for name, value := range map[string]string{
+		"POD_NAMESPACE":                config.Namespace,
+		"ADMIN_BACKUP_SERVICE_ACCOUNT": config.ServiceAccount,
+		"ADMIN_BACKUP_UPLOAD_IMAGE":    config.UploadImage,
+		"ADMIN_BACKUP_POSTGRES_IMAGE":  config.PostgresImage,
+		"ADMIN_BACKUP_MONGO_IMAGE":     config.MongoImage,
+		"ADMIN_GOOGLE_SECRET_NAME":     config.ClientID.Name,
+	} {
+		if value == "" {
+			return backup.ScheduleConfig{}, fmt.Errorf("%s is unset, and backup pods are built from it", name)
+		}
+	}
+	return backupJobLimits(config)
+}
+
+// backupJobLimits reads the bounds on a backup pod: how long it may run, how long
+// it is kept, how much scratch disk and how many resources it gets.
+func backupJobLimits(config backup.ScheduleConfig) (backup.ScheduleConfig, error) {
+	ttl, err := strconv.ParseInt(os.Getenv("ADMIN_BACKUP_TTL_SECONDS"), 10, 32)
+	if err != nil || ttl < 0 {
+		return backup.ScheduleConfig{}, fmt.Errorf(
+			"ADMIN_BACKUP_TTL_SECONDS must be a non-negative number of seconds: %q", os.Getenv("ADMIN_BACKUP_TTL_SECONDS"))
+	}
+	config.TTLSeconds = int32(ttl)
+
+	if config.Deadline, err = time.ParseDuration(os.Getenv("ADMIN_BACKUP_DEADLINE")); err != nil ||
+		config.Deadline <= 0 {
+		return backup.ScheduleConfig{}, fmt.Errorf(
+			"ADMIN_BACKUP_DEADLINE must be a positive duration such as 2h: %q", os.Getenv("ADMIN_BACKUP_DEADLINE"))
+	}
+
+	if config.WorkSize, err = resource.ParseQuantity(os.Getenv("ADMIN_BACKUP_WORK_SIZE")); err != nil {
+		return backup.ScheduleConfig{}, fmt.Errorf(
+			"ADMIN_BACKUP_WORK_SIZE must be a quantity such as 10Gi: %w", err)
+	}
+
+	if raw := os.Getenv("ADMIN_BACKUP_RESOURCES"); raw != "" && raw != "{}" {
+		if err := json.Unmarshal([]byte(raw), &config.Resources); err != nil {
+			return backup.ScheduleConfig{}, fmt.Errorf("ADMIN_BACKUP_RESOURCES is not resource requirements: %w", err)
+		}
+	}
+	return config, nil
 }
 
 // namespaceEnrolment builds the service that enrols namespaces as Helm targets,

@@ -108,20 +108,34 @@ func (c *GoogleClient) Exchange(ctx context.Context, code, verifier, redirectURI
 
 // AccessToken mints a fresh access token from the stored refresh token.
 func (c *GoogleClient) AccessToken(ctx context.Context, refreshToken string) (AccessToken, error) {
-	token, err := c.TokenSource(ctx, refreshToken).Token()
+	token, err := c.config.TokenSource(c.context(ctx), &oauth2.Token{RefreshToken: refreshToken}).Token()
 	if err != nil {
 		return AccessToken{}, googleError("refresh the access token", err)
 	}
 	return AccessToken{AccessToken: token.AccessToken, ExpiresAt: token.Expiry}, nil
 }
 
-// TokenSource hands out access tokens for the stored grant, refreshing them as
-// they expire. The Drive client uses it, so one long upload outliving its first
-// token does not fail halfway.
+// Drive returns a Drive client acting with the stored grant.
 //
-//nolint:ireturn // oauth2.TokenSource is the library's own interface and the only shape it offers
-func (c *GoogleClient) TokenSource(ctx context.Context, refreshToken string) oauth2.TokenSource {
-	return c.config.TokenSource(c.context(ctx), &oauth2.Token{RefreshToken: refreshToken})
+// Its HTTP client has no timeout of its own, deliberately unlike every other call
+// here: an upload of a large dump legitimately takes longer than any fixed bound,
+// and it is the context — the run's deadline, or the caller's request — that ends
+// it. The token refresh rides the same client.
+func (c *GoogleClient) Drive(ctx context.Context, refreshToken string) *DriveClient {
+	unbounded := context.WithValue(ctx, oauth2.HTTPClient, &http.Client{})
+	source := c.config.TokenSource(unbounded, &oauth2.Token{RefreshToken: refreshToken})
+	return &DriveClient{httpClient: oauth2.NewClient(unbounded, source)}
+}
+
+// ListBackups lists what a schedule has kept in its folder.
+//
+// Bounded, unlike the Drive client underneath, which has no timeout of its own so
+// an upload can take as long as it takes. This runs on a request path, and a
+// stalled Drive must not hold a handler past the time its caller gave up.
+func (c *GoogleClient) ListBackups(ctx context.Context, refreshToken, folderID, schedule string) ([]File, error) {
+	bounded, cancel := context.WithTimeout(ctx, googleTimeout)
+	defer cancel()
+	return c.Drive(bounded, refreshToken).List(bounded, folderID, schedule)
 }
 
 // Revoke tells Google to forget the grant, so a copy of the token that leaked
@@ -160,9 +174,10 @@ func (c *GoogleClient) context(ctx context.Context) context.Context {
 func googleError(what string, err error) error {
 	var retrieve *oauth2.RetrieveError
 	if errors.As(err, &retrieve) {
-		// A 5xx is Google failing, not Google saying no, and the fix is to try again
-		// rather than to reconnect — so it is unreachable, whatever the body says.
-		if retrieve.Response != nil && retrieve.Response.StatusCode >= http.StatusInternalServerError {
+		// A 5xx or a 429 is Google failing or busy, not Google saying no, and the
+		// fix is to try again rather than to reconnect — so it is unreachable,
+		// whatever the body says.
+		if retrieve.Response != nil && transient(retrieve.Response.StatusCode) {
 			return fmt.Errorf("%w: %s: Google answered %d", ErrGoogleUnreachable, what,
 				retrieve.Response.StatusCode)
 		}
@@ -171,6 +186,11 @@ func googleError(what string, err error) error {
 		return fmt.Errorf("%w: %s: %s", ErrGoogleRefused, what, retrieve.ErrorCode)
 	}
 	return fmt.Errorf("%w: %s: %w", ErrGoogleUnreachable, what, err)
+}
+
+// transient reports a status that means "try again later" rather than "no".
+func transient(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
 
 // accountOf reads the email address out of the ID token Google returned alongside
