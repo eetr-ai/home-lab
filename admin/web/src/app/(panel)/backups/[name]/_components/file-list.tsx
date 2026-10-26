@@ -25,7 +25,8 @@ export function FileList({
 			<h2 className="text-lg font-medium">Backups in Drive</h2>
 			<Directory
 				error={loadError}
-				isEmpty={sorted.length === 0}
+				// Empty only after a successful load: a failed one is not "none".
+				isEmpty={loadError === null && sorted.length === 0}
 				minWidth="min-w-[720px]"
 				empty={{
 					icon: FileArchive,

@@ -54,6 +54,29 @@ export function formFrom(schedule: BackupScheduleRequest & { name: string }): Sc
 	};
 }
 
+/**
+ * Whether two forms would save the same schedule.
+ *
+ * Compares what is persisted rather than the raw state: text is trimmed, and the
+ * databases are a set, so unticking and reticking one, or a stray space, is not
+ * an unsaved change worth asking about.
+ */
+export function sameSchedule(a: ScheduleForm, b: ScheduleForm): boolean {
+	return JSON.stringify(projection(a)) === JSON.stringify(projection(b));
+}
+
+function projection(form: ScheduleForm) {
+	return {
+		name: form.name.trim(),
+		cron: form.cron.trim().split(/\s+/).join(" "),
+		timeZone: form.timeZone.trim(),
+		databases: [...form.databases].sort(),
+		folder: form.folder?.id ?? null,
+		keep: form.keep.trim(),
+		suspended: form.suspended,
+	};
+}
+
 /** The request the form describes, or the first thing wrong with it. */
 export function toRequest(
 	form: ScheduleForm,

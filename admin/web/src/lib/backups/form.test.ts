@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyForm, formFrom, toRequest, type ScheduleForm } from "./form";
+import { emptyForm, formFrom, sameSchedule, toRequest, type ScheduleForm } from "./form";
 
 function filled(change: Partial<ScheduleForm> = {}): ScheduleForm {
 	return {
@@ -64,5 +64,20 @@ describe("formFrom", () => {
 			suspended: true,
 		};
 		expect(toRequest(formFrom(schedule))).toEqual({ ok: true, request: schedule });
+	});
+});
+
+describe("sameSchedule", () => {
+	it("ignores what would not change the saved schedule", () => {
+		const form = filled();
+		expect(sameSchedule(form, { ...form, databases: [...form.databases].reverse() })).toBe(true);
+		expect(sameSchedule(form, { ...form, name: " nightly ", cron: "0  3 * * * " })).toBe(true);
+	});
+
+	it("notices what would", () => {
+		const form = filled();
+		expect(sameSchedule(form, { ...form, keep: "8" })).toBe(false);
+		expect(sameSchedule(form, { ...form, databases: ["postgres/app"] })).toBe(false);
+		expect(sameSchedule(form, { ...form, folder: { id: "other-folder-id", name: "x" } })).toBe(false);
 	});
 });

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloudOff, HardDrive, Link2, Unlink } from "lucide-react";
 import { beginGoogleConnect, disconnectGoogle } from "@/app/actions/backups";
-import { Banner, Button, ConfirmDialog, SectionCard } from "@/components/ui";
+import { Banner, Button, InlineDeleteConfirm, SectionCard } from "@/components/ui";
 import type { GoogleStatus } from "@/lib/api/types";
 
 /**
@@ -50,7 +50,6 @@ export function DriveCard({
 	}
 
 	async function disconnect() {
-		setConfirming(false);
 		setError(null);
 		setBusy(true);
 		try {
@@ -61,6 +60,7 @@ export function DriveCard({
 			setError("the panel could not reach its server; try again");
 		} finally {
 			setBusy(false);
+			setConfirming(false);
 		}
 	}
 
@@ -90,27 +90,31 @@ export function DriveCard({
 							The panel only sees the files it uploads and the folders you pick for it.
 						</span>
 					</p>
-					<div className="flex gap-2">
-						{status.connected ? (
-							<Button variant="secondary" icon={Unlink} disabled={busy} onClick={() => setConfirming(true)}>
-								Disconnect
+					{confirming ? (
+						// Inline, in the card, per the guidelines' rule for destructive
+						// actions; the other buttons step aside so there is one decision.
+						<InlineDeleteConfirm
+							label="Disconnect? Schedules stay, and fail until an account is connected again."
+							confirmLabel="Disconnect"
+							busy={busy}
+							onConfirm={disconnect}
+							onCancel={() => setConfirming(false)}
+						/>
+					) : (
+						<div className="flex gap-2">
+							{status.connected ? (
+								<Button variant="secondary" icon={Unlink} disabled={busy} onClick={() => setConfirming(true)}>
+									Disconnect
+								</Button>
+							) : null}
+							<Button icon={Link2} disabled={busy} onClick={connect}>
+								{status.connected ? "Connect another account" : "Connect Google Drive"}
 							</Button>
-						) : null}
-						<Button icon={Link2} disabled={busy} onClick={connect}>
-							{status.connected ? "Connect another account" : "Connect Google Drive"}
-						</Button>
-					</div>
+						</div>
+					)}
 				</div>
 			) : null}
 
-			<ConfirmDialog
-				open={confirming}
-				title="Disconnect Google Drive?"
-				description="The panel forgets the account and asks Google to revoke its access. Schedules stay, and their runs fail until an account is connected again. Backups already in Drive are not touched."
-				confirmLabel="Disconnect"
-				onConfirm={disconnect}
-				onCancel={() => setConfirming(false)}
-			/>
 		</SectionCard>
 	);
 }

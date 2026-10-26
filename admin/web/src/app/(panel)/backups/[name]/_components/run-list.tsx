@@ -38,7 +38,8 @@ export function RunList({
 			<h2 className="text-lg font-medium">Runs</h2>
 			<Directory
 				error={loadError}
-				isEmpty={runs.length === 0}
+				// Empty only after a successful load: a failed one is not "none".
+				isEmpty={loadError === null && runs.length === 0}
 				minWidth="min-w-[640px]"
 				empty={{ icon: History, title: "No runs yet", description: "Run it now, or wait for the clock." }}
 				columns={

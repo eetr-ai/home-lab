@@ -44,13 +44,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 	}
 
 	const params = request.nextUrl.searchParams;
-	// The operator said no, or Google refused before asking them.
-	if (params.get("error")) return back(`Google said ${params.get("error")}`);
-
 	const secret = process.env.AUTH_SECRET ?? "";
 	const flow = sealed ? await openFlow(sealed, secret, Date.now()) : null;
 	if (!flow || !sameState(flow.state, params.get("state"))) {
 		return back("the connection attempt expired or did not start here; try again");
+	}
+
+	// The operator said no, or Google refused before asking them. Read only after
+	// the flow checks out, so a link from anywhere else cannot put words in the
+	// Drive card, and only when it has the shape of an OAuth error code; anything
+	// else gets a fixed sentence rather than being echoed.
+	const refusal = params.get("error");
+	if (refusal) {
+		return back(
+			/^[a-z_]{1,40}$/.test(refusal)
+				? `Google answered ${refusal}`
+				: "Google refused the connection",
+		);
 	}
 
 	const code = params.get("code");

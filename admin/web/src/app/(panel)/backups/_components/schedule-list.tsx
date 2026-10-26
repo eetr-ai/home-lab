@@ -69,7 +69,8 @@ export function ScheduleList({
 
 			<Directory
 				error={error ?? loadError}
-				isEmpty={schedules.length === 0}
+				// Empty only after a successful load: a failed one is not "none".
+				isEmpty={loadError === null && schedules.length === 0}
 				minWidth="min-w-[860px]"
 				empty={{
 					icon: DatabaseBackup,

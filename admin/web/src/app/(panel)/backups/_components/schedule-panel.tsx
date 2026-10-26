@@ -7,7 +7,7 @@ import { createSchedule, updateSchedule } from "@/app/actions/backups";
 import { Checkbox, FormField, Input, Select } from "@/components/ui";
 import { CreatePanel } from "../../_components/create-panel";
 import { CRON_PRESETS, CUSTOM_CRON, presetFor } from "@/lib/backups/cron";
-import { emptyForm, formFrom, MAX_KEEP, toRequest, type ScheduleForm } from "@/lib/backups/form";
+import { emptyForm, formFrom, MAX_KEEP, sameSchedule, toRequest, type ScheduleForm } from "@/lib/backups/form";
 import type { BackupDatabase, BackupSchedule, GoogleStatus } from "@/lib/api/types";
 import { DatabasePicker } from "./database-picker";
 import { FolderField } from "./folder-field";
@@ -71,7 +71,7 @@ export function SchedulePanel({
 			icon={DatabaseBackup}
 			submitLabel={schedule ? "Save" : "Create"}
 			description="Each run dumps the chosen databases, uploads them to the folder, and keeps the newest backups of each."
-			dirty={JSON.stringify(form) !== JSON.stringify(initial())}
+			dirty={!sameSchedule(form, initial())}
 			onClose={close}
 			onSubmit={async () => {
 				const built = toRequest(form);
