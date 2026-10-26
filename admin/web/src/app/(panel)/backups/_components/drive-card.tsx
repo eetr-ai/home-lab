@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CloudOff, HardDrive, Link2, Unlink } from "lucide-react";
+import { CloudOff, Link2, Unlink } from "lucide-react";
 import { beginGoogleConnect, disconnectGoogle } from "@/app/actions/backups";
 import { Banner, Button, InlineDeleteConfirm, SectionCard } from "@/components/ui";
+import { GoogleDriveIcon } from "@/components/ui/google-drive-icon";
 import type { GoogleStatus } from "@/lib/api/types";
 
 /**
@@ -65,7 +66,7 @@ export function DriveCard({
 	}
 
 	return (
-		<SectionCard title="Google Drive" icon={HardDrive}>
+		<SectionCard title="Google Drive" icon={GoogleDriveIcon}>
 			<Banner variant="error" message={error ?? loadError ?? connectError} className="mb-4" />
 			<Banner
 				variant="success"
