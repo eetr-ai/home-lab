@@ -29,6 +29,7 @@ func (h *Handler) registerSchedules(mux *http.ServeMux) {
 //	@Security		BearerAuth
 //	@Success		200	{array}		backup.Schedule
 //	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
 //	@Router			/api/backups/schedules [get]
 func (h *Handler) listSchedules(w http.ResponseWriter, r *http.Request) {
 	schedules, err := h.service.ListSchedules(r.Context())
@@ -52,6 +53,7 @@ func (h *Handler) listSchedules(w http.ResponseWriter, r *http.Request) {
 //	@Success		201		{object}	backup.Schedule
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
 //	@Failure		501		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules [post]
@@ -78,6 +80,7 @@ func (h *Handler) createSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Success		200		{object}	backup.Schedule
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name} [get]
 func (h *Handler) readSchedule(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +105,7 @@ func (h *Handler) readSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Success		200		{object}	backup.Schedule
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name} [put]
@@ -128,6 +132,7 @@ func (h *Handler) updateSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Success		204
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name} [delete]
 func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +156,7 @@ func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Success		202		{object}	backup.Run
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name}/run [post]
@@ -174,6 +180,7 @@ func (h *Handler) runSchedule(w http.ResponseWriter, r *http.Request) {
 //	@Success		200		{array}		backup.Run
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name}/runs [get]
 func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
@@ -196,8 +203,10 @@ func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
 //	@Success		200		{array}		backup.File
 //	@Failure		400		{object}	http.ErrorBody
 //	@Failure		401		{object}	http.ErrorBody
+//	@Failure		403		{object}	http.ErrorBody
 //	@Failure		404		{object}	http.ErrorBody
 //	@Failure		409		{object}	http.ErrorBody
+//	@Failure		501		{object}	http.ErrorBody
 //	@Failure		502		{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name}/files [get]
 func (h *Handler) listFiles(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +242,7 @@ func actorOf(r *http.Request) string {
 //	@Success		200
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		401	{object}	http.ErrorBody
+//	@Failure		403	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
 //	@Router			/api/backups/schedules/{name}/events [get]
 func (h *Handler) scheduleEvents(w http.ResponseWriter, r *http.Request) {
