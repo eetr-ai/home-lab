@@ -127,9 +127,34 @@ are kept.**
 
 ## Restoring
 
-Restoring isn't a button, on purpose. Overwriting a live database should be a
-decision someone makes with the file in front of them. Start with a scratch
-server, check it, and only then touch the real one.
+### From the panel
+
+Every database backup under *Backups in Drive* on a schedule's page has a
+**Restore** button. The restore runs as a Job, listed under *Runs* like a
+backup, and its log is there too. It's refused while any run of the schedule
+is going.
+
+- **A new database is the default.** The backup is restored into
+  `<database>_restored_<date>`, or a name you give. The live database is left
+  as it was until you've looked at the copy. A name that already exists is
+  refused.
+- **Replacing the original** asks you to type the database's name. The
+  database is dropped, with its open sessions ended, then created again with
+  the owner it had, and the backup is restored into it. Anything written since
+  the backup is lost.
+- **Roles (PostgreSQL):** any role the backup names that the server lacks is
+  created without a login or a password. Existing roles are never touched, so
+  no live password is reset. Give a new role a password yourself if anything
+  needs to sign in as it.
+
+The roles file (`@globals`) has no button. Restoring a database creates the
+roles that database needs.
+
+### By hand
+
+For anything the button doesn't cover, such as rebuilding a server from
+nothing, restore by hand. Start with a scratch server, check it, and only then
+touch the real one.
 
 1. **Download the backup.** Find it on the schedule's page under *Backups in
    Drive*, or in the folder itself. Trashed backups can be restored from Drive's

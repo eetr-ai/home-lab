@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"fmt"
 	"context"
 	"errors"
 	"io"
@@ -35,6 +36,15 @@ func (f *fakeGoogle) AccessToken(context.Context, string) (AccessToken, error) {
 func (f *fakeGoogle) ListBackups(_ context.Context, _, folderID, _ string) ([]File, error) {
 	f.listedFolder = folderID
 	return f.files, f.err
+}
+
+func (f *fakeGoogle) ReadBackup(_ context.Context, _, fileID string) (File, error) {
+	for _, file := range f.files {
+		if file.ID == fileID {
+			return file, nil
+		}
+	}
+	return File{}, fmt.Errorf("%w: no file %s", ErrGoogleRefused, fileID)
 }
 
 func (f *fakeGoogle) Revoke(_ context.Context, refreshToken string) error {

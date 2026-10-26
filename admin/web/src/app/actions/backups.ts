@@ -23,6 +23,7 @@ import type {
 	BackupScheduleRequest,
 	GoogleAccessToken,
 	GoogleStatus,
+	RestoreBackup,
 } from "@/lib/api/types";
 
 /**
@@ -137,4 +138,19 @@ export async function listRuns(name: string): Promise<ActionResult<BackupRun[]>>
 
 export async function listFiles(name: string): Promise<ActionResult<BackupFile[]>> {
 	return withRead(() => backups.listFiles(name));
+}
+
+/**
+ * Restore one of a schedule's backups. A write in every sense: replace drops a
+ * live database, so it goes through the same gate as anything else that
+ * changes the lab.
+ */
+export async function restoreBackup(
+	name: string,
+	fileId: string,
+	request: RestoreBackup,
+): Promise<ActionResult<BackupRun>> {
+	const result = await withWrite(() => backups.restoreBackup(name, fileId, request));
+	if (result.ok) revalidatePath(SECTION, "layout");
+	return result;
 }

@@ -102,6 +102,10 @@ type Run struct {
 	Reason string `json:"reason,omitempty"`
 	// Manual says somebody pressed "run now", rather than the clock.
 	Manual bool `json:"manual"`
+	// Operation is backup or restore; a restore is always manual.
+	Operation string `json:"operation"`
+	// Target is what a restore restores into, as engine/database.
+	Target string `json:"target,omitempty"`
 	// Pod is empty until one has been scheduled. Its log is where a run explains
 	// itself: which database failed to dump, which upload Google refused.
 	Pod string `json:"pod,omitempty"`
@@ -124,6 +128,9 @@ type File struct {
 	Size        int64     `json:"size"`
 	CreatedAt   time.Time `json:"createdAt"`
 	WebViewLink string    `json:"webViewLink,omitempty"`
+	// Schedule is the schedule the file is tagged with. Not sent: the panel asks
+	// by schedule already, and a restore checks it to refuse a file from another.
+	Schedule string `json:"-"`
 }
 
 // The phases a run can be in.

@@ -59,7 +59,9 @@ export function RunList({
 								{run.reason ? ` — ${run.reason}` : ""}
 							</span>
 						</Td>
-						<Td className="text-muted-foreground">{run.manual ? "Run now" : "Scheduled"}</Td>
+						<Td className="text-muted-foreground">
+							{run.operation === "restore" ? `Restore into ${run.target ?? "?"}` : run.manual ? "Run now" : "Scheduled"}
+						</Td>
 						<Td className="text-right">
 							<IconButton
 								type="button"

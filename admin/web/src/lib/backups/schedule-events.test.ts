@@ -3,7 +3,7 @@ import type { BackupRun } from "@/lib/api/types";
 import { isActive, parseScheduleEvent, runFinished } from "./schedule-events";
 
 function run(name: string, phase: BackupRun["phase"]): BackupRun {
-	return { name, phase, manual: true, namespace: "admin", containers: ["upload"], createdAt: "2026-10-26T00:00:00Z" };
+	return { name, phase, manual: true, operation: "backup", namespace: "admin", containers: ["upload"], createdAt: "2026-10-26T00:00:00Z" };
 }
 
 const schedule = { name: "weekly", cron: "0 3 * * 0", databases: [], folder: { id: "f", name: "F" }, keep: 7 };

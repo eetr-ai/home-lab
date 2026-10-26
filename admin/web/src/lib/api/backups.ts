@@ -8,6 +8,7 @@ import type {
 	ConnectGoogle,
 	GoogleAccessToken,
 	GoogleStatus,
+	RestoreBackup,
 } from "./backups-types";
 
 /**
@@ -68,4 +69,12 @@ export function listRuns(name: string): Promise<ActionResult<BackupRun[]>> {
 
 export function listFiles(name: string): Promise<ActionResult<BackupFile[]>> {
 	return call<BackupFile[]>("GET", `/api/backups/schedules/${seg(name)}/files`);
+}
+
+export function restoreBackup(name: string, fileId: string, request: RestoreBackup): Promise<ActionResult<BackupRun>> {
+	return call<BackupRun>(
+		"POST",
+		`/api/backups/schedules/${seg(name)}/files/${seg(fileId)}/restore`,
+		request,
+	);
 }

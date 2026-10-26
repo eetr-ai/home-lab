@@ -78,6 +78,16 @@ func main() {
 		return
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == backup.DownloadCommand {
+		// A restore's first step. Its exit code stops the restore before it starts
+		// when the file could not be fetched.
+		if err := backup.RunDownload(context.Background(), os.Args[2:]); err != nil {
+			logger.Error("the backup could not be downloaded", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	}
+
 	if len(os.Args) > 1 && os.Args[1] == backup.UploadCommand {
 		// The same rule as the Helm job: the exit code becomes the run's status,
 		// which is what the backups page shows.

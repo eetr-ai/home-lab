@@ -138,6 +138,14 @@ func (c *GoogleClient) ListBackups(ctx context.Context, refreshToken, folderID, 
 	return c.Drive(bounded, refreshToken).List(bounded, folderID, schedule)
 }
 
+// ReadBackup returns one file's metadata, so a restore can check the file is the
+// schedule's before anything is downloaded. Bounded like ListBackups.
+func (c *GoogleClient) ReadBackup(ctx context.Context, refreshToken, fileID string) (File, error) {
+	bounded, cancel := context.WithTimeout(ctx, googleTimeout)
+	defer cancel()
+	return c.Drive(bounded, refreshToken).Read(bounded, fileID)
+}
+
 // Revoke tells Google to forget the grant, so a copy of the token that leaked
 // anywhere stops working too.
 func (c *GoogleClient) Revoke(ctx context.Context, refreshToken string) error {

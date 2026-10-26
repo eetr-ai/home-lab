@@ -130,6 +130,23 @@
                 },
                 "type": "object"
             },
+            "backup.RestoreRequest": {
+                "properties": {
+                    "confirm": {
+                        "description": "Confirm must repeat the database's name for replace. A typed name rather\nthan a checkbox, because replace is the one action here that destroys data.",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "description": "Mode is new or replace.",
+                        "type": "string"
+                    },
+                    "target": {
+                        "description": "Target names the new database; empty takes \u003cdatabase\u003e_restored_\u003cdate\u003e.\nIgnored for replace, which always restores over the source.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "backup.Run": {
                 "properties": {
                     "containers": {
@@ -156,6 +173,10 @@
                         "description": "Namespace and Containers are what reading that log needs: the pod lives in\nthe panel's namespace, and the dumps run as init containers, each with a\nlog of its own.",
                         "type": "string"
                     },
+                    "operation": {
+                        "description": "Operation is backup or restore; a restore is always manual.",
+                        "type": "string"
+                    },
                     "phase": {
                         "description": "Phase is pending, running, succeeded, or failed.",
                         "type": "string"
@@ -168,6 +189,10 @@
                         "type": "string"
                     },
                     "startedAt": {
+                        "type": "string"
+                    },
+                    "target": {
+                        "description": "Target is what a restore restores into, as engine/database.",
                         "type": "string"
                     }
                 },
@@ -2728,6 +2753,122 @@
                     }
                 ],
                 "summary": "List a schedule's backups",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
+        "/api/backups/schedules/{name}/files/{file}/restore": {
+            "post": {
+                "description": "Starts a Job that downloads the file and restores it. `new` restores into a\ndatabase that must not exist yet, named \u003cdatabase\u003e_restored_\u003cdate\u003e unless\n`target` says otherwise. `replace` drops the database the backup came from\nand restores over it, and needs `confirm` to repeat its name. Missing\nPostgreSQL roles are created NOLOGIN; existing ones are never touched.\nRefused with 409 while any run of the schedule is going.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Drive file id",
+                        "in": "path",
+                        "name": "file",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/backup.RestoreRequest",
+                                        "summary": "request",
+                                        "description": "Where to restore"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Where to restore",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/backup.Run"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "501": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Implemented"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Restore a backup",
                 "tags": [
                     "backups"
                 ]
