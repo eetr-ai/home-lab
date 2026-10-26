@@ -136,12 +136,14 @@ server, check it, and only then touch the real one.
    trash for 30 days.
 2. **Restore it somewhere disposable first.** These use the same images the
    servers run. The scratch server is empty, so replaying every role and
-   skipping ownership is fine here:
+   skipping ownership is fine here. `docker run -d` returns before the server
+   accepts connections, so each restore waits for it first:
 
    ```bash
    # PostgreSQL: the roles, then the database (custom format)
    docker run --rm -d --name restore-check -e POSTGRES_PASSWORD=check \
      pgvector/pgvector:0.8.6-pg18-bookworm
+   until docker exec restore-check pg_isready -h 127.0.0.1 -U postgres >/dev/null; do sleep 1; done
    gunzip -c nightly-postgres-@globals-*.sql.gz |
      docker exec -i restore-check psql -U postgres
    docker exec restore-check createdb -U postgres app
@@ -150,35 +152,67 @@ server, check it, and only then touch the real one.
 
    # MongoDB: one database per archive
    docker run --rm -d --name restore-check-mongo mongo:7.0.40-jammy
+   until docker exec restore-check-mongo mongosh --quiet --eval 'db.adminCommand("ping").ok' \
+     >/dev/null 2>&1; do sleep 1; done
    docker exec -i restore-check-mongo mongorestore --archive --gzip \
      < nightly-mongo-events-*.archive.gz
    ```
 
-3. **Look at the data, then restore for real.** Use the Docker context from
-   `databases/README.md` to reach the lab's servers.
+3. **Look at the data, then restore for real.** A Docker context moves only
+   `docker` commands, not `pg_restore` or `mongorestore` on your laptop. So, as
+   in `databases/README.md`, every command below runs **inside the lab's own
+   containers**, with the Docker context pointed at the host, and the archive
+   streams in over stdin:
+
+   ```bash
+   pg() {
+     docker compose --env-file databases/.env -f databases/postgres.compose.yaml \
+       exec -T postgres sh -c "$1"
+   }
+   ```
 
    - **Roles: create only the ones that are missing.** Do **not** replay the
      globals dump against the live server. It holds every role with its password
      verifier as of that night, and replaying it would reset the passwords of
-     roles that exist today. Find the database's owner and grantees in the
-     globals file (`gunzip -c … | grep -E 'CREATE ROLE|ALTER ROLE'`), and create
-     those that the live server lacks. Replaying the whole file is only for
-     rebuilding a server from nothing.
-   - **The database: drop it and create it again**, owned by its original
-     owner, then restore **without** `--no-owner`, so every object keeps the
-     owner it had:
+     roles that exist today. Replaying the whole file is only for rebuilding a
+     server from nothing.
+
+     The archive needs every role that owns one of its objects or is granted on
+     one. Its owner, grantees and object owners can all be listed from the
+     scratch server, which already has the archive restored:
 
      ```bash
-     dropdb -U postgres app && createdb -U postgres -O app_owner app
-     pg_restore -U postgres -d app < nightly-postgres-app-*.dump
+     docker exec -i restore-check pg_restore -f - --schema-only \
+       < nightly-postgres-app-*.dump | grep -oE '(OWNER TO|TO) [a-z_][a-z0-9_]*' | sort -u
+     ```
+
+     Create those that the live server lacks, then set their passwords as you
+     would for any new role. Their old definitions are in the globals file, if
+     you need to see what one used to be allowed to do.
+   - **The database: drop it and create it again**, owned by its original
+     owner, then restore **without** `--no-owner`, so every object keeps the
+     owner it had. `--force` ends the sessions still open on it, the panel's
+     own included, which would otherwise make the drop fail with "database is
+     being accessed by other users":
+
+     ```bash
+     pg 'dropdb -U "$POSTGRES_USER" --force app && createdb -U "$POSTGRES_USER" -O app_owner app'
+     pg 'pg_restore -U "$POSTGRES_USER" -d app' < nightly-postgres-app-*.dump
      ```
 
      `pg_restore --clean` is not a substitute. It drops only the objects that
      are in the archive, so anything created since the backup is left behind,
      mixed in with the restored data.
-   - **MongoDB:** `mongorestore --drop --archive --gzip` replaces each
-     collection it restores, and leaves collections that are not in the archive
-     alone. To replace the whole database, drop it first.
+   - **MongoDB:** `--drop` replaces each collection it restores, and leaves
+     collections that are not in the archive alone. To replace the whole
+     database, drop it first.
+
+     ```bash
+     docker compose --env-file databases/.env -f databases/mongo.compose.yaml \
+       exec -T mongo sh -c 'mongorestore --username "$MONGO_INITDB_ROOT_USERNAME" \
+         --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin \
+         --drop --archive --gzip' < nightly-mongo-events-*.archive.gz
+     ```
 
 The globals dump holds every role, with its password verifier. It is as
 sensitive as the data, and so is every file in the folder: keep the folder

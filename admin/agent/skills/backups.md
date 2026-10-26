@@ -37,12 +37,20 @@ in Drive. There is no other record, so the API's answers are the whole truth.
    moves backups beyond the newest `keep` to Drive's trash.
 
 Any failure fails the run, and its log says which step and which database. To
-explain a failed run, read the logs **in container order**:
+explain a failed run, read the log of every container in the run's `containers`,
+in that order: `dump-postgres` and `dump-mongo`, whichever the schedule has, then
+`upload`. Bound every read, as for any log:
 
 ```text
-GET /api/kubernetes/namespaces/{namespace}/pods/{pod}/logs?container=dump-postgres
-GET /api/kubernetes/namespaces/{namespace}/pods/{pod}/logs?container=upload
+GET /api/kubernetes/namespaces/{namespace}/pods/{pod}/logs?container=dump-postgres&tail=200
+GET /api/kubernetes/namespaces/{namespace}/pods/{pod}/logs?container=dump-mongo&tail=200
+GET /api/kubernetes/namespaces/{namespace}/pods/{pod}/logs?container=upload&tail=200
 ```
+
+**A failed run can still have pruned.** Retention runs per database, for every
+database that uploaded in that run, so a run where one database failed still
+trashed the oldest backups of the others. Only the database that failed is left
+untouched. Never tell anyone a failed run left the folder as it was.
 
 What the usual failures mean:
 
@@ -61,9 +69,10 @@ is failing quietly. Say so before anyone asks.
 ## What you may do, and what belongs to a screen
 
 - **Run now:** `POST /api/backups/schedules/{name}/run`. It answers 409 while
-  a run is going. It is a full run, retention included: when it succeeds, the
-  oldest kept backup of each database can move to the trash to make room. Say
-  that, and that you are starting it, then point to the runs.
+  a run is going. It is a full run, retention included: for each database that
+  uploads, the oldest kept backup can move to the trash to make room, even if
+  another database in the same run fails. Say that, and that you are starting
+  it, then point to the runs.
 - **Creating or editing a schedule needs a folder chosen in Google's Picker.**
   The Picker is a dialog in the operator's browser that you cannot open. Take
   them to `/backups` instead, or to `/backups/{name}` for an existing one.
