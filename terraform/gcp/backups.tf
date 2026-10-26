@@ -33,6 +33,10 @@ resource "google_project_service" "api_keys" {
 # panel's own origin, and only for the Picker API. A key copied off the page is
 # useless anywhere else and for anything else.
 resource "google_apikeys_key" "picker" {
+  # Billed to this project explicitly; see the "billed" provider for why this
+  # API, and only this one, needs it.
+  provider = google.billed
+
   project      = var.project_id
   name         = "home-lab-admin-picker"
   display_name = "home-lab admin panel: Drive folder picker"
