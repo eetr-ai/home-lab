@@ -52,6 +52,8 @@ as "disk used".
 | `/api/mongo/databases` | The databases, with their sizes. |
 | `/api/mongo/databases/{db}/collections` | The collections in one. |
 | `/api/mongo/databases/{db}/users` | The users on one, and their roles. |
+| `/api/backups/google` | Whether Drive is set up and connected, and as which account. |
+| `/api/backups/schedules` | The backup schedules; `/{name}/runs` for their runs, `/{name}/files` for what is kept in Drive. Load the `backups` skill first. |
 
 Either section answers 404 for every route when it is not configured on this
 installation. That means "not set up here", not "no databases".

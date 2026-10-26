@@ -127,6 +127,8 @@ resources:
       as: commands
     - resource: skills/voice.md
       as: voice
+    - resource: skills/backups.md
+      as: backups
 
 connectors:
   - name: llm
@@ -372,10 +374,11 @@ flows:
           this installation and what is deliberately not in the cluster, admin-api
           is the map of the routes admin_api can reach, diagnosing is the reading
           order for something that is broken, databases is what this panel's model
-          of PostgreSQL and MongoDB actually is, and commands is the argv-only
+          of PostgreSQL and MongoDB actually is, backups is how the scheduled
+          backups into Google Drive work and fail, and commands is the argv-only
           discipline that makes run_command work at all. Load the one that fits
           before you act, not after a call has failed. They cost nothing until you
-          ask for them, which is why there are six of them and a short prompt.
+          ask for them, which is why there are eight of them and a short prompt.
 
 
           What you can actually do:
@@ -633,6 +636,14 @@ flows:
               How to strike the register: the analogies worth reaching for, one per
               answer, and the situations that call for none at all.
             resource: voice
+          - name: backups
+            description: >
+              The scheduled backups into Google Drive: what a schedule, a run and a
+              kept backup are, how to read a failed run's logs in order, what each
+              common failure means, and why creating a schedule, connecting Drive
+              and restoring belong to a screen. Load it when somebody asks about
+              backups, a failed backup, or what is kept.
+            resource: backups
 
         default:
           process:
