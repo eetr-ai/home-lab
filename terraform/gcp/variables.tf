@@ -57,3 +57,20 @@ variable "release_tag_pattern" {
     error_message = "release_tag_pattern must be anchored so it cannot match a tag it was not meant to."
   }
 }
+
+variable "deploy_admin" {
+  description = "After publishing, roll this lab's own panel onto the release (cloudbuild.yaml's _DEPLOY). Turn on only once the running panel serves the pipeline endpoint; see docs/deploying-from-a-pipeline.md."
+  type        = bool
+  default     = false
+}
+
+variable "admin_chart_id" {
+  description = "The panel deployment the release is rolled out to (_CHART_ID): the id in the URL of its page under Helm > Deployments."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.deploy_admin || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.admin_chart_id))
+    error_message = "admin_chart_id must be the deployment's id, a UUID, whenever deploy_admin is true."
+  }
+}
