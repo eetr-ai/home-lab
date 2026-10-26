@@ -43,6 +43,12 @@ uri_without_database() {
 
 uri=$(uri_without_database)
 
+# Read the archive through before anything is dropped, so a corrupt one fails
+# here and replace mode never empties the live database for nothing.
+echo "Checking the archive..."
+mongorestore --quiet --dryRun --uri="$uri" --archive="$archive" --gzip \
+  --nsInclude="$source_db.*" --nsFrom="$source_db.*" --nsTo="$target.*"
+
 # The names are allowlisted by the API, so they are safe in a JavaScript string.
 collections=$(mongosh "$uri" --quiet --eval "db.getSiblingDB('$target').getCollectionNames().length")
 if [ "$mode" = new ] && [ "$collections" != 0 ]; then

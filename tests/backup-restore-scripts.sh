@@ -46,19 +46,33 @@ esac
 # As psql does: a query that matched nothing still succeeded.
 exit 0
 FAKE
-for tool in createdb dropdb mongorestore; do
+# mongorestore fails a dry run for an archive named corrupt; any other run is
+# recorded.
+cat >"${fakes}/mongorestore" <<'FAKE'
+#!/bin/sh
+case "$*" in
+  *corrupt*) echo "Failed: corruption found in archive" >&2; exit 1 ;;
+  *--dryRun*) exit 0 ;;
+esac
+echo "mongorestore $*" >>"$CALLS"
+FAKE
+for tool in createdb dropdb; do
   # shellcheck disable=SC2016 # $* and $CALLS belong to the fake, not to this script
   printf '#!/bin/sh\necho "%s $*" >>"$CALLS"\n' "$tool" >"${fakes}/${tool}"
 done
-# pg_restore --schema-only prints the archive's DDL; anything else restores.
+# pg_restore --schema-only prints the archive's DDL, --list reads the archive
+# (and fails for one named corrupt), anything else restores.
 cat >"${fakes}/pg_restore" <<'FAKE'
 #!/bin/sh
 case "$*" in
+  *corrupt*) echo "pg_restore: error: input file does not appear to be a valid archive" >&2; exit 1 ;;
+  *--list*) exit 0 ;;
   *--schema-only*)
     echo 'ALTER TABLE public.items OWNER TO app_owner;'
     echo 'ALTER SCHEMA reports OWNER TO "Reporting";'
     echo 'GRANT SELECT ON TABLE public.items TO readonly, PUBLIC;'
-    echo 'GRANT ALL ON TABLE public.items TO app_owner;' ;;
+    echo 'GRANT ALL ON TABLE public.items TO app_owner;'
+    echo 'GRANT SELECT ON TABLE public.items TO auditor WITH GRANT OPTION;' ;;
   *) echo "pg_restore $*" >>"$CALLS" ;;
 esac
 FAKE
@@ -89,7 +103,7 @@ restore() {
   export CALLS="${scratch}/calls-$RANDOM"
   : >"$CALLS"
   set +e
-  env PATH="${fakes}:$PATH" "$variable=$value" sh "${scripts}/${script}" "$@" /work/restore.x \
+  env PATH="${fakes}:$PATH" "$variable=$value" sh "${scripts}/${script}" "$@" "${ARCHIVE:-/work/restore.x}" \
     >/dev/null 2>"${CALLS}.stderr"
   status=$?
   set -e
@@ -128,6 +142,15 @@ expect_call 'dropdb --maintenance-db=postgres://admin:pw@db.example.invalid:5432
   "replace drops the database, ending its sessions"
 expect_call '--owner=app_owner app' "replace recreates it with the owner it had"
 
+expect_call 'create-role auditor' "a grantee WITH GRANT OPTION is created by its own name"
+expect_no_call 'create-role auditor WITH' "the grant option is not part of the role's name"
+
+# An unreadable archive must stop a replace before the live database is dropped.
+ARCHIVE=/work/corrupt.dump FAKE_DBS='app:app_owner' FAKE_ROLES='app_owner' \
+  restore restore-postgres.sh ADMIN_POSTGRES_DSN "$dsn" replace app app
+expect_failed "a corrupt archive fails the restore"
+expect_no_call 'dropdb' "a corrupt archive drops nothing"
+
 # --- MongoDB ------------------------------------------------------------------
 
 FAKE_COLLECTIONS=0 restore restore-mongo.sh ADMIN_MONGO_URI 'mongodb://root:pw@db.example.invalid/?authSource=admin' \
@@ -144,6 +167,11 @@ FAKE_COLLECTIONS=3 restore restore-mongo.sh ADMIN_MONGO_URI 'mongodb://root:pw@d
   replace events events
 expect_call "mongosh drop" "replace drops the Mongo database first"
 expect_call '--uri=mongodb://root:pw@db.example.invalid/?authSource=admin' "the URI's database becomes its authSource"
+
+ARCHIVE=/work/corrupt.archive.gz FAKE_COLLECTIONS=3 restore restore-mongo.sh ADMIN_MONGO_URI \
+  'mongodb://root:pw@db.example.invalid/?authSource=admin' replace events events
+expect_failed "a corrupt Mongo archive fails the restore"
+expect_no_call "mongosh drop" "a corrupt Mongo archive drops nothing"
 
 if ((failures > 0)); then
   printf '%d backup restore script checks failed\n' "$failures" >&2

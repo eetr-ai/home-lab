@@ -52,6 +52,13 @@ SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = :'name';
 SQL
 }
 
+# Read the archive whole before anything is created or dropped. The role
+# extraction below reads it through a pipeline, whose failure set -e does not
+# see — so without this an unreadable archive would go on to drop the live
+# database in replace mode and leave nothing in its place.
+echo "Checking the archive..."
+pg_restore --list "$archive" >/dev/null
+
 target_owner=$(owner_of "$target")
 if [ "$mode" = new ] && [ -n "$target_owner" ]; then
   echo "database $target already exists; restore into a new name, or replace it" >&2
@@ -61,6 +68,7 @@ fi
 echo "Creating the roles the backup needs that this server lacks..."
 pg_restore --schema-only --file=- "$archive" |
   sed -nE 's/.*OWNER TO ([^;]+);.*/\1/p; s/^GRANT .* TO ([^;]+);.*/\1/p' |
+  sed -E 's/ (WITH GRANT OPTION|GRANTED BY .*)$//' |
   tr ',' '\n' | sed -E 's/^ +//; s/ +$//; s/^"(.*)"$/\1/' |
   grep -vx 'PUBLIC' | sort -u |
   while IFS= read -r role; do
