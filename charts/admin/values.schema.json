@@ -301,7 +301,9 @@
                     },
                     "ttlSecondsAfterFinished": {
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "maximum": 2147483647,
+                      "description": "How long a finished backup run and its log are kept. The API reads it as a 32-bit integer, so the maximum is that type's."
                     },
                     "workSize": {
                       "type": "string",

@@ -1718,6 +1718,17 @@ if ! render --set admin.api.backups.job.images.postgres=registry.example.invalid
   exit 1
 fi
 
+# The API reads the run TTL as a 32-bit integer and refuses to start on anything
+# bigger, so the schema has to refuse it first; the largest one still renders.
+if render --set admin.api.backups.job.ttlSecondsAfterFinished=2147483648 >/dev/null 2>&1; then
+  printf 'The chart accepted a backup run TTL the API cannot parse\n' >&2
+  exit 1
+fi
+if ! render --set admin.api.backups.job.ttlSecondsAfterFinished=2147483647 >/dev/null 2>&1; then
+  printf 'The chart refused the largest backup run TTL the API can parse\n' >&2
+  exit 1
+fi
+
 # The OAuth client is optional, so a lab without it still rolls out.
 backups_env=$(render --show-only templates/api/deployment.yaml)
 for variable in ADMIN_GOOGLE_CLIENT_ID ADMIN_GOOGLE_CLIENT_SECRET; do
