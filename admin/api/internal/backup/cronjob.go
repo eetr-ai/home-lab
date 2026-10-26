@@ -428,9 +428,11 @@ func phaseOf(status batchv1.JobStatus) (phase, reason string) {
 			continue
 		}
 		switch condition.Type {
-		case batchv1.JobComplete:
+		// FailureTarget and SuccessCriteriaMet are the verdict arriving before
+		// the pods have finished terminating; Failed and Complete follow them.
+		case batchv1.JobComplete, batchv1.JobSuccessCriteriaMet:
 			return PhaseSucceeded, ""
-		case batchv1.JobFailed:
+		case batchv1.JobFailed, batchv1.JobFailureTarget:
 			return PhaseFailed, condition.Reason
 		}
 	}

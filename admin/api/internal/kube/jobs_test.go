@@ -25,6 +25,12 @@ func TestJobStatusPutsTheVerdictBeforeTheActivePod(t *testing.T) {
 		// Failed with a pod still counted active: failed, and why.
 		{"failed with a pod left", batchv1.JobStatus{Active: 1, Conditions: []batchv1.JobCondition{failed}},
 			JobFailed, "DeadlineExceeded"},
+		// The verdict before the pods are gone: Kubernetes sets these first.
+		{"failure target while pods terminate", batchv1.JobStatus{Active: 1, Conditions: []batchv1.JobCondition{
+			{Type: batchv1.JobFailureTarget, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"}}},
+			JobFailed, "BackoffLimitExceeded"},
+		{"success criteria met while pods terminate", batchv1.JobStatus{Active: 1, Conditions: []batchv1.JobCondition{
+			{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue}}}, JobSucceeded, ""},
 		// A false condition is not a verdict.
 		{"failed condition not true", batchv1.JobStatus{Active: 1, Conditions: []batchv1.JobCondition{
 			{Type: batchv1.JobFailed, Status: corev1.ConditionFalse}}}, JobRunning, ""},

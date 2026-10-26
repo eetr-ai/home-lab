@@ -168,9 +168,11 @@ func jobStatus(status batchv1.JobStatus) (string, string) {
 			continue
 		}
 		switch condition.Type {
-		case batchv1.JobComplete:
+		// FailureTarget and SuccessCriteriaMet are the verdict arriving before
+		// the pods have finished terminating; Failed and Complete follow them.
+		case batchv1.JobComplete, batchv1.JobSuccessCriteriaMet:
 			return JobSucceeded, ""
-		case batchv1.JobFailed:
+		case batchv1.JobFailed, batchv1.JobFailureTarget:
 			return JobFailed, condition.Reason
 		}
 	}

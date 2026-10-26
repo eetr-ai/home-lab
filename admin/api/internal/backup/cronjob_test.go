@@ -187,6 +187,26 @@ func TestAManualRunIsOwnedByItsSchedule(t *testing.T) {
 	}
 }
 
+// Kubernetes sets FailureTarget and SuccessCriteriaMet as soon as it has
+// decided, and Failed or Complete only once the pods are gone. A run already
+// decided must not read as running in between, nor hold up Run now.
+func TestARunIsDecidedBeforeItsPodsAreGone(t *testing.T) {
+	tests := []struct {
+		condition batchv1.JobConditionType
+		phase     string
+	}{
+		{batchv1.JobFailureTarget, PhaseFailed},
+		{batchv1.JobSuccessCriteriaMet, PhaseSucceeded},
+	}
+	for _, test := range tests {
+		status := batchv1.JobStatus{Active: 1, Conditions: []batchv1.JobCondition{
+			{Type: test.condition, Status: corev1.ConditionTrue}}}
+		if phase, _ := phaseOf(status); phase != test.phase {
+			t.Errorf("%s: got %s, want %s", test.condition, phase, test.phase)
+		}
+	}
+}
+
 func TestOnlyAnUnfinishedRunBlocksAnother(t *testing.T) {
 	tests := []struct {
 		phases []string
