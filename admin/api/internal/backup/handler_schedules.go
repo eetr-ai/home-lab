@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
@@ -16,6 +17,7 @@ func (h *Handler) registerSchedules(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/backups/schedules/{name}/run", h.runSchedule)
 	mux.HandleFunc("GET /api/backups/schedules/{name}/runs", h.listRuns)
 	mux.HandleFunc("GET /api/backups/schedules/{name}/files", h.listFiles)
+	mux.HandleFunc("GET /api/backups/schedules/{name}/events", h.scheduleEvents)
 }
 
 // listSchedules returns every scheduled backup.
@@ -215,4 +217,47 @@ func actorOf(r *http.Request) string {
 		return subject.Email
 	}
 	return subject.ClientID
+}
+
+// scheduleEvents streams a schedule and its runs as server-sent events.
+//
+//	@Summary		Follow a backup schedule
+//	@Description	`state` (the schedule and its runs, whole) on connecting and on every
+//	@Description	change, with keep-alive comments between. `error` means the STREAM
+//	@Description	failed, not a backup; an EOF is a dropped connection, and the answer is
+//	@Description	to reconnect. Ends after 30 minutes for the same reason as every stream.
+//	@Tags			backups
+//	@Produce		text/event-stream
+//	@Security		BearerAuth
+//	@Param			name	path	string	true	"Schedule name"
+//	@Success		200
+//	@Failure		400	{object}	http.ErrorBody
+//	@Failure		401	{object}	http.ErrorBody
+//	@Failure		404	{object}	http.ErrorBody
+//	@Router			/api/backups/schedules/{name}/events [get]
+func (h *Handler) scheduleEvents(w http.ResponseWriter, r *http.Request) {
+	if !httpx.ClearWriteDeadline(w, "backup schedule events") {
+		return
+	}
+
+	// Read once before opening the stream, so a bad name or a missing schedule is
+	// still a status code. After NewEventStream there is no status line left.
+	if _, err := h.service.ReadSchedule(r.Context(), r.PathValue("name")); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), httpx.MaxStreamDuration)
+	defer cancel()
+
+	stream := httpx.NewEventStream(w)
+	err := h.service.StreamSchedule(ctx, r.PathValue("name"), func(event string, state ScheduleState) error {
+		if event == "" {
+			return stream.Comment("keep-alive")
+		}
+		return stream.Send(event, state)
+	})
+	if err != nil {
+		_ = stream.Send(EventError, map[string]string{"error": err.Error()})
+	}
 }

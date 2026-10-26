@@ -2402,6 +2402,73 @@
                 ]
             }
         },
+        "/api/backups/schedules/{name}/events": {
+            "get": {
+                "description": "`state` (the schedule and its runs, whole) on connecting and on every\nchange, with keep-alive comments between. `error` means the STREAM\nfailed, not a backup; an EOF is a dropped connection, and the answer is\nto reconnect. Ends after 30 minutes for the same reason as every stream.",
+                "parameters": [
+                    {
+                        "description": "Schedule name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Follow a backup schedule",
+                "tags": [
+                    "backups"
+                ]
+            }
+        },
         "/api/backups/schedules/{name}/files": {
             "get": {
                 "description": "Read from the Drive folder itself, so this is what is actually there.",
