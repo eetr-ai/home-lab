@@ -18,6 +18,7 @@ func (h *Handler) registerSchedules(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/backups/schedules/{name}/runs", h.listRuns)
 	mux.HandleFunc("GET /api/backups/schedules/{name}/files", h.listFiles)
 	mux.HandleFunc("GET /api/backups/schedules/{name}/events", h.scheduleEvents)
+	mux.HandleFunc("POST /api/backups/schedules/{name}/files/{file}/restore", h.restoreBackup)
 }
 
 // listSchedules returns every scheduled backup.
@@ -270,4 +271,40 @@ func (h *Handler) scheduleEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		_ = stream.Send(EventError, map[string]string{"error": err.Error()})
 	}
+}
+
+// restoreBackup starts restoring one of a schedule's backups.
+//
+//	@Summary		Restore a backup
+//	@Description	Starts a Job that downloads the file and restores it. `new` restores into a
+//	@Description	database that must not exist yet, named <database>_restored_<date> unless
+//	@Description	`target` says otherwise. `replace` drops the database the backup came from
+//	@Description	and restores over it, and needs `confirm` to repeat its name. Missing
+//	@Description	PostgreSQL roles are created NOLOGIN; existing ones are never touched.
+//	@Description	Refused with 409 while any run of the schedule is going.
+//	@Tags			backups
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			name	path		string					true	"Schedule name"
+//	@Param			file	path		string					true	"Drive file id"
+//	@Param			request	body		backup.RestoreRequest	true	"Where to restore"
+//	@Success		202		{object}	backup.Run
+//	@Failure		400		{object}	http.ErrorBody
+//	@Failure		401		{object}	http.ErrorBody
+//	@Failure		404		{object}	http.ErrorBody
+//	@Failure		409		{object}	http.ErrorBody
+//	@Failure		501		{object}	http.ErrorBody
+//	@Router			/api/backups/schedules/{name}/files/{file}/restore [post]
+func (h *Handler) restoreBackup(w http.ResponseWriter, r *http.Request) {
+	var request RestoreRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+	run, err := h.service.Restore(r.Context(), r.PathValue("name"), r.PathValue("file"), request, actorOf(r))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusAccepted, run)
 }

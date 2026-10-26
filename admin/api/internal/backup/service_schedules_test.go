@@ -11,6 +11,7 @@ import (
 type fakeSchedules struct {
 	schedules map[string]ScheduleRequest
 	created   []string
+	restored  []RestoreSpec
 	err       error
 }
 
@@ -61,6 +62,11 @@ func (f *fakeSchedules) RunSchedule(_ context.Context, name, _ string) (Run, err
 }
 
 func (f *fakeSchedules) ListRuns(context.Context, string) ([]Run, error) { return nil, f.err }
+
+func (f *fakeSchedules) RestoreBackup(_ context.Context, name string, spec RestoreSpec, _ string) (Run, error) {
+	f.restored = append(f.restored, spec)
+	return Run{Name: name + "-restore", Operation: operationRestore}, f.err
+}
 
 func validSchedule() ScheduleRequest {
 	return ScheduleRequest{

@@ -61,6 +61,7 @@ func (f driveFile) backupFile() File {
 		ID:          f.ID,
 		Name:        f.Name,
 		Database:    f.AppProperties[propertyDatabase],
+		Schedule:    f.AppProperties[propertySchedule],
 		Size:        size,
 		CreatedAt:   f.CreatedTime,
 		WebViewLink: f.WebViewLink,
@@ -158,6 +159,47 @@ func (c *DriveClient) List(ctx context.Context, folderID, schedule string) ([]Fi
 		}
 		pageToken = page.NextPageToken
 	}
+}
+
+// Read returns one file's metadata, tags included.
+func (c *DriveClient) Read(ctx context.Context, fileID string) (File, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		driveFilesURL+"/"+url.PathEscape(fileID)+"?fields="+driveFields, nil)
+	if err != nil {
+		return File{}, fmt.Errorf("build the read request: %w", err)
+	}
+	var found driveFile
+	if _, err := c.do(request, "read "+fileID, &found); err != nil {
+		return File{}, err
+	}
+	return found.backupFile(), nil
+}
+
+// Download writes one file's contents, streamed rather than held in memory: a
+// dump is as large as its database.
+func (c *DriveClient) Download(ctx context.Context, fileID string, to io.Writer) (int64, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		driveFilesURL+"/"+url.PathEscape(fileID)+"?alt=media", nil)
+	if err != nil {
+		return 0, fmt.Errorf("build the download request: %w", err)
+	}
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return 0, googleError("download "+fileID, err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if transient(response.StatusCode) {
+		return 0, fmt.Errorf("%w: download %s: Drive answered %d", ErrGoogleUnreachable, fileID, response.StatusCode)
+	}
+	if response.StatusCode >= http.StatusBadRequest {
+		return 0, fmt.Errorf("%w: download %s: Drive answered %d", ErrGoogleRefused, fileID, response.StatusCode)
+	}
+	written, err := io.Copy(to, response.Body)
+	if err != nil {
+		return written, fmt.Errorf("download %s: %w", fileID, err)
+	}
+	return written, nil
 }
 
 // Trash moves a backup to Drive's trash, which empties itself after 30 days. Not

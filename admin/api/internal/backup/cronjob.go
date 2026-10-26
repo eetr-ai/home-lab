@@ -396,7 +396,9 @@ func runFrom(job *batchv1.Job, pod string) Run {
 		Name:      job.Name,
 		Phase:     phase,
 		Reason:    reason,
-		Manual:    job.Annotations[annotationManual] != "",
+		Manual:    job.Annotations[annotationManual] != "" || job.Labels[labelOperation] == operationRestore,
+		Operation: "backup",
+		Target:    job.Annotations[annotationRestoreTarget],
 		Pod:       pod,
 		Namespace: job.Namespace,
 		CreatedAt: job.CreationTimestamp.Time,
@@ -406,6 +408,9 @@ func runFrom(job *batchv1.Job, pod string) Run {
 	for _, container := range append(append([]corev1.Container{}, template.InitContainers...),
 		template.Containers...) {
 		ret.Containers = append(ret.Containers, container.Name)
+	}
+	if job.Labels[labelOperation] == operationRestore {
+		ret.Operation = operationRestore
 	}
 	if job.Status.StartTime != nil {
 		ret.StartedAt = &job.Status.StartTime.Time

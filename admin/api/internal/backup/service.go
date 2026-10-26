@@ -28,6 +28,7 @@ type Google interface {
 	AccessToken(ctx context.Context, refreshToken string) (AccessToken, error)
 	Revoke(ctx context.Context, refreshToken string) error
 	ListBackups(ctx context.Context, refreshToken, folderID, schedule string) ([]File, error)
+	ReadBackup(ctx context.Context, refreshToken, fileID string) (File, error)
 }
 
 // GrantStore keeps the connected account.

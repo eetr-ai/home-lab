@@ -199,9 +199,10 @@ tasks:
       - ./tests/validate-databases.sh
 
   tests:backups:
-    desc: Test the backup pod's dump scripts against fake database tools
+    desc: Test the backup pod's dump and restore scripts against fake database tools
     cmds:
       - ./tests/backup-dump-scripts.sh
+      - ./tests/backup-restore-scripts.sh
 
   tests:chart:
     desc: Render the charts and assert the properties the cluster depends on

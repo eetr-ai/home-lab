@@ -14,6 +14,7 @@ type ScheduleStore interface {
 	DeleteSchedule(ctx context.Context, name string) error
 	RunSchedule(ctx context.Context, name, actor string) (Run, error)
 	ListRuns(ctx context.Context, name string) ([]Run, error)
+	RestoreBackup(ctx context.Context, name string, spec RestoreSpec, actor string) (Run, error)
 }
 
 // ListSchedules returns every schedule.
