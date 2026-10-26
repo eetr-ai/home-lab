@@ -33,8 +33,9 @@ for the project `terraform/gcp` manages.
 
 Apply `terraform/gcp`, which needs `panel_origin` set in its ignored
 `terraform.tfvars` to the origin the panel answers on. It enables the Drive and
-Picker APIs and creates a browser key that is accepted only from that origin and
-only by the Picker API.
+Picker APIs and creates a browser key that is accepted only by the Picker API,
+and only from that origin and from `https://docs.google.com`, where Google hosts
+the Picker's own frame.
 
 ```bash
 terraform -chdir=terraform/gcp apply

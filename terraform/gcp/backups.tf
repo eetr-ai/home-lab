@@ -32,6 +32,11 @@ resource "google_project_service" "api_keys" {
 # so what makes it safe is the two restrictions: it is only accepted from the
 # panel's own origin, and only for the Picker API. A key copied off the page is
 # useless anywhere else and for anything else.
+#
+# The Picker itself renders in an iframe on docs.google.com and sends the key from
+# there, so that origin has to be allowed too; without it Google answers "API
+# developer key is invalid". Allowing it does not widen anything: only Google's
+# own Picker page lives there.
 resource "google_apikeys_key" "picker" {
   # Billed to this project explicitly; see the "billed" provider for why this
   # API, and only this one, needs it.
@@ -43,7 +48,10 @@ resource "google_apikeys_key" "picker" {
 
   restrictions {
     browser_key_restrictions {
-      allowed_referrers = [for origin in concat([var.panel_origin], var.picker_extra_origins) : "${origin}/*"]
+      allowed_referrers = concat(
+        [for origin in concat([var.panel_origin], var.picker_extra_origins) : "${origin}/*"],
+        ["https://docs.google.com/*"],
+      )
     }
     api_targets {
       service = "picker.googleapis.com"
