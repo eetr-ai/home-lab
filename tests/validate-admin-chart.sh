@@ -452,8 +452,13 @@ fi
 # assertions here are about containment rather than about the grant itself.
 #
 # Nothing at all by default: an empty namespace list must leave no Role, no
-# RoleBinding, and no reference to one behind.
-if grep -qE '^kind: Role$|-helm(-secrets|-enrol|-jobs)?$|admin-helm-job' "$output_file"; then
+# RoleBinding, and no reference to one behind. The one Role a default install does
+# render is the backups grant, asserted on its own further down — so the count is
+# exactly one, rather than "any Role is a Helm Role".
+default_roles=$(grep -A2 '^kind: Role$' "$output_file" | grep -c '^  name: ' || true)
+default_backups_role=$(grep -A2 '^kind: Role$' "$output_file" | grep -c '^  name: home-lab-admin-backups$' || true)
+if [[ $default_roles != 1 || $default_backups_role != 1 ]] ||
+  grep -qE -- '-helm(-secrets|-enrol|-jobs)?$|admin-helm-job' "$output_file"; then
   printf 'The Helm grants must not be created by default\n' >&2
   exit 1
 fi
@@ -1612,5 +1617,61 @@ if [[ -z $console_image ]] || grep -q ':latest' <<<"$console_image"; then
   printf 'The console image must carry the release tag; it reads [%s]\n' "$console_image" >&2
   exit 1
 fi
+
+# The backups grant: the Secret holding the connected Google account, and nothing
+# else this namespace keeps. Read the comment at the top of rbac-backups.yaml for
+# why `create` is the one verb that cannot be narrowed by name.
+backups_rbac=$(render --show-only templates/api/rbac-backups.yaml)
+backups_role=$(printf '%s\n' "$backups_rbac" | doc_named home-lab-admin-backups)
+
+if grep -q '^kind: ClusterRole' <<<"$backups_rbac"; then
+  printf 'The backups grant must be a namespaced Role, never a ClusterRole\n' >&2
+  exit 1
+fi
+if ! grep -A4 '^kind: Role$' <<<"$backups_rbac" | grep -q '  namespace: admin'; then
+  printf 'The backups grant must live in the release namespace\n' >&2
+  exit 1
+fi
+
+backups_pairs=$(printf '%s\n' "$backups_role" | extract_pairs)
+expected_backups_pairs=$(LC_ALL=C sort <<'BACKUPPAIRS'
+core/secrets create
+core/secrets delete
+core/secrets get
+core/secrets update
+BACKUPPAIRS
+)
+if [[ $backups_pairs != "$expected_backups_pairs" ]]; then
+  printf 'The backups grant does not match what the backups slice uses.\n' >&2
+  diff <(printf '%s\n' "$expected_backups_pairs") <(printf '%s\n' "$backups_pairs") >&2 || true
+  exit 1
+fi
+
+# extract_pairs cannot see resourceNames, so the half that matters is asserted on
+# its own: every Secret rule except the create-only one is narrowed to the token
+# Secret, by name, and to nothing else. Without this a rule granting get on every
+# Secret in the namespace would pass the pairs check above.
+unnarrowed=$(printf '%s\n' "$backups_role" | awk '
+  function check() {
+    if (rule ~ /secrets/ && rule ~ /"(get|update|delete|list|watch|patch)"/ &&
+        rule !~ /resourceNames:\n *- admin-google-drive-token\n *verbs/) bad = bad rule
+  }
+  /^  - apiGroups:/ { check(); rule = "" }
+  /^  - apiGroups:/ || rule != "" { rule = rule $0 "\n" }
+  END { check(); printf "%s", bad }
+')
+if [[ -n $unnarrowed ]]; then
+  printf 'A backups rule reaches Secrets beyond the Google token:\n%s\n' "$unnarrowed" >&2
+  exit 1
+fi
+
+# The OAuth client is optional, so a lab without it still rolls out.
+backups_env=$(render --show-only templates/api/deployment.yaml)
+for variable in ADMIN_GOOGLE_CLIENT_ID ADMIN_GOOGLE_CLIENT_SECRET; do
+  if ! grep -A6 "name: $variable\$" <<<"$backups_env" | grep -q 'optional: true'; then
+    printf '%s must be an optional secretKeyRef, so a lab without Drive still starts\n' "$variable" >&2
+    exit 1
+  fi
+done
 
 printf 'Admin chart validation passed.\n'

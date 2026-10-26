@@ -1,11 +1,17 @@
 # Copy to terraform.tfvars, which is ignored, and replace the values.
 #
-# Only these two are required and environment-specific; the deploy pair at the
-# end is optional. The repository, registry name, and tag pattern have working
-# defaults in variables.tf; override them only in a fork.
+# Only these three are required and environment-specific; the deploy pair at
+# the end is optional. The repository, registry name, and tag pattern have
+# working defaults in variables.tf; override them only in a fork.
 
 project_id = "YOUR_GCP_PROJECT_ID"
 region     = "us-west1"
+
+# The origin the admin panel answers on. The Drive folder Picker's browser key is
+# restricted to it.
+panel_origin = "https://admin.example.invalid"
+# Also accept the Picker key from the local k3d cluster (task cluster:deploy).
+# picker_extra_origins = ["http://localhost:3000"]
 
 # Roll this lab's own panel onto each release once it is published. Leave it off
 # until the running panel serves the pipeline endpoint (docs/deploying-from-a-

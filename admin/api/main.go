@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/eetr-ai/home-lab/admin/api/internal/auth"
+	"github.com/eetr-ai/home-lab/admin/api/internal/backup"
 	"github.com/eetr-ai/home-lab/admin/api/internal/health"
 	"github.com/eetr-ai/home-lab/admin/api/internal/helm"
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
@@ -133,6 +134,10 @@ func run(logger *slog.Logger) error {
 	}
 
 	if err := registerHelm(ctx, api, policy, enrol, logger); err != nil {
+		return err
+	}
+
+	if err := registerBackups(api, logger); err != nil {
 		return err
 	}
 
@@ -337,6 +342,53 @@ func registerHelm(ctx context.Context, mux *stdhttp.ServeMux, policy nspolicy.Po
 	logger.Info("serving the Helm endpoints",
 		slog.Bool("enrolment", enrol != nil),
 		slog.Duration("timeout", timeout))
+	return nil
+}
+
+// registerBackups wires the backups slice wherever the cluster slice is.
+//
+// It needs the cluster and nothing else to be served: schedules are CronJobs and
+// the connection is a Secret. A lab with no Google OAuth client still gets the
+// routes, and they say so — the status answers "not configured" and every action
+// a 501 — because that is a page that can explain how to finish setting it up,
+// where a 404 would be a page that cannot.
+func registerBackups(mux *stdhttp.ServeMux, logger *slog.Logger) error {
+	if os.Getenv("ADMIN_KUBERNETES_DISABLED") == envTrue {
+		logger.Warn("ADMIN_KUBERNETES_DISABLED is set; the backup endpoints are not served")
+		return nil
+	}
+
+	namespace := os.Getenv("POD_NAMESPACE")
+	tokenSecret := os.Getenv("ADMIN_BACKUP_TOKEN_SECRET")
+	if namespace == "" || tokenSecret == "" {
+		return errors.New("POD_NAMESPACE and ADMIN_BACKUP_TOKEN_SECRET must be set, " +
+			"and they are where the Google grant is kept")
+	}
+
+	repo, err := backup.NewRepository(namespace, tokenSecret)
+	if err != nil {
+		return err
+	}
+
+	config := backup.GoogleConfig{
+		ClientID:     os.Getenv("ADMIN_GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("ADMIN_GOOGLE_CLIENT_SECRET"),
+		PickerAPIKey: os.Getenv("ADMIN_GOOGLE_PICKER_API_KEY"),
+		PickerAppID:  os.Getenv("ADMIN_GOOGLE_PICKER_APP_ID"),
+	}
+
+	// Declared as the interface and assigned only when there is one: a nil
+	// *backup.GoogleClient in an interface is not a nil interface, and the
+	// service would call through it instead of answering 501.
+	var google backup.Google
+	if config.Configured() {
+		google = backup.NewGoogleClient(config.ClientID, config.ClientSecret)
+	} else {
+		logger.Warn("no Google OAuth client is configured; backups cannot be connected to Drive")
+	}
+
+	backup.NewHandler(backup.NewService(google, repo, config, logger)).Register(mux)
+	logger.Info("serving the backup endpoints", slog.Bool("google", google != nil))
 	return nil
 }
 

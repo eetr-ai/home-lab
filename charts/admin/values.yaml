@@ -304,6 +304,37 @@ admin:
           name: admin-helm-postgres
           key: dsn
 
+    # Scheduled backups of the managed databases into Google Drive. On wherever
+    # the cluster slice is; docs/backups.md walks through the Google side.
+    #
+    # Nothing here is a switch. Without the OAuth client Secret the backups page
+    # says Drive is not set up and how to fix it, which is a better state to land
+    # in than a page that is missing.
+    backups:
+      google:
+        # The OAuth "Web application" client, created by hand in the Google Cloud
+        # console (Terraform's provider cannot make one). Optional: the API
+        # starts without it.
+        #
+        #   kubectl -n admin create secret generic admin-google-drive \
+        #     --from-literal=clientId=... --from-literal=clientSecret=...
+        secret:
+          name: admin-google-drive
+          clientIdKey: clientId
+          clientSecretKey: clientSecret
+        # Google's folder Picker runs in the browser and needs a browser API key
+        # and the project number. Neither is a secret -- the key is restricted to
+        # the panel's origin and the Picker API on Google's side, and the browser
+        # sees both -- but they are this lab's, so they belong in
+        # values.local.yaml rather than here.
+        picker:
+          apiKey: ""
+          appId: ""
+        # Where the API keeps the connected account's grant. The API writes it on
+        # connect and deletes it on disconnect; the backup pods read it. Named
+        # here because the RBAC Role names it too.
+        tokenSecret: admin-google-drive-token
+
     # Reaching the API from outside the cluster, for a caller that is not the
     # panel's own browser session. Disabled until something needs it: the agent
     # that will call the API directly is not built yet, and an administrative

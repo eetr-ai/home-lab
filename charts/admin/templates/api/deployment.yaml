@@ -168,6 +168,30 @@ spec:
             - name: XDG_CACHE_HOME
               value: /helm/cache
             {{- end }}
+            {{- if .Values.admin.api.kubernetes.enabled }}
+            {{- $google := .Values.admin.api.backups.google }}
+            # The Google OAuth client backups connect with. Optional on purpose:
+            # without the Secret the API still starts, and the backups page says
+            # Drive is not set up instead of the whole panel failing to roll out.
+            - name: ADMIN_GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $google.secret.name }}
+                  key: {{ $google.secret.clientIdKey }}
+                  optional: true
+            - name: ADMIN_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $google.secret.name }}
+                  key: {{ $google.secret.clientSecretKey }}
+                  optional: true
+            - name: ADMIN_GOOGLE_PICKER_API_KEY
+              value: {{ $google.picker.apiKey | quote }}
+            - name: ADMIN_GOOGLE_PICKER_APP_ID
+              value: {{ $google.picker.appId | quote }}
+            - name: ADMIN_BACKUP_TOKEN_SECRET
+              value: {{ $google.tokenSecret | quote }}
+            {{- end }}
             {{- if .Values.admin.api.postgres.enabled }}
             - name: ADMIN_POSTGRES_DSN
               valueFrom:

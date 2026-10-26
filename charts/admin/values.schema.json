@@ -68,7 +68,8 @@
             "postgres",
             "mongo",
             "kubernetes",
-            "helm"
+            "helm",
+            "backups"
           ],
           "properties": {
             "kubernetes": {
@@ -187,6 +188,60 @@
                     "resources": {
                       "type": "object",
                       "description": "Resource requests and limits for the Helm Job's pod."
+                    }
+                  }
+                }
+              }
+            },
+            "backups": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "google": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "secret": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "clientIdKey",
+                        "clientSecretKey"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+                        },
+                        "clientIdKey": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "clientSecretKey": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "picker": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "apiKey": {
+                          "type": "string",
+                          "description": "A browser API key restricted to the panel's origin and the Picker API."
+                        },
+                        "appId": {
+                          "type": "string",
+                          "pattern": "^[0-9]*$",
+                          "description": "The Google Cloud project number."
+                        }
+                      }
+                    },
+                    "tokenSecret": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
                     }
                   }
                 }
