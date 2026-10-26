@@ -116,8 +116,11 @@ Each run does three things:
    all its history until a run succeeds again.
 
 A failed dump or upload fails the run, and the pod's log says which database it
-was. Runs never overlap, are never retried automatically, and stay readable for
-a week. **Run now** starts one immediately, even on a suspended schedule.
+was. Runs never overlap and are never retried automatically. A finished run
+stays readable for a week (`admin.api.backups.job.ttlSecondsAfterFinished`), but
+Kubernetes also keeps only the last five successful and five failed runs of a
+schedule, so on a schedule that runs more than a few times a week the older ones
+go sooner. **Run now** starts one immediately, even on a suspended schedule.
 
 Deleting a schedule deletes the CronJob and its runs. **The backups in Drive
 are kept.**
