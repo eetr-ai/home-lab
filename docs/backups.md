@@ -135,9 +135,10 @@ server, check it, and only then touch the real one.
    Drive*, or in the folder itself. Trashed backups can be restored from Drive's
    trash for 30 days.
 2. **Restore it somewhere disposable first.** These use the same images the
-   servers run. The scratch server is empty, so replaying every role and
-   skipping ownership is fine here. `docker run -d` returns before the server
-   accepts connections, so each restore waits for it first:
+   servers run. The scratch server is empty, so replaying every role is fine
+   here, and it lets the database keep its owners, which step 3 reads back.
+   `docker run -d` returns before the server accepts connections, so each
+   restore waits for it first:
 
    ```bash
    # PostgreSQL: the roles, then the database (custom format)
@@ -147,7 +148,7 @@ server, check it, and only then touch the real one.
    gunzip -c nightly-postgres-@globals-*.sql.gz |
      docker exec -i restore-check psql -U postgres
    docker exec restore-check createdb -U postgres app
-   docker exec -i restore-check pg_restore -U postgres -d app --no-owner \
+   docker exec -i restore-check pg_restore -U postgres -d app \
      < nightly-postgres-app-*.dump
 
    # MongoDB: one database per archive
@@ -177,13 +178,26 @@ server, check it, and only then touch the real one.
      roles that exist today. Replaying the whole file is only for rebuilding a
      server from nothing.
 
-     The archive needs every role that owns one of its objects or is granted on
-     one. Its owner, grantees and object owners can all be listed from the
-     scratch server, which already has the archive restored:
+     The archive needs every role that owns one of its objects, is granted on
+     one, or appears in its default privileges. The scratch server has the
+     archive restored with its owners, so its catalog can list them, quoted
+     and mixed-case names included:
 
      ```bash
-     docker exec -i restore-check pg_restore -f - --schema-only \
-       < nightly-postgres-app-*.dump | grep -oE '(OWNER TO|TO) [a-z_][a-z0-9_]*' | sort -u
+     docker exec -i restore-check psql -U postgres -d app -At <<'SQL'
+     SELECT DISTINCT r.rolname FROM pg_roles r JOIN (
+       SELECT relowner AS oid FROM pg_class
+       UNION SELECT nspowner FROM pg_namespace
+       UNION SELECT proowner FROM pg_proc
+       UNION SELECT typowner FROM pg_type
+       UNION SELECT (aclexplode(relacl)).grantee FROM pg_class
+       UNION SELECT (aclexplode(nspacl)).grantee FROM pg_namespace
+       UNION SELECT (aclexplode(proacl)).grantee FROM pg_proc
+       UNION SELECT defaclrole FROM pg_default_acl
+       UNION SELECT (aclexplode(defaclacl)).grantee FROM pg_default_acl
+     ) used USING (oid)
+     WHERE r.rolname NOT LIKE 'pg\_%' AND r.rolname <> current_user ORDER BY 1;
+     SQL
      ```
 
      Create those that the live server lacks, then set their passwords as you
@@ -208,6 +222,10 @@ server, check it, and only then touch the real one.
      database, drop it first.
 
      ```bash
+     docker compose --env-file databases/.env -f databases/mongo.compose.yaml \
+       exec -T mongo sh -c 'mongosh --quiet --username "$MONGO_INITDB_ROOT_USERNAME" \
+         --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin \
+         --eval "db.getSiblingDB(\"events\").dropDatabase()"'
      docker compose --env-file databases/.env -f databases/mongo.compose.yaml \
        exec -T mongo sh -c 'mongorestore --username "$MONGO_INITDB_ROOT_USERNAME" \
          --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin \
