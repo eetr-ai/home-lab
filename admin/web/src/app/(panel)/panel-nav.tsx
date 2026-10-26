@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import {
 	Boxes,
+	DatabaseBackup,
 	LayoutDashboard,
 	Leaf,
 	LogOut,
@@ -55,6 +56,10 @@ const navItems: NavItem[] = [
 	{ href: "/overview", label: "Overview", icon: LayoutDashboard },
 	{ href: "/postgres", label: "PostgreSQL", icon: PostgresIcon },
 	{ href: "/mongo", label: "MongoDB", icon: Leaf },
+	// Beside the databases it protects rather than with the cluster pages, even
+	// though its schedules are CronJobs: what an operator comes here for is the
+	// data, not the jobs.
+	{ href: "/backups", label: "Backups", icon: DatabaseBackup },
 	{ href: "/kubernetes", label: "Kubernetes", icon: Boxes },
 	// A peer of Kubernetes rather than a tab inside it: it is a different system
 	// of record. What is running comes from the cluster; what put it there comes

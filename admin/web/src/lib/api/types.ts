@@ -263,6 +263,20 @@ export type {
 	HelmJobPhase,
 } from "./helm-types";
 
+export type {
+	GoogleStatus,
+	GoogleAccessToken,
+	ConnectGoogle,
+	BackupEngine,
+	BackupDatabase,
+	BackupFolder,
+	BackupScheduleRequest,
+	BackupSchedule,
+	BackupRunPhase,
+	BackupRun,
+	BackupFile,
+} from "./backups-types";
+
 /** One minted credential. See admin/api/internal/secretgen. */
 export interface GeneratedValue {
 	shape: string;

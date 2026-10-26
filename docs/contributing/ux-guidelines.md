@@ -387,6 +387,26 @@ The page is gated on write access, but only so it can explain itself. The real
 gate is the socket's, in the console pod, which reads the same session cookie and
 the same allowlist. See `src/console-gate/`.
 
+## The Drive folder picker
+
+`src/lib/backups/picker.ts` opens Google's Picker, and **Google's `api.js`,
+loaded from `apis.google.com`, is the fourth deliberate exception** to the rule
+about third-party libraries — and the only one fetched from someone else's
+server rather than bundled.
+
+It is not chosen for how it looks. With the `drive.file` scope, a folder the
+operator picks in Google's own dialog is the only folder the panel may write to
+without asking for the whole Drive, so the dialog *is* the permission grant.
+There is no panel-built folder tree that could do the same job with a narrower
+scope.
+
+So it is held to what that argument needs and no more. The script loads on the
+first press of **Choose folder**, never with the page, so a lab that never picks
+a folder never contacts Google from the browser. It is a modal Google draws over
+the page, not a component in it, and it gets a short-lived token minted for it by
+the API rather than anything the panel keeps. What it hands back is read by
+`readPickerResult`, which refuses anything that is not a folder.
+
 ## Overlays
 
 There are three overlays and the line between them is worth stating, because the
@@ -535,12 +555,14 @@ this pattern — and the reducer, being a pure function, is exactly the kind of 
   Headless UI, framer-motion). Status messaging is inline banners; overlays are
   the first-party `SidePanel`, `ConfirmDialog` and `Popover`.
 - New third-party UI component libraries. Tailwind plus `lucide-react` is the
-  stack. There are exactly three exceptions, each argued where it is used:
+  stack. There are exactly four exceptions, each argued where it is used:
   `react-markdown` and `remark-gfm` in the [assistant
   drawer](#the-assistant-drawer), CodeMirror 6 in [the values
-  editor](#the-values-editor), and xterm.js in [the console](#the-console).
-  All three are renderers rather than component libraries, and none of them
-  contributes anything to how the panel looks.
+  editor](#the-values-editor), xterm.js in [the console](#the-console), and
+  Google's Picker in [the Drive folder picker](#the-drive-folder-picker). The
+  first three are renderers rather than component libraries; the fourth is a
+  permission grant that happens to have a dialog. None of them contributes
+  anything to how the panel looks.
 - Raw Tailwind color ramps, `rounded-xl`, and `border-brand-muted` as a default
   border — all three fail lint.
 - Emojis in UI copy.
