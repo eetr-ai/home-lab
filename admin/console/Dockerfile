@@ -24,10 +24,13 @@ ARG TARGETARCH
 # zsh and its two plugins are the shell; tmux is what keeps a session alive
 # between tabs; ttyd serves it. openssh-client because the PVC carries ~/.ssh and
 # the lab's hosts are reached that way. ncurses-terminfo-base for tmux-256color,
-# which .tmux.conf asks for and tmux does not bring by itself.
+# which .tmux.conf asks for and tmux does not bring by itself. ncurses for
+# infocmp: k9s draws with tcell, which knows only a handful of terminals by heart
+# and asks infocmp about the rest -- tmux-256color among them -- so without it k9s
+# refuses to start at all.
 RUN apk add --no-cache \
       zsh zsh-autosuggestions zsh-syntax-highlighting \
-      tmux ttyd ncurses-terminfo-base \
+      tmux ttyd ncurses ncurses-terminfo-base \
       openssh-client git curl jq bash less vim \
       ca-certificates tzdata
 
@@ -87,7 +90,7 @@ COPY --chmod=0755 attach.sh /usr/local/bin/attach.sh
 RUN set -eu; \
     for bin in \
       /bin/zsh /usr/bin/tmux /usr/bin/ttyd /usr/bin/ssh /usr/bin/git \
-      /usr/bin/curl /usr/bin/jq /bin/bash /usr/bin/less /usr/bin/vim \
+      /usr/bin/curl /usr/bin/jq /bin/bash /usr/bin/less /usr/bin/vim /usr/bin/infocmp \
       /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/k9s \
       /usr/local/bin/entrypoint.sh /usr/local/bin/attach.sh; do \
       test -x "$bin" || { echo "missing: $bin"; exit 1; }; \

@@ -33,6 +33,8 @@ check helm helm version --short
 check k9s k9s version --short
 check ssh ssh -V
 check git git --version
+# What tcell runs when k9s starts under tmux; without an answer k9s will not draw.
+check "infocmp tmux-256color" infocmp tmux-256color
 
 # --- attach.sh refuses what it should ------------------------------------------
 refuses() {
