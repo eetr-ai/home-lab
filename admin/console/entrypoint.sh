@@ -33,6 +33,15 @@ done
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
+# By file rather than with the skeleton: kubectl makes ~/.kube for its cache the
+# first time it runs, so a directory copy would be skipped on every volume that
+# has used kubectl -- which is every volume that existed before this did.
+if [ ! -e "$HOME/.kube/config" ]; then
+  mkdir -p "$HOME/.kube"
+  cp /etc/console/in-cluster.yaml "$HOME/.kube/config"
+  chmod 600 "$HOME/.kube/config"
+fi
+
 # Loopback and 7681 are contracts: the gate container dials exactly that, and the
 # chart test asserts it. -W makes the terminal writable, -a lets each tab pass its
 # session name as ?arg=, which ttyd appends to attach.sh's argv.
