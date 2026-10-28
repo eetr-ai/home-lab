@@ -2,10 +2,11 @@
 
 import "@xterm/xterm/css/xterm.css";
 import { type RefObject, useEffect, useState } from "react";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { Base64, ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
+import { writeOnlyClipboard } from "@/lib/console/clipboard";
 import { terminalTheme } from "@/lib/console/theme";
 
 export interface Xterm {
@@ -64,8 +65,10 @@ export function useXterm(host: RefObject<HTMLDivElement | null>): Xterm | null {
 		const fit = new FitAddon();
 		term.loadAddon(fit);
 		// What a plain drag in tmux selects, tmux hands to its terminal as OSC 52;
-		// this is what turns that into the browser's clipboard.
-		term.loadAddon(new ClipboardAddon());
+		// this is what turns that into the browser's clipboard. It needs a secure
+		// origin, which the panel is; on plain HTTP the copy quietly does nothing
+		// and Option-drag is still there.
+		term.loadAddon(new ClipboardAddon(new Base64(), writeOnlyClipboard(navigator.clipboard)));
 		term.open(element);
 
 		// The DOM renderer redraws through layout on every keystroke's echo, which
