@@ -1,0 +1,33 @@
+# The console's own kubeconfig: the pod's ServiceAccount, by name.
+#
+# kubectl gets by without one -- it falls back to the in-cluster credentials --
+# but anything that keys off a context name does not: k9s shows Cluster and User
+# as n/a and fails to load plugins, which it looks up per cluster and context.
+# So the same credentials get a name here.
+#
+# Paths rather than inline data, so a rotated token is picked up without the
+# file changing: client-go rereads tokenFile.
+#
+# The entrypoint copies this to ~/.kube/config only when there is none, so once
+# there it is yours: add contexts, change the namespace, or replace it.
+#
+# Not named `kubeconfig`: .gitignore keeps every file by that name out of Git,
+# which is right for real ones and would quietly drop this from the image.
+# Nothing secret is in here; the token stays in the pod.
+apiVersion: v1
+kind: Config
+clusters:
+  - name: home-lab
+    cluster:
+      server: https://kubernetes.default.svc
+      certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+users:
+  - name: admin-console
+    user:
+      tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+contexts:
+  - name: home-lab
+    context:
+      cluster: home-lab
+      user: admin-console
+current-context: home-lab

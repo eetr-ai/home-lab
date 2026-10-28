@@ -38,7 +38,7 @@ chmod 700 "$HOME/.ssh"
 # has used kubectl -- which is every volume that existed before this did.
 if [ ! -e "$HOME/.kube/config" ]; then
   mkdir -p "$HOME/.kube"
-  cp /etc/console/kubeconfig "$HOME/.kube/config"
+  cp /etc/console/in-cluster.yaml "$HOME/.kube/config"
   chmod 600 "$HOME/.kube/config"
 fi
 
