@@ -32,6 +32,7 @@ gate and the chart with it.
 | **Loopback only** | ttyd binds **127.0.0.1**, never `0.0.0.0`. The terminal has no authentication of its own; the gate is the only way in, and that holds only while nothing else in the pod's network can reach the port. The chart test asserts it. |
 | **Session names** | The tab's session name arrives as ttyd's URL argument (`?arg=<name>`, enabled by `-a`). `attach.sh` accepts `^[A-Za-z0-9_-]{1,32}$`, uses `main` when there is none, and otherwise exits 2 with a message. The gate should refuse the same set before it ever reaches here. |
 | **Home volume** | `/home/lab` is the PVC: history, `~/.ssh`, dotfiles. It must be writable by uid/gid **65532** (`fsGroup: 65532`); the entrypoint fails loudly if it is not, rather than starting a shell that quietly loses everything. Dotfiles from `/etc/skel-lab` are copied only when missing, so an operator's edits survive upgrades. |
+| **Kubeconfig** | On start, `~/.kube/config` is written from `/etc/console/kubeconfig` when it does not exist: the pod's ServiceAccount, named as context `home-lab`. kubectl works without it, but k9s needs a context name for its header and its plugins. Once written it is the operator's, like the dotfiles. |
 | **/tmp** | tmux keeps its socket in `/tmp`. With `readOnlyRootFilesystem`, mount an `emptyDir` there. |
 
 All tmux sessions live in the one container, so they last as long as the pod does,

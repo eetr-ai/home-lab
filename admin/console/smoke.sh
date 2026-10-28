@@ -80,11 +80,25 @@ wait "$pid" 2>/dev/null || true
 if $listening; then pass "ttyd listens on 127.0.0.1:7681"; else fail "ttyd never answered on 127.0.0.1:7681"; fi
 if [ -f "$home/.zshrc" ] && [ -f "$home/.tmux.conf" ]; then pass "skel files copied"; else fail "skel files were not copied"; fi
 if [ "$(stat -c %a "$home/.ssh" 2>/dev/null)" = 700 ]; then pass ".ssh is 0700"; else fail ".ssh is missing or not 0700"; fi
+if [ "$(HOME=$home kubectl config current-context 2>&1)" = home-lab ]; then
+  pass "kubeconfig names the in-cluster context"
+else
+  fail "no home-lab context in ~/.kube/config: $(HOME=$home kubectl config current-context 2>&1)"
+fi
 
-# ...and an edited dotfile survives a restart.
+# ...and an edited dotfile or kubeconfig survives a restart.
 echo "# mine" >"$home/.zshrc"
+echo "# mine" >"$home/.kube/config"
 HOME=$home timeout 3 /usr/local/bin/entrypoint.sh >/dev/null 2>&1 || true
 if [ "$(cat "$home/.zshrc")" = "# mine" ]; then pass "existing dotfiles are left alone"; else fail "entrypoint overwrote an existing .zshrc"; fi
+if [ "$(cat "$home/.kube/config")" = "# mine" ]; then pass "an existing kubeconfig is left alone"; else fail "entrypoint overwrote an existing kubeconfig"; fi
+
+# A volume kubectl has already used has ~/.kube with only a cache in it; the
+# kubeconfig still has to arrive there.
+rm -f "$home/.kube/config"
+mkdir -p "$home/.kube/cache"
+HOME=$home timeout 3 /usr/local/bin/entrypoint.sh >/dev/null 2>&1 || true
+if [ -f "$home/.kube/config" ]; then pass "kubeconfig lands in an existing ~/.kube"; else fail "kubeconfig skipped because ~/.kube existed"; fi
 
 # The default .zshrc loads cleanly. Anything on stderr is a broken line.
 cp /etc/skel-lab/.zshrc "$home/.zshrc"
