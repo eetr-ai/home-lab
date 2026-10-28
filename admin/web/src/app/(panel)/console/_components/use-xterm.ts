@@ -4,7 +4,6 @@ import "@xterm/xterm/css/xterm.css";
 import { type RefObject, useEffect, useState } from "react";
 import { Base64, ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { writeOnlyClipboard } from "@/lib/console/clipboard";
 import { terminalTheme } from "@/lib/console/theme";
@@ -70,18 +69,6 @@ export function useXterm(host: RefObject<HTMLDivElement | null>): Xterm | null {
 		// and Option-drag is still there.
 		term.loadAddon(new ClipboardAddon(new Base64(), writeOnlyClipboard(navigator.clipboard)));
 		term.open(element);
-
-		// The DOM renderer redraws through layout on every keystroke's echo, which
-		// is where typing felt behind. WebGL needs the terminal in the page first,
-		// and a lost GPU context drops back to the DOM renderer rather than to a
-		// blank pane.
-		try {
-			const webgl = new WebglAddon();
-			webgl.onContextLoss(() => webgl.dispose());
-			term.loadAddon(webgl);
-		} catch {
-			// No WebGL here; the DOM renderer still works, only slower.
-		}
 
 		// A hidden tab measures as zero, and fitting to that would shrink the shell
 		// to nothing; it is fitted again when it is shown.
