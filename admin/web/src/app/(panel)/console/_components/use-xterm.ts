@@ -2,8 +2,10 @@
 
 import "@xterm/xterm/css/xterm.css";
 import { type RefObject, useEffect, useState } from "react";
+import { Base64, ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import { writeOnlyClipboard } from "@/lib/console/clipboard";
 import { terminalTheme } from "@/lib/console/theme";
 
 export interface Xterm {
@@ -54,9 +56,18 @@ export function useXterm(host: RefObject<HTMLDivElement | null>): Xterm | null {
 			fontSize: 13,
 			scrollback: 10_000,
 			theme: terminalTheme(readRole),
+			// tmux runs with the mouse on, so a plain drag belongs to tmux, not to
+			// the browser. Option-drag on a Mac (Shift-drag elsewhere) is the way
+			// past it to a native selection that Cmd/Ctrl-C copies.
+			macOptionClickForcesSelection: true,
 		});
 		const fit = new FitAddon();
 		term.loadAddon(fit);
+		// What a plain drag in tmux selects, tmux hands to its terminal as OSC 52;
+		// this is what turns that into the browser's clipboard. It needs a secure
+		// origin, which the panel is; on plain HTTP the copy quietly does nothing
+		// and Option-drag is still there.
+		term.loadAddon(new ClipboardAddon(new Base64(), writeOnlyClipboard(navigator.clipboard)));
 		term.open(element);
 
 		// A hidden tab measures as zero, and fitting to that would shrink the shell

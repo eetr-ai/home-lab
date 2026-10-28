@@ -61,8 +61,12 @@ async function admit(req: IncomingMessage, client: Socket, head: Buffer): Promis
 	const verdict = await authorize(req.headers, config);
 	if (!verdict.ok) return refuse(client, verdict.status, verdict.reason);
 
+	// A terminal is a stream of one-byte writes that each want an answer, which is
+	// the exact traffic Nagle holds back to batch. Off on both legs, so a keystroke
+	// and its echo cross the gate as they happen.
+	client.setNoDelay(true);
 	let spliced = false;
-	const shell = connect(ttydPort, ttydHost, () => {
+	const shell = connect({ port: ttydPort, host: ttydHost, noDelay: true }, () => {
 		spliced = true;
 		shell.write(upstreamHead(req.headers, session, `${ttydHost}:${ttydPort}`));
 		// Bytes the client sent after its head belong to the socket, not to us.
