@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/eetr-ai/home-lab/compare/admin-v1.10.0...admin-v1.10.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **console:** k9s, copy and paste, and typing latency in the terminal ([#126](https://github.com/eetr-ai/home-lab/issues/126)) ([6f246fb](https://github.com/eetr-ai/home-lab/commit/6f246fbc205445b7cde04f319fe759a691bbb9ee))
+
 ## [1.10.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.9.0...admin-v1.10.0) (2026-10-26)
 
 
