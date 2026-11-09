@@ -14,12 +14,41 @@ import type { PutSecret, RotateSecret, SecretSummary } from "@/lib/api/types";
  * cannot forget to look. Same division of labour as lib/secrets/install-draft.ts.
  */
 
+/**
+ * How a value is typed in.
+ *
+ * "password" is the masked single-line field with the generator beside it — what
+ * most keys hold. "file" is a textarea, for the values that are a file's contents:
+ * a PEM key, a kubeconfig, a JSON service account. Those were pasted into the
+ * password box and came out on one line, because an `<input>` drops line breaks
+ * before anything here sees them, and a certificate with its newlines removed is
+ * not a certificate.
+ *
+ * Only the form cares. The API stores the string either way.
+ */
+export type SecretFormat = "password" | "file";
+
 /** One key/value row, as the form holds it. */
 export interface SecretRow {
 	/** A stable key for React, since neither the name nor the position is one. */
 	id: string;
 	key: string;
 	value: string;
+	format: SecretFormat;
+}
+
+/**
+ * Whether a row can be shown in the given format without losing anything.
+ *
+ * Going to "file" always can. Going back to "password" cannot once the value has
+ * a line break in it: the input would display the value with the breaks removed,
+ * and the first keystroke would write that back as the value. Refusing the switch
+ * is the honest answer — the alternative is a field that looks fine and quietly
+ * edits the file under you.
+ */
+export function canUseFormat(row: Pick<SecretRow, "value">, format: SecretFormat): boolean {
+	if (format === "file") return true;
+	return !/[\r\n]/.test(row.value);
 }
 
 export interface CreateDraft {

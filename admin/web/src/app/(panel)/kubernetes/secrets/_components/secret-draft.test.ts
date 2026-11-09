@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { planCreate, planRotate, type CreateDraft, type SecretRow } from "./secret-draft";
+import {
+	canUseFormat,
+	planCreate,
+	planRotate,
+	type CreateDraft,
+	type SecretRow,
+} from "./secret-draft";
 import type { SecretSummary } from "@/lib/api/types";
 
 function rows(...pairs: [string, string][]): SecretRow[] {
-	return pairs.map(([key, value], index) => ({ id: String(index), key, value }));
+	return pairs.map(([key, value], index) => ({ id: String(index), key, value, format: "password" }));
 }
 
 /** A draft with a namespace already chosen, for the cases that are about the rest. */
@@ -149,5 +155,43 @@ describe("planRotate", () => {
 
 	it("refuses an empty new value", () => {
 		expect(planRotate(secret, rows(["password", ""])).ok).toBe(false);
+	});
+});
+
+describe("file values", () => {
+	const pem = "-----BEGIN PRIVATE KEY-----\nMIIBVQ==\n-----END PRIVATE KEY-----\n";
+
+	// The bug that asked for the textarea: line breaks are the value. Nothing
+	// between the form and the payload may trim or join them, trailing one included.
+	it("sends a multi-line value exactly as typed", () => {
+		const plan = planCreate(draft({
+			name: "tls",
+			rows: [{ id: "0", key: "tls.key", value: pem, format: "file" }],
+			overwrite: false,
+		}));
+		expect(plan.ok && plan.request.data["tls.key"]).toBe(pem);
+	});
+
+	it("rotates to a multi-line value exactly as typed", () => {
+		const plan = planRotate(secret, [{ id: "0", key: "password", value: pem, format: "file" }]);
+		expect(plan.ok && plan.request.data.password).toBe(pem);
+	});
+});
+
+describe("canUseFormat", () => {
+	it("always allows a file", () => {
+		expect(canUseFormat({ value: "a\nb" }, "file")).toBe(true);
+	});
+
+	it("allows a password for a single-line value", () => {
+		expect(canUseFormat({ value: "hunter2" }, "password")).toBe(true);
+		expect(canUseFormat({ value: "" }, "password")).toBe(true);
+	});
+
+	// A password input shows the value with its breaks removed, and the next
+	// keystroke writes that back — so the switch is refused instead.
+	it("refuses a password once the value has a line break", () => {
+		expect(canUseFormat({ value: "a\nb" }, "password")).toBe(false);
+		expect(canUseFormat({ value: "a\r\nb" }, "password")).toBe(false);
 	});
 });
