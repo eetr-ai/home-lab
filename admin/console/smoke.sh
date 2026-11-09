@@ -85,6 +85,24 @@ if [ "$(HOME=$home kubectl config current-context 2>&1)" = home-lab ]; then
 else
   fail "no home-lab context in ~/.kube/config: $(HOME=$home kubectl config current-context 2>&1)"
 fi
+# The name alone is not enough: a context pointing at a cluster or user that is
+# not in the file still prints its name, and k9s would get nothing from it.
+# --minify keeps only what the current context resolves to.
+resolved=$(HOME=$home kubectl config view --minify -o jsonpath='{.clusters[0].name} {.users[0].name}' 2>&1 || true)
+if [ "$resolved" = "home-lab admin-console" ]; then
+  pass "the home-lab context resolves its cluster and user"
+else
+  fail "the home-lab context does not resolve its cluster and user: $resolved"
+fi
+# Without KUBERNETES_SERVICE_HOST, which `docker run` does not set, the DNS name
+# stays as the fallback.
+server=$(HOME=$home kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>&1 || true)
+if [ "$server" = https://kubernetes.default.svc ]; then
+  pass "kubeconfig falls back to the cluster DNS name outside a cluster"
+else
+  fail "kubeconfig server outside a cluster is $server"
+fi
+if ls "$home/.kube"/config.tmp.* >/dev/null 2>&1; then fail "entrypoint left a temporary kubeconfig behind"; else pass "no temporary kubeconfig left behind"; fi
 
 # ...and an edited dotfile or kubeconfig survives a restart.
 echo "# mine" >"$home/.zshrc"
@@ -99,6 +117,19 @@ rm -f "$home/.kube/config"
 mkdir -p "$home/.kube/cache"
 HOME=$home timeout 3 /usr/local/bin/entrypoint.sh >/dev/null 2>&1 || true
 if [ -f "$home/.kube/config" ]; then pass "kubeconfig lands in an existing ~/.kube"; else fail "kubeconfig skipped because ~/.kube existed"; fi
+
+# In a pod, the server is the address Kubernetes injects, so the console does not
+# depend on cluster DNS. Documentation addresses (RFC 5737, RFC 3849) stand in.
+server_for() {
+  rm -f "$home/.kube/config"
+  HOME=$home KUBERNETES_SERVICE_HOST=$1 KUBERNETES_SERVICE_PORT=$2 \
+    timeout 3 /usr/local/bin/entrypoint.sh >/dev/null 2>&1 || true
+  HOME=$home kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>&1 || true
+}
+server=$(server_for 192.0.2.1 6443)
+if [ "$server" = https://192.0.2.1:6443 ]; then pass "kubeconfig dials the service address, not DNS"; else fail "kubeconfig server in a pod is $server"; fi
+server=$(server_for 2001:db8::1 443)
+if [ "$server" = "https://[2001:db8::1]:443" ]; then pass "kubeconfig brackets an IPv6 service address"; else fail "kubeconfig server for IPv6 is $server"; fi
 
 # The default .zshrc loads cleanly. Anything on stderr is a broken line.
 cp /etc/skel-lab/.zshrc "$home/.zshrc"
