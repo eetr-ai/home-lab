@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.11.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.10.1...admin-v1.11.0) (2026-11-09)
+
+
+### Features
+
+* **secrets:** enter a Secret value as a file's contents ([#139](https://github.com/eetr-ai/home-lab/issues/139)) ([42b33c7](https://github.com/eetr-ai/home-lab/commit/42b33c7ccf83f49a13639215bee87e1db70f1311))
+
+
+### Bug Fixes
+
+* **console:** give k9s a context so its header and plugins work ([#128](https://github.com/eetr-ai/home-lab/issues/128)) ([095e29b](https://github.com/eetr-ai/home-lab/commit/095e29b2999bdd51ac4fe67db9e54a6715646d51))
+
 ## [1.10.1](https://github.com/eetr-ai/home-lab/compare/admin-v1.10.0...admin-v1.10.1) (2026-10-28)
 
 
