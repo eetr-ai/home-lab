@@ -33,6 +33,34 @@ done
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 
+# By file rather than with the skeleton: kubectl makes ~/.kube for its cache the
+# first time it runs, so a directory copy would be skipped on every volume that
+# has used kubectl -- which is every volume that existed before this did.
+#
+# The server is the address Kubernetes hands every pod, not kubernetes.default.svc:
+# this console is what you reach for when cluster DNS is broken, so it must not
+# need cluster DNS to talk to the API. It is the same address client-go's own
+# in-cluster config dials, so the API server's certificate already covers it. The
+# DNS name stays in the file only as the fallback for a run outside a cluster.
+#
+# Written beside the target and renamed into place, because the existence check
+# above keeps whatever is there: a copy cut short by a full volume would otherwise
+# leave a broken kubeconfig that no restart replaces.
+if [ ! -e "$HOME/.kube/config" ]; then
+  mkdir -p "$HOME/.kube"
+  server=https://kubernetes.default.svc
+  if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+    host=$KUBERNETES_SERVICE_HOST
+    # An IPv6 address needs brackets in a URL.
+    case $host in *:*) host="[$host]" ;; esac
+    server="https://$host:${KUBERNETES_SERVICE_PORT:-443}"
+  fi
+  tmp="$HOME/.kube/config.tmp.$$"
+  sed "s|^\( *server:\).*|\1 $server|" /etc/console/in-cluster.yaml >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$HOME/.kube/config"
+fi
+
 # Loopback and 7681 are contracts: the gate container dials exactly that, and the
 # chart test asserts it. -W makes the terminal writable, -a lets each tab pass its
 # session name as ?arg=, which ttyd appends to attach.sh's argv.

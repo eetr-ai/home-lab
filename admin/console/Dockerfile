@@ -98,7 +98,7 @@ RUN set -eu; \
     for file in \
       /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh \
       /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
-      /etc/terminfo/t/tmux-256color; do \
+      /etc/terminfo/t/tmux-256color /etc/console/in-cluster.yaml; do \
       test -f "$file" || { echo "missing: $file"; exit 1; }; \
     done
 
