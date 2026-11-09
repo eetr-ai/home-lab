@@ -6,7 +6,7 @@ import { rotateSecret } from "@/app/actions/kube";
 import { Checkbox } from "@/components/ui";
 import { CreatePanel } from "../../../_components/create-panel";
 import { KeyValueRows } from "./key-value-rows";
-import { planRotate, type SecretRow } from "./secret-draft";
+import { planRotate, type SecretFormat, type SecretRow } from "./secret-draft";
 import type { SecretSummary } from "@/lib/api/types";
 
 /**
@@ -29,7 +29,11 @@ export function RotateSecretPanel({
 	namespace: string;
 	onClose: () => void;
 }) {
-	const [chosen, setChosen] = useState<Record<string, string>>({});
+	// Keyed by the Secret's key. The format rides along with the value so a key
+	// switched to a file textarea stays one while the others are ticked and unticked.
+	const [chosen, setChosen] = useState<Record<string, { value: string; format: SecretFormat }>>(
+		{},
+	);
 
 	// Ordered by the Secret's own keys rather than by when each box was ticked.
 	// Object.entries follows insertion order, so unticking and reticking a key
@@ -38,7 +42,7 @@ export function RotateSecretPanel({
 	const rows: SecretRow[] =
 		secret?.keys
 			.filter((key) => key in chosen)
-			.map((key) => ({ id: key, key, value: chosen[key] })) ?? [];
+			.map((key) => ({ id: key, key, ...chosen[key] })) ?? [];
 
 	const dirty = Object.keys(chosen).length > 0;
 
@@ -49,7 +53,7 @@ export function RotateSecretPanel({
 
 	function toggle(key: string, on: boolean) {
 		setChosen((current) => {
-			if (on) return { ...current, [key]: "" };
+			if (on) return { ...current, [key]: { value: "", format: "password" } };
 			return Object.fromEntries(Object.entries(current).filter(([held]) => held !== key));
 		});
 	}
@@ -91,7 +95,11 @@ export function RotateSecretPanel({
 					rows={rows}
 					keyOptions={secret?.keys ?? []}
 					onChange={(next) =>
-						setChosen(Object.fromEntries(next.map((row) => [row.key, row.value])))
+						setChosen(
+							Object.fromEntries(
+								next.map((row) => [row.key, { value: row.value, format: row.format }]),
+							),
+						)
 					}
 				/>
 			) : null}
