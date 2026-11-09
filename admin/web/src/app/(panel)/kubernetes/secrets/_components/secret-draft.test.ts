@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	canUseFormat,
+	keepLineEndings,
+	pasteKeepingLineEndings,
+	shownValue,
+	usesCrlf,
 	planCreate,
 	planRotate,
 	type CreateDraft,
@@ -193,5 +197,50 @@ describe("canUseFormat", () => {
 	it("refuses a password once the value has a line break", () => {
 		expect(canUseFormat({ value: "a\nb" }, "password")).toBe(false);
 		expect(canUseFormat({ value: "a\r\nb" }, "password")).toBe(false);
+	});
+});
+
+describe("line endings", () => {
+	const crlf = "-----BEGIN CERTIFICATE-----\r\nMIIB\r\n-----END CERTIFICATE-----\r\n";
+
+	it("knows an all-CRLF value from an LF or mixed one", () => {
+		expect(usesCrlf(crlf)).toBe(true);
+		expect(usesCrlf("a\nb")).toBe(false);
+		expect(usesCrlf("a\r\nb\nc")).toBe(false);
+		expect(usesCrlf("a\rb\r\n")).toBe(false);
+		expect(usesCrlf("one line")).toBe(false);
+	});
+
+	it("shows the textarea LF", () => {
+		expect(shownValue(crlf)).toBe(crlf.replace(/\r\n/g, "\n"));
+	});
+
+	// The finding: a CRLF paste reached the payload as LF. Pasted into an empty
+	// field it must arrive byte for byte, and survive an edit after it.
+	it("keeps a CRLF paste, and the CRLF through an edit", () => {
+		const pasted = pasteKeepingLineEndings("", 0, 0, crlf);
+		expect(pasted).toBe(crlf);
+
+		const typed = shownValue(crlf).replace("MIIB", "MIIBVQ");
+		const edited = keepLineEndings(crlf, typed);
+		expect(edited).toBe(crlf.replace("MIIB", "MIIBVQ"));
+
+		const plan = planCreate(draft({
+			name: "tls",
+			rows: [{ id: "0", key: "tls.crt", value: edited, format: "file" }],
+			overwrite: false,
+		}));
+		expect(plan.ok && plan.request.data["tls.crt"]).toBe(edited);
+	});
+
+	it("splices a CRLF paste at the selection in what the textarea shows", () => {
+		// "a\r\nb" is shown as "a\nb"; selecting the "b" (2..3) and pasting.
+		expect(pasteKeepingLineEndings("a\r\nb", 2, 3, "x\r\ny")).toBe("a\r\nx\r\ny");
+	});
+
+	it("leaves LF values and LF pastes to the browser", () => {
+		expect(pasteKeepingLineEndings("", 0, 0, "a\nb")).toBeNull();
+		expect(pasteKeepingLineEndings("a\nb", 0, 0, "x\r\ny")).toBeNull();
+		expect(keepLineEndings("a\nb", "a\nbc")).toBe("a\nbc");
 	});
 });

@@ -51,6 +51,61 @@ export function canUseFormat(row: Pick<SecretRow, "value">, format: SecretFormat
 	return !/[\r\n]/.test(row.value);
 }
 
+/*
+ * Line endings in a file value.
+ *
+ * A textarea normalizes every line break to LF — on paste, and in the value it
+ * reports back — so a file with Windows line endings would be written with
+ * different bytes than the operator pasted, and a consumer that hashes or signs
+ * the file would see a different file. These keep a value's own line endings
+ * through the textarea. The rule is deliberately narrow: a value whose breaks are
+ * all CRLF stays all CRLF. A value with mixed endings has no single style to keep,
+ * and gets the textarea's LF.
+ */
+
+/** Every line break is CRLF, and there is at least one. */
+export function usesCrlf(value: string): boolean {
+	return value.includes("\r\n") && !/\r(?!\n)|(?<!\r)\n/.test(value);
+}
+
+/**
+ * What the textarea is given to show.
+ *
+ * LF, the form it would turn the value into anyway. Giving it the CRLF value
+ * means React sees the textarea's own value differ from the prop on every render
+ * and rewrites it, which puts the caret at the end after every keystroke.
+ */
+export function shownValue(value: string): string {
+	return value.replace(/\r\n/g, "\n");
+}
+
+/** An edit the textarea reports, put back into the value's own line endings. */
+export function keepLineEndings(previous: string, next: string): string {
+	return usesCrlf(previous) ? next.replace(/\r?\n/g, "\r\n") : next;
+}
+
+/**
+ * A paste the browser would change, done here instead.
+ *
+ * Returns the new value, or null to let the browser paste as it normally does.
+ * Only a CRLF paste needs taking over, and only into a value that is CRLF already
+ * or has no line breaks yet — pasted into an LF value it would make a mixed one,
+ * so it is left to become LF like the rest. `start` and `end` are the selection
+ * in what the textarea shows, which is why the splice is done on that.
+ */
+export function pasteKeepingLineEndings(
+	previous: string,
+	start: number,
+	end: number,
+	pasted: string,
+): string | null {
+	if (!usesCrlf(pasted)) return null;
+	if (/[\r\n]/.test(previous) && !usesCrlf(previous)) return null;
+	const shown = shownValue(previous);
+	const ret = shown.slice(0, start) + shownValue(pasted) + shown.slice(end);
+	return ret.replace(/\n/g, "\r\n");
+}
+
 export interface CreateDraft {
 	/**
 	 * Where it goes. Part of the draft rather than taken from the page around it:

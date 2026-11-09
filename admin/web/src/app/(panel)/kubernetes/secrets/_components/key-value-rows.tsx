@@ -3,7 +3,14 @@
 import { FileText, KeyRound, Plus, X, type LucideIcon } from "lucide-react";
 import { Button, IconButton, Input, Label, cn, inputClass } from "@/components/ui";
 import { SecretInput } from "../../../_components/secret-input";
-import { canUseFormat, type SecretFormat, type SecretRow } from "./secret-draft";
+import {
+	canUseFormat,
+	keepLineEndings,
+	pasteKeepingLineEndings,
+	shownValue,
+	type SecretFormat,
+	type SecretRow,
+} from "./secret-draft";
 
 /**
  * The key/value rows both Secret forms are made of.
@@ -77,8 +84,25 @@ export function KeyValueRows({
 								{row.format === "file" ? (
 									<textarea
 										id={`${idPrefix}-value-${row.id}`}
-										value={row.value}
-										onChange={(event) => update(row.id, { value: event.target.value })}
+										// Shown in LF and written back in the value's own line
+										// endings — see keepLineEndings for why the two differ.
+										value={shownValue(row.value)}
+										onChange={(event) =>
+											update(row.id, { value: keepLineEndings(row.value, event.target.value) })
+										}
+										onPaste={(event) => {
+											const box = event.currentTarget;
+											const pasted = event.clipboardData.getData("text/plain");
+											const start = box.selectionStart;
+											const next = pasteKeepingLineEndings(row.value, start, box.selectionEnd, pasted);
+											if (next === null) return;
+											event.preventDefault();
+											update(row.id, { value: next });
+											// The value is set from state, which leaves the caret at the
+											// end; put it after the paste, where the browser's would be.
+											const caret = start + shownValue(pasted).length;
+											requestAnimationFrame(() => box.setSelectionRange(caret, caret));
+										}}
 										aria-label={row.key ? `Contents of ${row.key}` : `Value ${index + 1}`}
 										placeholder="Paste the file's contents"
 										rows={6}
