@@ -30,8 +30,8 @@ render_compose() {
 postgres_config="$(render_compose databases/postgres.compose.yaml)"
 mongo_config="$(render_compose databases/mongo.compose.yaml)"
 
-grep -q 'image: pgvector/pgvector:0.8.6-pg18-bookworm' <<<"$postgres_config"
-grep -q 'image: mongo:7.0.40-jammy' <<<"$mongo_config"
+grep -q 'image: pgvector/pgvector:0.8.7-pg18-bookworm' <<<"$postgres_config"
+grep -q 'image: mongo:7.0.48-jammy' <<<"$mongo_config"
 grep -q 'restart: unless-stopped' <<<"$postgres_config"
 grep -q 'restart: unless-stopped' <<<"$mongo_config"
 grep -q "source: ${temporary_directory}/data/postgres" <<<"$postgres_config"

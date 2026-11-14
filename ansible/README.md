@@ -1,7 +1,7 @@
 # Ansible Kubernetes bootstrap
 
 This layer turns the Terraform-created Ubuntu VMs into a kubeadm Kubernetes
-cluster. It pins Kubernetes v1.36.4 (`1.36.4-1.1` Debian packages), configures
+cluster. It pins Kubernetes v1.36.6 (`1.36.6-1.1` Debian packages), configures
 containerd with systemd cgroups, initializes one control plane with encrypted
 Secrets at rest, and joins two workers using short-lived tokens.
 
@@ -120,14 +120,14 @@ The playbook fetches the administrator kubeconfig to the ignored
 
 ## 4. Install Cilium from its upstream OCI chart
 
-Cilium is pinned to v1.20.1. kube-proxy stays enabled. Cluster-pool IPAM is
+Cilium is pinned to v1.20.4. kube-proxy stays enabled. Cluster-pool IPAM is
 explicitly restricted to `10.244.0.0/16`; this avoids Cilium's conflicting
 `10.0.0.0/8` default. From the repository root:
 
 ```bash
 export KUBECONFIG="$PWD/ansible/artifacts/admin.conf"
 helm upgrade --install cilium oci://quay.io/cilium/charts/cilium \
-  --version 1.20.1 \
+  --version 1.20.4 \
   --namespace kube-system \
   --values helm-values/cilium.yaml \
   --wait
@@ -146,7 +146,7 @@ export KUBECONFIG="$PWD/ansible/artifacts/admin.conf"
 ./scripts/validate-cluster.sh
 ```
 
-The script requires exactly three Ready nodes on v1.36.4, waits for Cilium,
+The script requires exactly three Ready nodes on v1.36.6, waits for Cilium,
 runs the Cilium connectivity test, creates a temporary Secret, and checks its
 raw etcd record. The record must use the `secretbox` envelope and must not
 contain the plaintext marker. The temporary Secret and local record are removed

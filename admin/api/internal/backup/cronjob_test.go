@@ -19,7 +19,7 @@ func testScheduleConfig() ScheduleConfig {
 		ServiceAccount: "admin-backup",
 		UploadImage:    "registry.example.invalid/admin-api:1.0.0",
 		PostgresImage:  "postgres:18.1-bookworm",
-		MongoImage:     "mongo:7.0.40-jammy",
+		MongoImage:     "mongo:7.0.48-jammy",
 		TTLSeconds:     86400,
 		Deadline:       2 * time.Hour,
 		WorkSize:       resource.MustParse("10Gi"),

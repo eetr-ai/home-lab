@@ -2,7 +2,7 @@ name: home-lab-postgres
 
 services:
   postgres:
-    image: pgvector/pgvector:0.8.6-pg18-bookworm
+    image: pgvector/pgvector:0.8.7-pg18-bookworm
     restart: unless-stopped
     stop_grace_period: 1m
     shm_size: 256mb

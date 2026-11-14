@@ -13,7 +13,7 @@ name: home-lab-local-databases
 
 services:
   postgres:
-    image: pgvector/pgvector:0.8.6-pg18-bookworm
+    image: pgvector/pgvector:0.8.7-pg18-bookworm
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?run scripts/local-cluster.sh, which generates it}
@@ -28,7 +28,7 @@ services:
       retries: 30
 
   mongo:
-    image: mongo:7.0.40-jammy
+    image: mongo:7.0.48-jammy
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: ${LOCAL_MONGO_PASSWORD:?run scripts/local-cluster.sh, which generates it}

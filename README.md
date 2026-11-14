@@ -192,7 +192,7 @@ ansible-playbook playbooks/bootstrap.yml \
 cd ..
 ```
 
-The playbook installs pinned Kubernetes v1.36.4 packages and containerd,
+The playbook installs pinned Kubernetes v1.36.6 packages and containerd,
 initializes the control plane only when required, joins unconfigured workers,
 and fetches the administrator kubeconfig to the ignored
 `ansible/artifacts/admin.conf`. It also installs `kubectl` on every Kubernetes
@@ -209,7 +209,7 @@ invariants and recovery boundary.
 export KUBECONFIG="$PWD/ansible/artifacts/admin.conf"
 
 helm upgrade --install cilium oci://quay.io/cilium/charts/cilium \
-  --version 1.20.1 \
+  --version 1.20.4 \
   --namespace kube-system \
   --values helm-values/cilium.yaml \
   --wait
@@ -222,7 +222,7 @@ the pinned client and make this kubeconfig the default on the physical
 virtualization host as well, follow the optional
 [server kubectl guide](docs/server-kubectl.md).
 
-The validation requires three Ready v1.36.4 nodes, waits for Cilium, runs its
+The validation requires three Ready v1.36.6 nodes, waits for Cilium, runs its
 connectivity test, and proves a test Secret is stored in etcd through the
 `secretbox` encryption envelope without plaintext.
 
