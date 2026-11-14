@@ -69,7 +69,7 @@ function Body({ detail }: { detail: RedisKeyDetail }) {
 			{detail.truncated ? (
 				<Banner
 					variant="info"
-					message={`Showing the first part only. The panel reads at most 100 items or 64 KiB of a key, so a large one cannot stall the server.`}
+					message="Showing the first part only. The panel reads at most 100 items, fewer when they are large, and no more than 4 KiB of any one value (64 KiB of a string), so a large key cannot stall the server or the panel."
 				/>
 			) : null}
 
