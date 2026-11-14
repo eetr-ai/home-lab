@@ -30,7 +30,8 @@ describe("keyId", () => {
 
 describe("displayText", () => {
 	it("marks base64 rather than pretending it is text", () => {
-		expect(displayText({ value: "//4=", encoding: "base64" })).toBe("base64://4=");
+		// Not "base64://4=", which reads as a URL.
+		expect(displayText({ value: "//4=", encoding: "base64" })).toBe("(base64) //4=");
 		expect(displayText({ value: "plain", encoding: "utf8" })).toBe("plain");
 	});
 });

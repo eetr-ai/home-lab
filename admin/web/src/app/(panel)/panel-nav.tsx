@@ -14,11 +14,11 @@ import {
 	ServerCog,
 	ShipWheel,
 	SquareTerminal,
-	Zap,
 } from "lucide-react";
 import { endSession } from "@/app/actions/session";
 import { ThemeSwitcher } from "@/app/theme-switcher";
 import { PostgresIcon } from "@/components/ui/postgres-icon";
+import { RedisIcon } from "@/components/ui/redis-icon";
 import { activeHref, type NavItem } from "@/lib/nav/active";
 
 // Remembered per browser so the choice survives a reload. A convenience, so a
@@ -59,7 +59,7 @@ const navItems: NavItem[] = [
 	{ href: "/mongo", label: "MongoDB", icon: Leaf },
 	// With the databases rather than the cluster pages, though it runs in the
 	// cluster: it is another server with users and data, managed the same way.
-	{ href: "/redis", label: "Redis", icon: Zap },
+	{ href: "/redis", label: "Redis", icon: RedisIcon },
 	// Beside the databases it protects rather than with the cluster pages, even
 	// though its schedules are CronJobs: what an operator comes here for is the
 	// data, not the jobs.

@@ -36,9 +36,12 @@ export function keyId(key: RedisText): string {
 /**
  * A value for display. Base64 is shown as base64, marked, rather than decoded
  * into replacement characters that would look like text and copy as garbage.
+ *
+ * The marker is parenthesised and spaced off. `base64:` glued to the front read
+ * as a URL scheme the moment a value began with `//`, which base64 often does.
  */
 export function displayText(text: RedisText): string {
-	return text.encoding === "utf8" ? text.value : `base64:${text.value}`;
+	return text.encoding === "utf8" ? text.value : `(base64) ${text.value}`;
 }
 
 function base64Bytes(value: string): Uint8Array {

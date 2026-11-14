@@ -1,4 +1,4 @@
-import { Zap } from "lucide-react";
+import { RedisIcon } from "@/components/ui/redis-icon";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionTabs } from "../_components/section-tabs";
 
@@ -13,7 +13,7 @@ export default function RedisLayout({ children }: { children: React.ReactNode })
 	return (
 		<main className="flex min-h-screen flex-col p-6">
 			<PageHeader
-				icon={Zap}
+				icon={RedisIcon}
 				title="Redis"
 				description="The platform's shared Redis: what is in it, who may authenticate, and which namespaces may connect."
 			/>
