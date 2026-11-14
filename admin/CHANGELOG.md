@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.12.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.11.0...admin-v1.12.0) (2026-11-14)
+
+
+### Features
+
+* **admin:** show a spinner on the sign-in button while redirecting ([#146](https://github.com/eetr-ai/home-lab/issues/146)) ([9d96f19](https://github.com/eetr-ai/home-lab/commit/9d96f19e4338beb4d4f6e53c3df381afbb6f5a20))
+* **redis:** manage the shared Redis from the admin panel ([#142](https://github.com/eetr-ai/home-lab/issues/142)) ([43c6473](https://github.com/eetr-ai/home-lab/commit/43c64730783df853e4a06b6bf87f0a3ccc0b6aaf))
+* **web:** float the inline delete confirmation over the row ([#144](https://github.com/eetr-ai/home-lab/issues/144)) ([2c44218](https://github.com/eetr-ai/home-lab/commit/2c4421801eb64749fbfc60eca29f31e9c981f692))
+
 ## [1.11.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.10.1...admin-v1.11.0) (2026-11-09)
 
 
