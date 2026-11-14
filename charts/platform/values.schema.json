@@ -93,6 +93,40 @@
             },
             "enabled": {
               "type": "boolean"
+            },
+            "acl": {
+              "type": "object",
+              "required": [
+                "size"
+              ],
+              "properties": {
+                "size": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(Ki|Mi|Gi)$",
+                  "description": "The claim holding the aclfile. A line per user, so small."
+                },
+                "storageClassName": {
+                  "type": "string",
+                  "description": "Empty for the cluster default."
+                }
+              }
+            },
+            "clientNamespaceLabel": {
+              "type": "object",
+              "required": [
+                "key",
+                "value"
+              ],
+              "properties": {
+                "key": {
+                  "const": "home-lab.example/redis-access",
+                  "description": "Pinned: the admin panel grants and revokes Redis access by writing exactly this label, so a different key here would make every grant a no-op the panel reports as a success."
+                },
+                "value": {
+                  "const": "true",
+                  "description": "Pinned for the same reason: it is the value the admin panel writes."
+                }
+              }
             }
           },
           "if": {
@@ -107,7 +141,8 @@
           },
           "then": {
             "required": [
-              "passwordSecret"
+              "passwordSecret",
+              "acl"
             ]
           },
           "required": [

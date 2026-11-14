@@ -11,7 +11,13 @@
 # The shape is the lab's: PostgreSQL and MongoDB run as plain containers beside
 # the cluster (local/compose.yaml), never as pods in it, and the chart is the same
 # chart with local/values.yaml on top. What differs is only what a laptop lacks —
-# no Gateway in front, no Redis, no agent, no console.
+# no Gateway in front, no agent, no console.
+#
+# Redis is the platform chart's own template, rendered on its own and applied
+# into platform-system, rather than the whole platform chart: the rest of it is
+# Traefik, cert-manager and an NFS provisioner, none of which a laptop has a use
+# for, and the panel's Redis section is only worth running against the real
+# Deployment — its aclfile, its claim and its startup script.
 #
 # Identity comes from admin/.env, the file `task dev` already uses: the same
 # eetr-auth client, whose redirect URIs include http://localhost:3000. Google
@@ -34,6 +40,7 @@ k3s_image='rancher/k3s:v1.35.5-k3s1'
 namespace='admin'
 release='home-lab-admin'
 databases_namespace='local-databases'
+platform_namespace='platform-system'
 state_dir="${HOME_LAB_LOCAL_STATE:-${XDG_STATE_HOME:-${HOME}/.local/state}/home-lab/local-cluster}"
 compose=(docker compose --project-directory "${repo_root}/local" -f "${repo_root}/local/compose.yaml"
   --env-file "${state_dir}/databases.env")
@@ -98,6 +105,12 @@ ensure_state() {
     umask 077
     printf 'LOCAL_POSTGRES_PASSWORD=%s\nLOCAL_MONGO_PASSWORD=%s\n' \
       "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" >"${state_dir}/databases.env"
+  fi
+  # Added later than the other two, so a state file from before it lacks the
+  # line. Appended rather than regenerated: the database passwords in there are
+  # the ones their volumes were initialised with.
+  if ! grep -q '^LOCAL_REDIS_PASSWORD=' "${state_dir}/databases.env"; then
+    printf 'LOCAL_REDIS_PASSWORD=%s\n' "$(openssl rand -hex 24)" >>"${state_dir}/databases.env"
   fi
   set -a
   # shellcheck disable=SC1091 # generated just above
@@ -213,7 +226,12 @@ build_and_import() {
   local dump_images
   dump_images=$(awk '/^ +images:$/ { on = 1; next } on && /^ +(postgres|mongo):/ { print $2 } on && !/^ +(postgres|mongo):/ { on = 0 }' \
     "${repo_root}/charts/admin/values.yaml")
-  for image in $dump_images; do
+  # Redis's image comes from the platform chart's values, so the version that runs
+  # here is the version the lab runs.
+  local redis_image
+  redis_image=$(awk '/^  redis:$/ { on = 1 } on && /repository:/ { repo = $2 } on && /tag:/ { print repo ":" $2; exit }' \
+    "${repo_root}/charts/platform/values.yaml")
+  for image in $dump_images $redis_image; do
     docker image inspect "$image" >/dev/null 2>&1 || docker pull --quiet "$image" >/dev/null
   done
 
@@ -226,7 +244,7 @@ build_and_import() {
   platform="linux/$(docker version --format '{{.Server.Arch}}')"
   # shellcheck disable=SC2086 # one word per image, on purpose
   docker save --platform "$platform" -o "$archive" \
-    "home-lab/admin-api:${tag}" "home-lab/admin-web:${tag}" $dump_images
+    "home-lab/admin-api:${tag}" "home-lab/admin-web:${tag}" $dump_images $redis_image
   k3d image import --cluster "$cluster" "$archive" >/dev/null
   rm -f "$archive"
 }
@@ -234,8 +252,44 @@ build_and_import() {
 apply_secret() {
   local name=$1
   shift
-  kubectl -n "$namespace" create secret generic "$name" "$@" --dry-run=client -o yaml |
+  apply_secret_in "$namespace" "$name" "$@"
+}
+
+apply_secret_in() {
+  local target=$1 name=$2
+  shift 2
+  kubectl -n "$target" create secret generic "$name" "$@" --dry-run=client -o yaml |
     kubectl apply -f - >/dev/null
+}
+
+# The platform's Redis, from the platform chart's own template.
+#
+# The NFS values are placeholders the schema insists on and this one template
+# never reads. The claim gets k3s's default StorageClass, local-path, since the
+# template leaves the class to the cluster when none is set.
+ensure_redis() {
+  # helm template refuses a chart whose dependencies are not built, even to
+  # render one template that uses none of them. They are gitignored archives, so
+  # a fresh checkout has none.
+  if ! compgen -G "${repo_root}/charts/platform/charts/*.tgz" >/dev/null; then
+    printf 'The platform chart dependencies are not built. Run task helm:deps first.\n' >&2
+    exit 1
+  fi
+
+  say "Starting Redis..."
+  kubectl create namespace "$platform_namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  apply_secret_in "$platform_namespace" redis-password --from-literal=password="$LOCAL_REDIS_PASSWORD"
+
+  helm template home-lab-platform "${repo_root}/charts/platform" \
+    --namespace "$platform_namespace" \
+    --set nfs-provisioner.nfs.server=unused.invalid \
+    --set nfs-provisioner.nfs.path=/unused \
+    --set platform.redis.image.pullPolicy=Never \
+    --show-only templates/redis.yaml |
+    kubectl apply -n "$platform_namespace" -f - >/dev/null
+  # The password is read at start, so a changed Secret needs a new pod to take.
+  kubectl -n "$platform_namespace" rollout restart deployment/redis >/dev/null
+  kubectl -n "$platform_namespace" rollout status deployment/redis --timeout 3m >/dev/null
 }
 
 install_panel() {
@@ -247,6 +301,10 @@ install_panel() {
   kubectl apply --server-side -f "$gateway_api_url" >/dev/null
 
   kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # What the lab's installer applies, for the same reason: k3s enforces
+  # NetworkPolicy, and Redis's admits only labelled namespaces.
+  kubectl label namespace "$namespace" home-lab.example/redis-access=true --overwrite >/dev/null
+  apply_secret admin-redis --from-literal=password="$LOCAL_REDIS_PASSWORD"
 
   local postgres_host="postgres.${databases_namespace}.svc.cluster.local:5432"
   apply_secret admin-oidc \
@@ -319,6 +377,7 @@ deploy() {
   local tag
   tag="local-$(date -u +%Y%m%d%H%M%S)"
   build_and_import "$tag"
+  ensure_redis
   install_panel "$tag"
   start_forward
 

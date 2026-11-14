@@ -77,6 +77,12 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	{ path: "/mongo/users?database={database}", description: "The users on one database, and their roles." },
 	{ path: "/mongo/query?database={database}", description: "The read-only document console, opened on one database." },
 
+	{ path: "/redis", description: "The platform's shared Redis." },
+	{ path: "/redis/overview", description: "Redis memory against its ceiling, clients, hit rates and the keyspace. Where to look when writes are being refused." },
+	{ path: "/redis/keys", description: "Browsing keys by pattern, opening one, and deleting a stuck key." },
+	{ path: "/redis/users", description: "The ACL users apps authenticate as, each confined to a key prefix. Creating, editing and deleting them happens here." },
+	{ path: "/redis/access", description: "Which namespaces the Redis NetworkPolicy admits, and granting or revoking it." },
+
 	{ path: "/backups", description: "The Google Drive connection and every backup schedule. Connecting Drive and creating a schedule happen here." },
 	{
 		path: "/backups/{name}",

@@ -52,6 +52,18 @@ type fakeRepo struct {
 	// rotated records each rotation as the fake merged it, so a test can assert
 	// the keys not named kept their values.
 	rotated []map[string]string
+	// labelled records every label patch that reached the cluster, so a test can
+	// assert both what was written and that a refusal wrote nothing.
+	labelled []labelPatch
+}
+
+// labelPatch is one single-label patch as the fake saw it. A nil value is a
+// removal.
+type labelPatch struct {
+	namespace string
+	version   string
+	key       string
+	value     *string
 }
 
 // liveSecret is a Secret as the cluster holds it: the projection the repository
@@ -80,6 +92,12 @@ func (f *fakeRepo) ReadNamespace(_ context.Context, name string) (Namespace, err
 func (f *fakeRepo) CreateNamespace(_ context.Context, spec NamespaceSpec) (Namespace, error) {
 	f.created = append(f.created, spec)
 	return Namespace{Name: spec.Name, Labels: spec.Labels}, nil
+}
+
+func (f *fakeRepo) LabelNamespace(_ context.Context, name, version, key string, value *string) (Namespace, error) {
+	f.labelled = append(f.labelled, labelPatch{namespace: name, version: version, key: key, value: value})
+	namespace := f.namespaces[name]
+	return namespace, nil
 }
 
 func (f *fakeRepo) DeleteNamespace(_ context.Context, name, uid string) error {

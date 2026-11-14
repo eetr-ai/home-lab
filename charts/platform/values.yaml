@@ -94,6 +94,10 @@ platform:
     # Which namespaces may reach it, by label — the same shape the Gateway uses to
     # decide which namespaces may attach a route. A password says who you are; this
     # says where you may say it from.
+    #
+    # Pinned by the schema: the admin panel's Access tab grants and revokes by
+    # writing exactly this label, so changing it here would make every grant a
+    # no-op the panel reports as a success.
     clientNamespaceLabel:
       key: home-lab.example/redis-access
       value: "true"
@@ -103,6 +107,13 @@ platform:
     # Reaching this limit fails writes loudly instead, which is the failure worth
     # having.
     maxmemory: 128mb
+
+    # The claim the ACL users live on: the only thing here that survives a
+    # restart. A line of text per user, so the size is a formality. Empty
+    # storageClassName means the cluster default, nfs-client on the lab.
+    acl:
+      size: 16Mi
+      storageClassName: ""
 
     resources:
       requests:

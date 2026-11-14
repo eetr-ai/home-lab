@@ -70,6 +70,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.enrolNamespace)
 	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/helm-enrolment",
 		h.revokeNamespace)
+	mux.HandleFunc("PUT /api/kubernetes/namespaces/{namespace}/redis-access",
+		h.grantRedisAccess)
+	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/redis-access",
+		h.revokeRedisAccess)
 }
 
 // listNamespaces returns every namespace in the cluster.
@@ -818,4 +822,55 @@ func (h *Handler) revokeNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// grantRedisAccess labels a namespace so the platform's Redis admits it.
+//
+//	@Summary		Grant a namespace Redis access
+//	@Description	Sets home-lab.example/redis-access=true, the label the platform Redis's
+//	@Description	NetworkPolicy admits namespaces by. That label and nothing else is
+//	@Description	written. A pod there still needs a Redis user to authenticate as.
+//	@Description	Protected namespaces are refused, the panel's own among them.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace name"
+//	@Success		200			{object}	kube.Namespace
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/redis-access [put]
+func (h *Handler) grantRedisAccess(w http.ResponseWriter, r *http.Request) {
+	namespace, err := h.service.GrantRedisAccess(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, namespace)
+}
+
+// revokeRedisAccess removes that label again.
+//
+//	@Summary		Revoke a namespace's Redis access
+//	@Description	Removes home-lab.example/redis-access. Connections already open are not
+//	@Description	cut; the namespace's pods are refused the next time they connect.
+//	@Description	Protected namespaces are refused, the panel's own among them.
+//	@Tags			kubernetes
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			namespace	path		string	true	"Namespace name"
+//	@Success		200			{object}	kube.Namespace
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/redis-access [delete]
+func (h *Handler) revokeRedisAccess(w http.ResponseWriter, r *http.Request) {
+	namespace, err := h.service.RevokeRedisAccess(r.Context(), r.PathValue("namespace"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, namespace)
 }

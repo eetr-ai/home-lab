@@ -41,7 +41,7 @@ task cluster:delete   # remove it all, data included
    generated on the first deploy. It then installs the chart with
    `local/values.yaml`:
    - one replica each
-   - no Redis, agent or console
+   - no agent or console; Redis is the platform chart's own template, applied on its own into `platform-system`
    - Helm deployments switched on, with the panel's database on the local
      PostgreSQL
 5. Forwards `http://localhost:3000` to the panel in the background.

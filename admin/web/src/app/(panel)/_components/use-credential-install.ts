@@ -16,33 +16,41 @@ import type { ActionResult } from "@/lib/api/result";
  * Secret write then fails, pressing the button again must not try to create the
  * role a second time — that answers 409 and the operator is left staring at a
  * conflict about something that already worked. So the first success is
- * remembered, and a retry resumes at the step that failed. The password is still
- * in the form, which is what makes resuming possible at all: nothing stores it,
- * and closing the panel is what throws it away.
+ * remembered, and a retry resumes at the step that failed.
+ *
+ * What is remembered is the CREDENTIAL, not just the fact. The form stays
+ * editable after a half-finished submit, and a retry that installed whatever the
+ * form held now would write a password the server never got — a Secret that
+ * looks right and fails at connection time, a long way from here. So the retry
+ * installs exactly what was created, and only the Secret's destination and
+ * layout can still change. Kept in a ref for the life of the panel; closing it
+ * is what throws the password away.
  */
 export function useCredentialInstall(noun: string) {
 	const [install, setInstall] = useState<InstallDraft>(EMPTY_INSTALL);
-	const created = useRef(false);
+	const created = useRef<Credential | null>(null);
 
 	function reset() {
 		setInstall(EMPTY_INSTALL);
-		created.current = false;
+		created.current = null;
 	}
 
 	async function submit(
 		credential: Credential,
 		create: () => Promise<ActionResult<unknown>>,
 	): Promise<ActionResult<unknown>> {
+		const issued = created.current ?? credential;
+
 		// Checked before anything is created: a layout that cannot produce a Secret
 		// is a typo in this form, and finding it after the role exists would mean
 		// the operator has to think about a half-finished state for no reason.
-		const plan = planInstall(install, credential);
+		const plan = planInstall(install, issued);
 		if (plan && !plan.ok) return { ok: false, error: plan.error };
 
 		if (!created.current) {
 			const result = await create();
 			if (!result.ok) return result;
-			created.current = true;
+			created.current = credential;
 		}
 
 		if (!plan) return { ok: true, data: undefined };

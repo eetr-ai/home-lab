@@ -7,6 +7,12 @@
 # script, never written here.
 
 admin:
+  # The platform's Redis template runs here too (scripts/local-cluster.sh applies
+  # it), so the Redis section has a real server to manage. The URL and the
+  # admin-redis Secret are the chart's defaults; the script creates the Secret.
+  redis:
+    enabled: true
+
   api:
     image:
       repository: home-lab/admin-api
@@ -36,10 +42,6 @@ admin:
       repository: home-lab/admin-web
       pullPolicy: Never
     replicas: 1
-    # One replica coordinates its own token refreshes; there is no platform Redis
-    # on this cluster to share them through.
-    redis:
-      enabled: false
 
   # Both need things this cluster does not have: the agent a model provider key,
   # the console its own image and a Gateway route for its socket.

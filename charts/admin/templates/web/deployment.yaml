@@ -8,8 +8,8 @@
   that. It is the same reasoning as the `required` calls below: fail where
   somebody can read why, rather than in a cluster at 2am.
 */}}
-{{- if and (gt (int .Values.admin.web.replicas) 1) (not .Values.admin.web.redis.enabled) }}
-{{- fail "admin.web.replicas above 1 requires admin.web.redis.enabled: the token refresh must be coordinated across replicas, or eetr-auth's reuse detection will revoke the operator's token family" }}
+{{- if and (gt (int .Values.admin.web.replicas) 1) (not .Values.admin.redis.enabled) }}
+{{- fail "admin.web.replicas above 1 requires admin.redis.enabled: the token refresh must be coordinated across replicas, or eetr-auth's reuse detection will revoke the operator's token family" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -84,18 +84,18 @@ spec:
             - name: OIDC_AUDIENCE
               value: {{ . | quote }}
             {{- end }}
-            {{- if .Values.admin.web.redis.enabled }}
+            {{- if .Values.admin.redis.enabled }}
             # Where the replicas agree about a token refresh. Its presence is what
             # switches the coordination on: src/lib/auth/renew.ts builds a
             # coordinator only when REDIS_URL is set, so a deployment without it
             # keeps the in-process behaviour that is correct at one replica.
             - name: REDIS_URL
-              value: {{ .Values.admin.web.redis.url | quote }}
+              value: {{ .Values.admin.redis.url | quote }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.admin.web.redis.secret.name }}
-                  key: {{ .Values.admin.web.redis.secret.key }}
+                  name: {{ .Values.admin.redis.secret.name }}
+                  key: {{ .Values.admin.redis.secret.key }}
             {{- end }}
             # In-cluster, so the panel's server talks to the API directly rather
             # than back out through the Gateway.

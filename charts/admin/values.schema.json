@@ -11,6 +11,7 @@
         "imagePullSecrets",
         "image",
         "gateway",
+        "redis",
         "api",
         "web",
         "agent",
@@ -56,6 +57,54 @@
               "minLength": 1
             }
           }
+        },
+        "redis": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "secret": {
+              "type": "object",
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "url",
+              "secret"
+            ]
+          },
+          "required": [
+            "enabled"
+          ]
         },
         "api": {
           "type": "object",
@@ -328,8 +377,7 @@
             "secret",
             "image",
             "replicas",
-            "resources",
-            "redis"
+            "resources"
           ],
           "properties": {
             "hostname": {
@@ -385,54 +433,6 @@
             },
             "resources": {
               "type": "object"
-            },
-            "redis": {
-              "type": "object",
-              "properties": {
-                "url": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "secret": {
-                  "type": "object",
-                  "required": [
-                    "name",
-                    "key"
-                  ],
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "key": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                },
-                "enabled": {
-                  "type": "boolean"
-                }
-              },
-              "if": {
-                "properties": {
-                  "enabled": {
-                    "const": true
-                  }
-                },
-                "required": [
-                  "enabled"
-                ]
-              },
-              "then": {
-                "required": [
-                  "url",
-                  "secret"
-                ]
-              },
-              "required": [
-                "enabled"
-              ]
             }
           }
         },

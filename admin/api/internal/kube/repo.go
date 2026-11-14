@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -96,6 +97,38 @@ func (r *Repository) CreateNamespace(ctx context.Context, spec NamespaceSpec) (N
 	return namespaceFrom(item), nil
 }
 
+// LabelNamespace sets one label on a namespace, or removes it when value is nil.
+//
+// A JSON merge patch naming only that key, so every other label is left exactly
+// as it is. A null in a merge patch deletes the key, which is how removal is
+// spelled.
+//
+// The patch carries the resourceVersion the caller checked, so the API server
+// refuses it with a conflict if the namespace changed in between. The caller
+// decided this write was allowed from the labels it read; a protection label
+// added since must not be overruled by a decision made before it existed. A
+// merge patch has no preconditions field, so the version goes in the body, the
+// same guarantee DeleteNamespace gets from its UID precondition.
+func (r *Repository) LabelNamespace(
+	ctx context.Context, name, resourceVersion, key string, value *string,
+) (Namespace, error) {
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": resourceVersion,
+			"labels":          map[string]*string{key: value},
+		},
+	})
+	if err != nil {
+		return Namespace{}, fmt.Errorf("encode the label patch: %w", err)
+	}
+
+	item, err := r.client.CoreV1().Namespaces().Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return Namespace{}, translate(err, "label namespace "+name)
+	}
+	return namespaceFrom(item), nil
+}
+
 // DeleteNamespace deletes a namespace and everything in it.
 //
 // Deletion is asynchronous: the API server marks the namespace Terminating and
@@ -132,11 +165,12 @@ func (r *Repository) DeleteNamespace(ctx context.Context, name, uid string) erro
 // rules live in the service.
 func namespaceFrom(item *corev1.Namespace) Namespace {
 	return Namespace{
-		Name:   item.Name,
-		UID:    string(item.UID),
-		Status: string(item.Status.Phase),
-		Age:    item.CreationTimestamp.Time,
-		Labels: item.Labels,
+		Name:            item.Name,
+		UID:             string(item.UID),
+		ResourceVersion: item.ResourceVersion,
+		Status:          string(item.Status.Phase),
+		Age:             item.CreationTimestamp.Time,
+		Labels:          item.Labels,
 	}
 }
 

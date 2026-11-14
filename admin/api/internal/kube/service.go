@@ -15,10 +15,7 @@ import (
 // repository is the cluster access this service needs. Declared here, where it is
 // consumed, so the service can be tested without a cluster.
 type repository interface {
-	ListNamespaces(ctx context.Context) ([]Namespace, error)
-	ReadNamespace(ctx context.Context, name string) (Namespace, error)
-	CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error)
-	DeleteNamespace(ctx context.Context, name, uid string) error
+	namespaceRepository
 	ListWorkloads(ctx context.Context, namespace string) ([]Workload, error)
 	ListPods(ctx context.Context, namespace string) ([]Pod, error)
 	ListJobs(ctx context.Context, namespace string) (JobListing, error)
@@ -31,6 +28,18 @@ type repository interface {
 	RestartWorkload(ctx context.Context, kind, namespace, name string, at time.Time) error
 	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
 	secretRepository
+}
+
+// namespaceRepository is the namespace half, a heading in the same sense as
+// secretRepository below: the namespace operations are the ones with writes and
+// policy of their own, and grouping them says so.
+type namespaceRepository interface {
+	ListNamespaces(ctx context.Context) ([]Namespace, error)
+	ReadNamespace(ctx context.Context, name string) (Namespace, error)
+	CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error)
+	// LabelNamespace sets one label, or removes it when value is nil.
+	LabelNamespace(ctx context.Context, name, resourceVersion, key string, value *string) (Namespace, error)
+	DeleteNamespace(ctx context.Context, name, uid string) error
 }
 
 // secretRepository is the Secret half, split out rather than listed above.

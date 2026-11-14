@@ -130,6 +130,20 @@ rules:
     resources:
       - namespaces
     verbs: ["create", "delete"]
+  # GrantRedisAccess and RevokeRedisAccess: one label, home-lab.example/redis-access,
+  # which the platform Redis's NetworkPolicy admits namespaces by.
+  #
+  # `patch` cannot be narrowed to a label, so this is a grant to rewrite ANY
+  # namespace's labels — pod-security.kubernetes.io/enforce among them, which
+  # decides whether a pod may run privileged. What holds it to the one key is that
+  # internal/kube/redisaccess.go is the only code that patches a namespace and
+  # names the key as a constant, and that it refuses protected namespaces. The
+  # same shape of guarantee as create and delete above, and it lives in the same
+  # block for the same reason: it is namespace management.
+  - apiGroups: [""]
+    resources:
+      - namespaces
+    verbs: ["patch"]
 {{- end }}
   # Live CPU and memory, served by metrics-server.
   #

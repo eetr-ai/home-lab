@@ -255,6 +255,18 @@ spec:
                   name: {{ .Values.admin.api.mongo.secret.name }}
                   key: {{ .Values.admin.api.mongo.secret.key }}
             {{- end }}
+            {{- if .Values.admin.redis.enabled }}
+            # The platform's shared Redis, the same server and credential the web
+            # keeps its refresh lock in. The URL carries no password: it comes from
+            # its own Secret, so the URL can be printed without leaking it.
+            - name: ADMIN_REDIS_URL
+              value: {{ .Values.admin.redis.url | quote }}
+            - name: ADMIN_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.redis.secret.name }}
+                  key: {{ .Values.admin.redis.secret.key }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8090

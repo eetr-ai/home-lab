@@ -140,6 +140,17 @@ export function revokeNamespace(namespace: string): Promise<ActionResult<void>> 
 	);
 }
 
+/** Labels the namespace so the platform's Redis NetworkPolicy admits it. That
+ *  label and nothing else is written. */
+export function grantRedisAccess(namespace: string): Promise<ActionResult<Namespace>> {
+	return call<Namespace>("PUT", `/api/kubernetes/namespaces/${seg(namespace)}/redis-access`);
+}
+
+/** Removes that label. Open connections stay open until they reconnect. */
+export function revokeRedisAccess(namespace: string): Promise<ActionResult<Namespace>> {
+	return call<Namespace>("DELETE", `/api/kubernetes/namespaces/${seg(namespace)}/redis-access`);
+}
+
 /**
  * The three listings that answer for one namespace or for the whole cluster.
  *

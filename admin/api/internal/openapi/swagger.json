@@ -1908,6 +1908,300 @@
                 },
                 "type": "object"
             },
+            "redis.CreateUserRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "prefix": {
+                        "description": "Prefix confines the user to keys and channels starting with it. Required:\na user that can reach every key is the default user with a second name.",
+                        "type": "string"
+                    },
+                    "preset": {
+                        "description": "Preset is \"readwrite\" or \"readonly\".",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Field": {
+                "properties": {
+                    "name": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "value": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.KeyDetail": {
+                "properties": {
+                    "entries": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.StreamEntry"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Field"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Text"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "key": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "length": {
+                        "description": "Length is the full size: bytes for a string, items for everything else.",
+                        "type": "integer"
+                    },
+                    "members": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.ScoredMember"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "memoryBytes": {
+                        "type": "integer"
+                    },
+                    "string": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "supported": {
+                        "description": "Supported is false for a type the panel shows but cannot read.",
+                        "type": "boolean"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "ttlMillis": {
+                        "type": "integer"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.KeyPage": {
+                "properties": {
+                    "keys": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.KeySummary"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "nextCursor": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.KeySummary": {
+                "properties": {
+                    "key": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "ttlMillis": {
+                        "description": "TTLMillis is the time left before the key expires, or -1 for a key that\nnever does. A key that expired between the scan and this read is dropped\nfrom the page rather than reported with a TTL that means \"gone\".",
+                        "type": "integer"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Keyspace": {
+                "properties": {
+                    "database": {
+                        "type": "integer"
+                    },
+                    "expires": {
+                        "type": "integer"
+                    },
+                    "keys": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Overview": {
+                "properties": {
+                    "blockedClients": {
+                        "type": "integer"
+                    },
+                    "commandsProcessed": {
+                        "type": "integer"
+                    },
+                    "connectedClients": {
+                        "type": "integer"
+                    },
+                    "evictedKeys": {
+                        "type": "integer"
+                    },
+                    "expiredKeys": {
+                        "type": "integer"
+                    },
+                    "keyspace": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Keyspace"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "keyspaceHits": {
+                        "type": "integer"
+                    },
+                    "keyspaceMisses": {
+                        "type": "integer"
+                    },
+                    "maxClients": {
+                        "type": "integer"
+                    },
+                    "maxMemoryBytes": {
+                        "description": "MaxMemoryBytes is zero when the server has no ceiling at all.",
+                        "type": "integer"
+                    },
+                    "maxMemoryPolicy": {
+                        "type": "string"
+                    },
+                    "mode": {
+                        "type": "string"
+                    },
+                    "oomRejections": {
+                        "description": "OOMRejections is the number of commands refused for want of memory since\nthe server started.",
+                        "type": "integer"
+                    },
+                    "peakMemoryBytes": {
+                        "type": "integer"
+                    },
+                    "rejectedConnections": {
+                        "type": "integer"
+                    },
+                    "uptimeSeconds": {
+                        "type": "integer"
+                    },
+                    "usedMemoryBytes": {
+                        "type": "integer"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.ScoredMember": {
+                "properties": {
+                    "member": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "score": {
+                        "description": "Score is written as Redis writes it — \"inf\", \"-inf\", or a number — because\na score can be infinite and JSON has no way to say so as a number.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.StreamEntry": {
+                "properties": {
+                    "fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Field"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Text": {
+                "properties": {
+                    "encoding": {
+                        "description": "Encoding is \"utf8\" or \"base64\".",
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.UpdateUserRequest": {
+                "properties": {
+                    "password": {
+                        "description": "Password, when set, replaces the existing one. Empty keeps it.",
+                        "type": "string"
+                    },
+                    "prefix": {
+                        "type": "string"
+                    },
+                    "preset": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.User": {
+                "properties": {
+                    "editable": {
+                        "description": "Editable is true only for a user whose rules are exactly a prefix and a\npreset, which is everything the edit form can express. Saving the form over\nanything else would silently throw rules away.",
+                        "type": "boolean"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "hasPassword": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "prefix": {
+                        "description": "Prefix is the key prefix the user is confined to, keys and channels both.\nEmpty for a user that is not confined to one this panel recognizes.",
+                        "type": "string"
+                    },
+                    "preset": {
+                        "description": "Preset is \"readwrite\" or \"readonly\" for a user this panel wrote, and\n\"custom\" for any other — the default user, or one made by hand.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.UserList": {
+                "properties": {
+                    "persistent": {
+                        "description": "Persistent is false on a Redis started without an aclfile. Users there\nlast only until the next restart, so the panel refuses to create them.",
+                        "type": "boolean"
+                    },
+                    "users": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.User"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "secretgen.Generated": {
                 "properties": {
                     "length": {
@@ -5693,6 +5987,158 @@
                 ]
             }
         },
+        "/api/kubernetes/namespaces/{namespace}/redis-access": {
+            "delete": {
+                "description": "Removes home-lab.example/redis-access. Connections already open are not\ncut; the namespace's pods are refused the next time they connect.\nProtected namespaces are refused, the panel's own among them.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Namespace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Revoke a namespace's Redis access",
+                "tags": [
+                    "kubernetes"
+                ]
+            },
+            "put": {
+                "description": "Sets home-lab.example/redis-access=true, the label the platform Redis's\nNetworkPolicy admits namespaces by. That label and nothing else is\nwritten. A pod there still needs a Redis user to authenticate as.\nProtected namespaces are refused, the panel's own among them.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.Namespace"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Grant a namespace Redis access",
+                "tags": [
+                    "kubernetes"
+                ]
+            }
+        },
         "/api/kubernetes/namespaces/{namespace}/secrets": {
             "get": {
                 "description": "Names, types, keys and ages. No value is ever returned by this API,\nand there is no endpoint that reveals one — a credential written\nthrough the panel is visible once, in the browser, when it is made.\nEach row reports whether the panel will delete or rotate it, and why\nnot: Helm's release storage and ServiceAccount tokens are refused\nwhatever the namespace policy says.",
@@ -8566,6 +9012,544 @@
                 "summary": "Update a role",
                 "tags": [
                     "postgres"
+                ]
+            }
+        },
+        "/api/redis/key": {
+            "delete": {
+                "description": "UNLINK, so a large value is freed without stalling the server. There is no\nway to delete more than one key at a time here, on purpose.",
+                "parameters": [
+                    {
+                        "description": "Key name, percent-encoded as any query value",
+                        "in": "query",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete a key",
+                "tags": [
+                    "redis"
+                ]
+            },
+            "get": {
+                "description": "Type, TTL, memory and the first part of the value: the first 100 items of a\ncollection or the first 64 KiB of a string, with truncated saying whether\nthere was more. Bytes that are not UTF-8 come back base64, with encoding\nsaying so.",
+                "parameters": [
+                    {
+                        "description": "Key name, percent-encoded as any query value",
+                        "in": "query",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.KeyDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a key",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
+        "/api/redis/keys": {
+            "get": {
+                "description": "One SCAN step over keys matching a glob pattern. A page may be empty while\nnextCursor is not: SCAN promises completeness, not page size. Pass nextCursor\nback to continue; it is empty when the scan is finished. count is a hint,\ncapped at 1000.",
+                "parameters": [
+                    {
+                        "description": "Glob pattern; empty matches every key",
+                        "in": "query",
+                        "name": "pattern",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The nextCursor from the previous page",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "How many keys to examine; default 100",
+                        "in": "query",
+                        "name": "count",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.KeyPage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Scan keys",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
+        "/api/redis/overview": {
+            "get": {
+                "description": "Version, memory against the ceiling, clients, hit rates and the keyspace,\nparsed from INFO. The platform runs Redis with noeviction, so memory at the\nceiling means writes are refused; oomRejections counts the ones already were.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.Overview"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read the Redis overview",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
+        "/api/redis/users": {
+            "get": {
+                "description": "Every ACL user, the default one included, with the key prefix and preset of\nthose this panel can edit. persistent is false on a Redis with no aclfile,\nwhere users would not survive a restart and creating one is refused.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.UserList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List Redis users",
+                "tags": [
+                    "redis"
+                ]
+            },
+            "post": {
+                "description": "A user confined to one key prefix (keys and pub/sub channels), with a\nreadwrite or readonly preset. The password reaches Redis only as its\nSHA-256. Saved to the aclfile; if the save fails the user is removed again.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/redis.CreateUserRequest",
+                                        "summary": "request",
+                                        "description": "The user to create"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The user to create",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.User"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create a Redis user",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
+        "/api/redis/users/{user}": {
+            "delete": {
+                "description": "Redis closes every connection authenticated as the user immediately, so an\napp still using it loses its connection now. Refused for the default user.",
+                "parameters": [
+                    {
+                        "description": "User name",
+                        "in": "path",
+                        "name": "user",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete a Redis user",
+                "tags": [
+                    "redis"
+                ]
+            },
+            "put": {
+                "description": "The whole state, not a set of changes. An empty password keeps the current\none, and a disabled user stays disabled. Takes effect at once, including on\nconnections already authenticated as the user. Refused for the default user\nand for any user whose rules or password state the panel did not write.",
+                "parameters": [
+                    {
+                        "description": "User name",
+                        "in": "path",
+                        "name": "user",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/redis.UpdateUserRequest",
+                                        "summary": "request",
+                                        "description": "The desired state"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The desired state",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.User"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update a Redis user",
+                "tags": [
+                    "redis"
                 ]
             }
         },
