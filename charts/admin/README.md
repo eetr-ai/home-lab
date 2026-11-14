@@ -180,7 +180,7 @@ with a budget. It is not emitted at one replica on purpose: `minAvailable: 1` ov
 a single replica can never be satisfied, so the drain hangs instead of proceeding.
 
 **`admin-web` runs two, but only because its refresh is coordinated.** It ran one
-for a long time, and the reason is what the `admin.web.redis` block now answers.
+for a long time, and the reason is what the `admin.redis` block now answers.
 Sessions themselves are stateless — the Auth.js cookie is a JWE carrying the
 tokens — so more replicas always served requests fine. The token *refresh* is what
 did not survive: eetr-auth rotates refresh tokens with OAuth 2.1 reuse detection,
@@ -198,7 +198,7 @@ is the superseded one, so it cannot simply retry. See
 [the assistant's sibling docs](../../admin/web/src/lib/auth/shared-refresh.ts) for
 the rules, which are tested against a fake rather than a live Redis.
 
-**Raising `replicas` above one without `admin.web.redis.enabled` is a render
+**Raising `replicas` above one without `admin.redis.enabled` is a render
 failure**, not a setting that quietly reintroduces the race.
 
 Redis needs two things from this namespace, and both are the installer's job: a
@@ -206,6 +206,10 @@ Redis needs two things from this namespace, and both are the installer's job: a
 is namespaced, so `platform-system`'s cannot be read from here), and the
 `home-lab.example/redis-access` label, which is what the platform's NetworkPolicy
 admits on.
+
+`admin.redis` sits at the top level rather than under `web` because the API uses
+it too. The panel's Redis section (overview, keys, ACL users) reads it with the
+same URL and Secret, as `ADMIN_REDIS_URL` and `ADMIN_REDIS_PASSWORD`.
 
 **`admin-agent` runs one, for a different reason** — see [The assistant](#the-assistant).
 
@@ -326,7 +330,7 @@ what eetr-auth issued when the client was registered, and it is shown once.
 operator who can sign in may write, which is right for one person; set it to a
 comma-separated list to hand somebody the panel read-only.
 
-`admin.web.replicas` is 2, which `admin.web.redis` is what makes safe — see
+`admin.web.replicas` is 2, which `admin.redis` is what makes safe — see
 [How many of each, and why they differ](#how-many-of-each-and-why-they-differ).
 Raising it with the coordination switched off is a render failure rather than a
 setting that reintroduces the race.

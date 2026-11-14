@@ -7,6 +7,11 @@
 # script, never written here.
 
 admin:
+  # There is no platform Redis on this cluster. One web replica coordinates its
+  # own token refreshes, and the API's Redis section answers 404.
+  redis:
+    enabled: false
+
   api:
     image:
       repository: home-lab/admin-api
@@ -36,10 +41,6 @@ admin:
       repository: home-lab/admin-web
       pullPolicy: Never
     replicas: 1
-    # One replica coordinates its own token refreshes; there is no platform Redis
-    # on this cluster to share them through.
-    redis:
-      enabled: false
 
   # Both need things this cluster does not have: the agent a model provider key,
   # the console its own image and a Gateway route for its socket.

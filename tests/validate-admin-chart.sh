@@ -1247,23 +1247,40 @@ grep -q 'secretKeyRef' <<<"$web_redis_password"
 # setting that quietly reintroduces the race. Asserted on the message, because a
 # check that only asks whether helm exited non-zero would pass on any unrelated
 # breakage in this chart.
-web_unsafe=$(render --set admin.web.redis.enabled=false 2>&1 >/dev/null) && {
+web_unsafe=$(render --set admin.redis.enabled=false 2>&1 >/dev/null) && {
   printf 'Two web replicas without a shared refresh lock must be refused\n' >&2
   exit 1
 }
-if ! grep -q 'requires admin.web.redis.enabled' <<<"$web_unsafe"; then
+if ! grep -q 'requires admin.redis.enabled' <<<"$web_unsafe"; then
   printf 'The refusal must name the setting that fixes it; got: %s\n' "$web_unsafe" >&2
   exit 1
 fi
 
 # ...and one replica without it is still perfectly legal, which is what makes the
 # guard a statement about coordination rather than about Redis.
-render --set admin.web.redis.enabled=false --set admin.web.replicas=1 >/dev/null
+render --set admin.redis.enabled=false --set admin.web.replicas=1 >/dev/null
+
+# The API reads the same Redis with the same credential: one block in values, two
+# consumers. The password arrives from the Secret, never inline or in the URL.
+grep -q 'name: ADMIN_REDIS_URL' <<<"$api_pod"
+api_redis_password=$(grep -A3 'name: ADMIN_REDIS_PASSWORD' <<<"$api_pod")
+grep -q 'secretKeyRef' <<<"$api_redis_password"
+if grep -q 'value: "redis://[^"]*@' <<<"$api_pod"; then
+  printf 'The Redis URL must not carry a credential\n' >&2
+  exit 1
+fi
+# ...and switched off, neither variable is set, so the API's Redis routes answer
+# 404 instead of failing on every request against a server that is not there.
+if render --set admin.redis.enabled=false --set admin.web.replicas=1 \
+  --show-only templates/api/deployment.yaml | grep -q 'ADMIN_REDIS_'; then
+  printf 'The API must not be pointed at Redis when admin.redis.enabled is false\n' >&2
+  exit 1
+fi
 
 web_pdb=$(render --show-only templates/web/pdb.yaml)
 grep -q 'kind: PodDisruptionBudget' <<<"$web_pdb"
 grep -q 'minAvailable: 1' <<<"$web_pdb"
-if render --set admin.web.replicas=1 --set admin.web.redis.enabled=false \
+if render --set admin.web.replicas=1 --set admin.redis.enabled=false \
   --show-only templates/web/pdb.yaml >/dev/null 2>&1; then
   printf 'No web PodDisruptionBudget may be emitted at one replica\n' >&2
   exit 1
