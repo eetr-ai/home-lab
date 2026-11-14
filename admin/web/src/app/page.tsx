@@ -1,19 +1,20 @@
 import { redirect } from "next/navigation";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { auth } from "@/auth";
 import { startSignIn } from "@/app/actions/session";
 import { PROVIDER_NAME } from "@/lib/auth/oidc-config";
 import { signInErrorMessage } from "@/lib/auth/sign-in-error";
 import { Banner } from "@/components/ui/banner";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SignInButton } from "./sign-in-button";
 
 /**
  * The sign-in page, and the only route reachable without a session.
  *
  * A Server Component with a plain `<form>`: the whole flow is a redirect to
- * eetr-auth and back, so there is nothing for the browser to do and no client
- * session to hydrate. The UI primitives are imported by module rather than
+ * eetr-auth and back, so there is no client session to hydrate. The one client
+ * piece is the submit button, which shows a spinner while the redirect is on its
+ * way. The UI primitives are imported by module rather than
  * through the barrel, which pulls in the hook-using overlays — see
  * src/components/ui/index.ts.
  */
@@ -45,9 +46,7 @@ export default async function SignInPage({
 
 				<form action={startSignIn}>
 					<input type="hidden" name="callbackUrl" value={callbackUrl ?? "/overview"} />
-					<Button type="submit" icon={LogIn} className="w-full justify-center">
-						Sign in with {PROVIDER_NAME}
-					</Button>
+					<SignInButton providerName={PROVIDER_NAME} />
 				</form>
 			</Card>
 		</main>
