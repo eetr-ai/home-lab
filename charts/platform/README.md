@@ -3,11 +3,11 @@
 This umbrella chart installs the services that make the kubeadm cluster useful
 for applications:
 
-- Traefik `v3.7.11` through chart `41.3.0`.
-- cert-manager `v1.21.1` with Cloudflare DNS-01 issuers.
+- Traefik `v3.7.18` through chart `42.4.0`.
+- cert-manager `v1.21.3` with Cloudflare DNS-01 issuers.
 - NFS Subdirectory External Provisioner chart `4.0.18`.
-- cloudflared `2026.8.2` for a remotely managed tunnel.
-- Redis `8.10.1` as a coordination point.
+- cloudflared `2026.11.0` for a remotely managed tunnel.
+- Redis `8.10.3` as a coordination point.
 - An optional whoami `v1.12.0` end-to-end test.
 
 Cilium is not a dependency. It is a cluster bootstrap prerequisite and remains

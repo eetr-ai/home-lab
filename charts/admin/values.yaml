@@ -369,8 +369,8 @@ admin:
         # newer than itself, and mongodump is happiest matched. Bump these with
         # the servers.
         images:
-          postgres: pgvector/pgvector:0.8.6-pg18-bookworm
-          mongo: mongo:7.0.40-jammy
+          postgres: pgvector/pgvector:0.8.7-pg18-bookworm
+          mongo: mongo:7.0.48-jammy
         # How long one run may take before Kubernetes stops it.
         deadline: 2h
         # How long a finished run's pod and log stay readable: a week, so a
