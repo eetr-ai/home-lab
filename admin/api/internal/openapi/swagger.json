@@ -1908,6 +1908,223 @@
                 },
                 "type": "object"
             },
+            "redis.Field": {
+                "properties": {
+                    "name": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "value": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.KeyDetail": {
+                "properties": {
+                    "entries": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.StreamEntry"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Field"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Text"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "key": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "length": {
+                        "description": "Length is the full size: bytes for a string, items for everything else.",
+                        "type": "integer"
+                    },
+                    "members": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.ScoredMember"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "memoryBytes": {
+                        "type": "integer"
+                    },
+                    "string": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "supported": {
+                        "description": "Supported is false for a type the panel shows but cannot read.",
+                        "type": "boolean"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "ttlMillis": {
+                        "type": "integer"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.KeyPage": {
+                "properties": {
+                    "keys": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.KeySummary"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "nextCursor": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.KeySummary": {
+                "properties": {
+                    "key": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "ttlMillis": {
+                        "description": "TTLMillis is the time left before the key expires, or -1 for a key that\nnever does. A key that expired between the scan and this read is dropped\nfrom the page rather than reported with a TTL that means \"gone\".",
+                        "type": "integer"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Keyspace": {
+                "properties": {
+                    "database": {
+                        "type": "integer"
+                    },
+                    "expires": {
+                        "type": "integer"
+                    },
+                    "keys": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Overview": {
+                "properties": {
+                    "blockedClients": {
+                        "type": "integer"
+                    },
+                    "commandsProcessed": {
+                        "type": "integer"
+                    },
+                    "connectedClients": {
+                        "type": "integer"
+                    },
+                    "evictedKeys": {
+                        "type": "integer"
+                    },
+                    "expiredKeys": {
+                        "type": "integer"
+                    },
+                    "keyspace": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Keyspace"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "keyspaceHits": {
+                        "type": "integer"
+                    },
+                    "keyspaceMisses": {
+                        "type": "integer"
+                    },
+                    "maxClients": {
+                        "type": "integer"
+                    },
+                    "maxMemoryBytes": {
+                        "description": "MaxMemoryBytes is zero when the server has no ceiling at all.",
+                        "type": "integer"
+                    },
+                    "maxMemoryPolicy": {
+                        "type": "string"
+                    },
+                    "mode": {
+                        "type": "string"
+                    },
+                    "oomRejections": {
+                        "description": "OOMRejections is the number of commands refused for want of memory since\nthe server started.",
+                        "type": "integer"
+                    },
+                    "peakMemoryBytes": {
+                        "type": "integer"
+                    },
+                    "rejectedConnections": {
+                        "type": "integer"
+                    },
+                    "uptimeSeconds": {
+                        "type": "integer"
+                    },
+                    "usedMemoryBytes": {
+                        "type": "integer"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.ScoredMember": {
+                "properties": {
+                    "member": {
+                        "$ref": "#/components/schemas/redis.Text"
+                    },
+                    "score": {
+                        "type": "number"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.StreamEntry": {
+                "properties": {
+                    "fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/redis.Field"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "redis.Text": {
+                "properties": {
+                    "encoding": {
+                        "description": "Encoding is \"utf8\" or \"base64\".",
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "secretgen.Generated": {
                 "properties": {
                     "length": {
@@ -8566,6 +8783,239 @@
                 "summary": "Update a role",
                 "tags": [
                     "postgres"
+                ]
+            }
+        },
+        "/api/redis/keys": {
+            "get": {
+                "description": "One SCAN step over keys matching a glob pattern. A page may be empty while\nnextCursor is not: SCAN promises completeness, not page size. Pass nextCursor\nback to continue; it is empty when the scan is finished. count is a hint,\ncapped at 1000.",
+                "parameters": [
+                    {
+                        "description": "Glob pattern; empty matches every key",
+                        "in": "query",
+                        "name": "pattern",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The nextCursor from the previous page",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "How many keys to examine; default 100",
+                        "in": "query",
+                        "name": "count",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.KeyPage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Scan keys",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
+        "/api/redis/keys/{key}": {
+            "delete": {
+                "description": "UNLINK, so a large value is freed without stalling the server. There is no\nway to delete more than one key at a time here, on purpose.",
+                "parameters": [
+                    {
+                        "description": "Key name, percent-encoded",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete a key",
+                "tags": [
+                    "redis"
+                ]
+            },
+            "get": {
+                "description": "Type, TTL, memory and the first part of the value: the first 100 items of a\ncollection or the first 64 KiB of a string, with truncated saying whether\nthere was more. Bytes that are not UTF-8 come back base64, with encoding\nsaying so.",
+                "parameters": [
+                    {
+                        "description": "Key name, percent-encoded",
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.KeyDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a key",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
+        "/api/redis/overview": {
+            "get": {
+                "description": "Version, memory against the ceiling, clients, hit rates and the keyspace,\nparsed from INFO. The platform runs Redis with noeviction, so memory at the\nceiling means writes are refused; oomRejections counts the ones already were.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.Overview"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read the Redis overview",
+                "tags": [
+                    "redis"
                 ]
             }
         },

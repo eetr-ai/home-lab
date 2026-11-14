@@ -37,6 +37,7 @@ import (
 	"github.com/eetr-ai/home-lab/admin/api/internal/nspolicy"
 	"github.com/eetr-ai/home-lab/admin/api/internal/openapi"
 	"github.com/eetr-ai/home-lab/admin/api/internal/postgres"
+	"github.com/eetr-ai/home-lab/admin/api/internal/redis"
 	"github.com/eetr-ai/home-lab/admin/api/internal/secretgen"
 )
 
@@ -140,6 +141,12 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeMongo(ctx)
 
+	closeRedis, err := registerRedis(api, logger)
+	if err != nil {
+		return err
+	}
+	defer closeRedis()
+
 	policy := namespacePolicy(logger)
 
 	// Built once and handed to both slices, because it is one answer: the cluster
@@ -217,6 +224,29 @@ func registerMongo(mux *stdhttp.ServeMux, logger *slog.Logger) (func(context.Con
 	mongo.NewHandler(mongo.NewService(repo)).Register(mux)
 	logger.Info("serving the MongoDB endpoints")
 	return repo.Close, nil
+}
+
+// registerRedis wires the slice for the platform's shared Redis when its URL is
+// set.
+//
+// The password is read from its own variable rather than from the URL, because it
+// arrives from its own Secret. Configuring it does not connect, for the same
+// reason as the databases above: an unreachable Redis costs a failed request, not
+// a panel that will not start.
+func registerRedis(mux *stdhttp.ServeMux, logger *slog.Logger) (func(), error) {
+	url := os.Getenv("ADMIN_REDIS_URL")
+	if url == "" {
+		logger.Warn("ADMIN_REDIS_URL is unset; the Redis endpoints are not served")
+		return func() {}, nil
+	}
+
+	repo, err := redis.NewRepository(url, os.Getenv("ADMIN_REDIS_PASSWORD"))
+	if err != nil {
+		return nil, err
+	}
+	redis.NewHandler(redis.NewService(repo)).Register(mux)
+	logger.Info("serving the Redis endpoints")
+	return func() { _ = repo.Close() }, nil
 }
 
 // registerKubernetes wires the cluster slice unless it is switched off.
