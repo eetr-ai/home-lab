@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ActionResult } from "@/lib/api/result";
 import { formatBytes } from "@/lib/format/bytes";
 import { plural } from "./plural";
-import { Stat } from "./stat";
+import { Stat } from "../../_components/stat";
 
 /** Anything the panel lists that reports a size on disk. */
 interface Sized {

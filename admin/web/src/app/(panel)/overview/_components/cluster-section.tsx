@@ -4,8 +4,8 @@ import { formatBytes } from "@/lib/format/bytes";
 import { formatCores } from "@/lib/format/resources";
 import type { ClusterSummary, PodSummary } from "@/lib/api/types";
 import { plural } from "./plural";
-import { Meter } from "./meter";
-import { Stat } from "./stat";
+import { Meter } from "../../_components/meter";
+import { Stat } from "../../_components/stat";
 
 /** Why the running count is short, when it is. */
 function podDetail(pods: PodSummary): string {
