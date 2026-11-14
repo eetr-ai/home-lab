@@ -132,6 +132,14 @@ confirm button. Cancel or success clears it. **While a row is confirming, its
 other actions are hidden** so there is exactly one decision to make. Render it with
 `InlineDeleteConfirm`.
 
+**The confirmation floats over the row; it does not widen it.** The control
+takes one icon button's footprint and hangs its prompt and two buttons to the
+left, anchored where the trash icon was. In flow they are several times wider
+than the icons they replace, so the column grew, the table reflowed, and the
+row being confirmed moved under the pointer. Focus moves to Cancel, and Escape
+cancels. Still inline: in the row, no scrim, no portal. That is what separates
+it from a dialog, which deleting a record never is.
+
 For a full-page destructive action, use the same logic with the confirmation as an
 inline card above the action area — still not a modal.
 
