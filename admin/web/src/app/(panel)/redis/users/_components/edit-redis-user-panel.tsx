@@ -33,7 +33,7 @@ export function EditRedisUserPanel({ user, onClose }: { user: RedisUser | null; 
 			title={user ? `Edit ${user.name}` : "Edit user"}
 			icon={UserRound}
 			submitLabel="Save"
-			description="Connections already open keep the permissions they authenticated with until they reconnect. Leave the password empty to keep the current one."
+			description="Takes effect at once, including on connections the app already has open. Leave the password empty to keep the current one."
 			dirty={dirty}
 			onClose={() => {
 				setScope(initial);

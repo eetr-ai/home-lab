@@ -22,6 +22,12 @@ describe("describeUser", () => {
 		).toBe("Read only on orders:*");
 	});
 
+	it("says a user has no password rather than calling its rules custom", () => {
+		expect(
+			describeUser({ name: "legacy", enabled: true, hasPassword: false, preset: "custom", editable: false }),
+		).toBe("No password, set outside the panel");
+	});
+
 	it("does not dress up a hand-made user as the nearest preset", () => {
 		expect(
 			describeUser({ name: "legacy", enabled: true, hasPassword: true, preset: "custom", editable: false }),

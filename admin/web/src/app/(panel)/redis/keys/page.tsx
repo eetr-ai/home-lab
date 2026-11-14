@@ -1,4 +1,5 @@
 import { scanKeys } from "@/app/actions/redis";
+import { searchKey } from "@/lib/redis/search";
 import { KeyBrowser } from "./_components/key-browser";
 
 export const dynamic = "force-dynamic";
@@ -11,15 +12,16 @@ export const dynamic = "force-dynamic";
  * happens in the browser, because SCAN's cursor only moves forward and the trail
  * back is the client's to keep (lib/query/pagination.ts).
  *
- * Keyed by the pattern so a new search starts the trail over rather than paging
- * a new pattern with an old cursor, which SCAN would accept and answer wrongly.
+ * Keyed by the search (lib/redis/search.ts): a new search, even of the same
+ * pattern, starts the trail over rather than paging with an old cursor, while a
+ * revalidation re-renders the same search and keeps the operator's place.
  */
 export default async function RedisKeysPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ pattern?: string }>;
+	searchParams: Promise<{ pattern?: string; t?: string }>;
 }) {
-	const { pattern = "" } = await searchParams;
+	const { pattern = "", t } = await searchParams;
 	const first = await scanKeys(pattern, "");
-	return <KeyBrowser key={pattern} pattern={pattern} first={first} />;
+	return <KeyBrowser key={searchKey(pattern, t)} pattern={pattern} first={first} />;
 }

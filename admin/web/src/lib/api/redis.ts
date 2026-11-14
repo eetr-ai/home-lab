@@ -10,7 +10,7 @@ import type {
 	RedisUserList,
 	UpdateRedisUser,
 } from "./redis-types";
-import { keySegment } from "@/lib/redis/text";
+import { keyQueryValue } from "@/lib/redis/text";
 
 /**
  * The shared Redis's operations. Mirrors admin/api/internal/redis.
@@ -33,11 +33,11 @@ export function scanKeys(pattern: string, cursor: string): Promise<ActionResult<
 }
 
 export function readKey(key: RedisText): Promise<ActionResult<RedisKeyDetail>> {
-	return call<RedisKeyDetail>("GET", `/api/redis/keys/${keySegment(key)}`);
+	return call<RedisKeyDetail>("GET", `/api/redis/key?key=${keyQueryValue(key)}`);
 }
 
 export function deleteKey(key: RedisText): Promise<ActionResult<void>> {
-	return call<void>("DELETE", `/api/redis/keys/${keySegment(key)}`);
+	return call<void>("DELETE", `/api/redis/key?key=${keyQueryValue(key)}`);
 }
 
 export function listUsers(): Promise<ActionResult<RedisUserList>> {

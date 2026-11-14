@@ -4,12 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { Button, Input } from "@/components/ui";
+import { searchHref } from "@/lib/redis/search";
 
 /**
- * The glob a scan matches keys against, written into the query string.
- *
- * An empty pattern removes the parameter rather than setting it empty, so the
- * unfiltered view has one address, not two.
+ * The glob a scan matches keys against, written into the query string with a
+ * fresh `t` on every submit, so searching again really searches again (see
+ * lib/redis/search.ts). An empty pattern leaves the parameter out.
  */
 export function PatternForm({ pattern }: { pattern: string }) {
 	const router = useRouter();
@@ -21,8 +21,7 @@ export function PatternForm({ pattern }: { pattern: string }) {
 			className="mb-4 flex items-center gap-2"
 			onSubmit={(event) => {
 				event.preventDefault();
-				const trimmed = draft.trim();
-				startTransition(() => router.push(trimmed ? `?pattern=${encodeURIComponent(trimmed)}` : "?"));
+				startTransition(() => router.push(searchHref(draft, Date.now())));
 			}}
 		>
 			<Input

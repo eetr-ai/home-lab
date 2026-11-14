@@ -61,7 +61,8 @@ export interface RedisField {
 
 export interface RedisScoredMember {
 	member: RedisText;
-	score: number;
+	/** As Redis writes it: "inf", "-inf", or a number, since a score can be infinite. */
+	score: string;
 }
 
 export interface RedisStreamEntry {

@@ -1,22 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { displayText, formatTtl, keyId, keySegment } from "./text";
+import { displayText, formatTtl, keyId, keyQueryValue } from "./text";
 
-describe("keySegment", () => {
-	it("percent-encodes a text key, slashes and colons included", () => {
-		// A slash left raw would split the path into two segments and open a
-		// different key, or none.
-		expect(keySegment({ value: "lock:a/b c", encoding: "utf8" })).toBe("lock%3Aa%2Fb%20c");
+describe("keyQueryValue", () => {
+	it("percent-encodes a text key, the characters a query treats specially included", () => {
+		// An & or = left raw would end the value early or start a second parameter.
+		expect(keyQueryValue({ value: "lock:a/b c&d=e", encoding: "utf8" })).toBe("lock%3Aa%2Fb%20c%26d%3De");
+	});
+
+	it("leaves dot keys intact, which a path segment could not", () => {
+		expect(keyQueryValue({ value: "..", encoding: "utf8" })).toBe("..");
 	});
 
 	it("encodes UTF-8 text as its bytes", () => {
-		expect(keySegment({ value: "ñ", encoding: "utf8" })).toBe("%C3%B1");
+		expect(keyQueryValue({ value: "ñ", encoding: "utf8" })).toBe("%C3%B1");
 	});
 
 	it("turns a base64 key back into its raw bytes, one escape per byte", () => {
 		// 0xFF 0xFE is not valid UTF-8, which is why the API sent it base64. Run
 		// through encodeURIComponent as a string it would come out as %C3%BF%C3%BE
 		// — four bytes, a different key.
-		expect(keySegment({ value: "//4=", encoding: "base64" })).toBe("%FF%FE");
+		expect(keyQueryValue({ value: "//4=", encoding: "base64" })).toBe("%FF%FE");
 	});
 });
 

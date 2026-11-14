@@ -119,7 +119,7 @@ function Actions({
 	if (rowDelete.confirmingId === user.name) {
 		return (
 			<InlineDeleteConfirm
-				label="Delete user?"
+				label="Delete, and drop its connections?"
 				busy={rowDelete.isDeleting(user.name)}
 				onConfirm={() => rowDelete.confirm(user.name, () => deleteUser(user.name))}
 				onCancel={rowDelete.cancel}

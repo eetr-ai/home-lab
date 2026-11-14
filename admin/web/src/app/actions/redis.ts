@@ -33,10 +33,15 @@ export async function readKey(key: RedisText): Promise<ActionResult<RedisKeyDeta
 	return withRead(() => redis.readKey(key));
 }
 
-/** No revalidation: the key browser is a client-side scan, and it drops the row
- *  itself. Refreshing the section would only re-read the overview's counts. */
+/** Revalidates the section like every other mutation, so the overview's counts
+ *  are not stale. The key browser keeps its place through it: it is keyed by the
+ *  search, which a revalidation does not change (lib/redis/search.ts). */
 export async function deleteKey(key: RedisText): Promise<ActionResult<void>> {
-	return withWrite(() => redis.deleteKey(key));
+	return withWrite(async () => {
+		const result = await redis.deleteKey(key);
+		if (result.ok) revalidatePath(SECTION, "layout");
+		return result;
+	});
 }
 
 export async function listUsers(): Promise<ActionResult<RedisUserList>> {

@@ -9,12 +9,12 @@ export const PRESETS: { value: RedisPreset; label: string; hint: string }[] = [
 	{
 		value: "readwrite",
 		label: "Read and write",
-		hint: "Every command except the dangerous ones (FLUSHALL, KEYS, CONFIG…), on its own keys only.",
+		hint: "Every command except the dangerous ones (FLUSHALL, KEYS, CONFIG…), on its own keys only. No SCAN: it would list other apps' key names.",
 	},
 	{
 		value: "readonly",
 		label: "Read only",
-		hint: "Reads on its own keys, and nothing that changes them.",
+		hint: "Reads on its own keys, and nothing that changes them. No SCAN, for the same reason.",
 	},
 ];
 
@@ -36,6 +36,10 @@ export function effectivePrefix(name: string, prefix: string): string {
 /** How a user's permissions read in the list. */
 export function describeUser(user: RedisUser): string {
 	if (user.name === "default") return "Everything — the platform's own credential";
+	// Checked before the rules: a user with no password is not editable here
+	// whatever its rules, and "custom rules" would send someone looking for the
+	// wrong thing.
+	if (!user.hasPassword) return "No password, set outside the panel";
 	if (!user.editable) return "Custom rules, set outside the panel";
 	const preset = PRESETS.find((one) => one.value === user.preset);
 	return `${preset?.label ?? user.preset} on ${user.prefix}*`;

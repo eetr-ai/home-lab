@@ -10,15 +10,18 @@ import type { RedisText } from "@/lib/api/redis-types";
  */
 
 /**
- * A key as one URL path segment.
+ * A key as the value of the API's `key` query parameter.
  *
  * Text goes through encodeURIComponent, which percent-encodes its UTF-8. Base64
  * is decoded to the raw bytes and every byte percent-encoded, which is the one
- * form the API's router decodes back to exactly those bytes — encodeURIComponent
- * on a string holding them would encode each as UTF-8 first and send different
- * bytes.
+ * form Go's query parsing decodes back to exactly those bytes —
+ * encodeURIComponent on a string holding them would encode each as UTF-8 first
+ * and send different bytes.
+ *
+ * A query value rather than a path segment because URL handling collapses `.`
+ * and `..` segments before the API's router sees them.
  */
-export function keySegment(key: RedisText): string {
+export function keyQueryValue(key: RedisText): string {
 	if (key.encoding === "utf8") return encodeURIComponent(key.value);
 
 	let ret = "";

@@ -69,7 +69,7 @@ keeps no keys across a restart. Its ACL users do survive one.
 | --- | --- |
 | `/api/redis/overview` | Version, memory against the ceiling, clients, hit rate, keyspace. `oomRejections` above zero means writes have been refused for memory since it started. |
 | `/api/redis/keys?pattern=&cursor=` | One SCAN page of keys with type and TTL (`-1` = never expires). A page can be empty while `nextCursor` is not. Pass `nextCursor` back; empty means done. |
-| `/api/redis/keys/{key}` | One key, percent-encoded: type, TTL, memory, and the first 100 items or 64 KiB of the value. |
+| `/api/redis/key?key=` | One key, its name percent-encoded as a query value: type, TTL, memory, and the first part of the value (at most 100 items, fewer when they are large; 64 KiB of a string; 4 KiB of any one value). `truncated` says there was more. Sorted-set scores are strings, since one can be `inf`. |
 | `/api/redis/users` | The ACL users, with each one's key prefix and preset, and `persistent` (false means no aclfile: users would not survive a restart, and creating one is refused). |
 
 404 on all of these means Redis is not configured for the panel here.
@@ -104,8 +104,10 @@ identifier for a destructive call.
 | `PUT /api/kubernetes/namespaces/{ns}/secrets/{name}` | Write a Secret. Refused if one of that name is there, unless you send `overwrite`. |
 | `POST /api/kubernetes/namespaces/{ns}/secrets/{name}/rotate` | Replace the values of keys it already has. |
 | `DELETE /api/kubernetes/namespaces/{ns}/secrets/{name}` | Remove one. |
-| `DELETE /api/redis/keys/{key}` | Remove one Redis key. There is no flush, and no way to remove more than one at a time: the panel's sign-in locks live there. A key with no TTL that looks like a lock is the usual reason. |
-| `POST /api/redis/users`, `PUT` / `DELETE /api/redis/users/{user}` | Create, edit or remove an app's Redis user. Body `{"name", "password", "prefix", "preset"}`; `preset` is `readwrite` or `readonly`, and the user can reach only keys and channels starting with `prefix`. `default` is refused. |
+| `DELETE /api/redis/key?key=` | Remove one Redis key. There is no flush, and no way to remove more than one at a time: the panel's sign-in locks live there. A key with no TTL that looks like a lock is the usual reason. |
+| `POST /api/redis/users` | Create an app's Redis user. Body `{"name", "password", "prefix", "preset"}`; `preset` is `readwrite` or `readonly`, and the user can reach only keys and channels starting with `prefix` (and cannot SCAN, which would list other apps' key names). |
+| `PUT /api/redis/users/{user}` | Edit one. Body `{"prefix", "preset"}` and optionally `"password"` — not `name`, which is the path, and an unknown field is a 400. Takes effect at once, on open connections too. A disabled user stays disabled. Refused (403) for `default` and for users the panel did not write. |
+| `DELETE /api/redis/users/{user}` | Remove one. Redis drops every connection authenticated as it immediately, so say so before you do it. `default` is refused. |
 | `PUT` / `DELETE /api/kubernetes/namespaces/{ns}/redis-access` | Let a namespace's pods connect to Redis, or stop them. That is the network half only; they still need a user. |
 
 Every one of these also has a screen in the panel. When there is no hurry, that is
