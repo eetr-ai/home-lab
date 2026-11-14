@@ -168,7 +168,7 @@ touch the real one.
    ```bash
    # PostgreSQL: the roles, then the database (custom format)
    docker run --rm -d --name restore-check -e POSTGRES_PASSWORD=check \
-     pgvector/pgvector:0.8.6-pg18-bookworm
+     pgvector/pgvector:0.8.7-pg18-bookworm
    until docker exec restore-check pg_isready -h 127.0.0.1 -U postgres >/dev/null; do sleep 1; done
    gunzip -c nightly-postgres-@globals-*.sql.gz |
      docker exec -i restore-check psql -U postgres
@@ -177,7 +177,7 @@ touch the real one.
      < nightly-postgres-app-*.dump
 
    # MongoDB: one database per archive
-   docker run --rm -d --name restore-check-mongo mongo:7.0.40-jammy
+   docker run --rm -d --name restore-check-mongo mongo:7.0.48-jammy
    until docker exec restore-check-mongo mongosh --quiet --eval 'db.adminCommand("ping").ok' \
      >/dev/null 2>&1; do sleep 1; done
    docker exec -i restore-check-mongo mongorestore --archive --gzip \

@@ -7,7 +7,7 @@ services:
     # ABI) and only stands the guard down at kernel 7.0.14+. Ubuntu 26.04
     # reports 7.0.0-NN regardless of backports, so no 8.x image starts on this
     # host. Revisit when an 8.x release handles distribution kernel versions.
-    image: mongo:7.0.40-jammy
+    image: mongo:7.0.48-jammy
     restart: unless-stopped
     stop_grace_period: 1m
     command:
