@@ -148,7 +148,7 @@ grep -q -- '--maxmemory-policy noeviction' <<<"$redis_deploy"
 # ACL users survive a restart, and nothing else does. The users live in an aclfile
 # on a claim; /data stays an emptyDir, so "a restart is an empty cache" is still
 # true of every key.
-grep -q -- '--aclfile "$acl"' <<<"$redis_deploy"
+grep -q -- '--aclfile "[$]acl"' <<<"$redis_deploy"
 grep -q 'acl=/acl/users.acl' <<<"$redis_deploy"
 grep -A1 'name: acl$' <<<"$redis_deploy" | grep -q 'persistentVolumeClaim:'
 grep -A1 'name: data$' <<<"$redis_deploy" | grep -q 'emptyDir: {}'

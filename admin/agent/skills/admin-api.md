@@ -59,6 +59,21 @@ as "disk used".
 Either section answers 404 for every route when it is not configured on this
 installation. That means "not set up here", not "no databases".
 
+## Redis
+
+The platform's shared Redis. It holds the panel's own token-refresh locks, runs
+with `noeviction` (a full Redis refuses writes rather than dropping keys), and
+keeps no keys across a restart. Its ACL users do survive one.
+
+| Path | What it answers |
+| --- | --- |
+| `/api/redis/overview` | Version, memory against the ceiling, clients, hit rate, keyspace. `oomRejections` above zero means writes have been refused for memory since it started. |
+| `/api/redis/keys?pattern=&cursor=` | One SCAN page of keys with type and TTL (`-1` = never expires). A page can be empty while `nextCursor` is not. Pass `nextCursor` back; empty means done. |
+| `/api/redis/keys/{key}` | One key, percent-encoded: type, TTL, memory, and the first 100 items or 64 KiB of the value. |
+| `/api/redis/users` | The ACL users, with each one's key prefix and preset, and `persistent` (false means no aclfile: users would not survive a restart, and creating one is refused). |
+
+404 on all of these means Redis is not configured for the panel here.
+
 ## What you cannot call, and what to say instead
 
 ## The two consoles
@@ -89,6 +104,9 @@ identifier for a destructive call.
 | `PUT /api/kubernetes/namespaces/{ns}/secrets/{name}` | Write a Secret. Refused if one of that name is there, unless you send `overwrite`. |
 | `POST /api/kubernetes/namespaces/{ns}/secrets/{name}/rotate` | Replace the values of keys it already has. |
 | `DELETE /api/kubernetes/namespaces/{ns}/secrets/{name}` | Remove one. |
+| `DELETE /api/redis/keys/{key}` | Remove one Redis key. There is no flush, and no way to remove more than one at a time: the panel's sign-in locks live there. A key with no TTL that looks like a lock is the usual reason. |
+| `POST /api/redis/users`, `PUT` / `DELETE /api/redis/users/{user}` | Create, edit or remove an app's Redis user. Body `{"name", "password", "prefix", "preset"}`; `preset` is `readwrite` or `readonly`, and the user can reach only keys and channels starting with `prefix`. `default` is refused. |
+| `PUT` / `DELETE /api/kubernetes/namespaces/{ns}/redis-access` | Let a namespace's pods connect to Redis, or stop them. That is the network half only; they still need a user. |
 
 Every one of these also has a screen in the panel. When there is no hurry, that is
 the better answer: name the page, offer to take them there with `navigate_to`, and
