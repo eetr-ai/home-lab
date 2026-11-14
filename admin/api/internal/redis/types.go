@@ -100,6 +100,54 @@ type StreamEntry struct {
 	Fields []Field `json:"fields"`
 }
 
+// User is one ACL user on the server.
+//
+// Passwords never come back, not even as hashes: HasPassword says whether there
+// is one, which is all an operator deciding what to do next needs.
+type User struct {
+	Name        string `json:"name"`
+	Enabled     bool   `json:"enabled"`
+	HasPassword bool   `json:"hasPassword"`
+	// Prefix is the key prefix the user is confined to, keys and channels both.
+	// Empty for a user that is not confined to one this panel recognizes.
+	Prefix string `json:"prefix,omitempty"`
+	// Preset is "readwrite" or "readonly" for a user this panel wrote, and
+	// "custom" for any other — the default user, or one made by hand.
+	Preset string `json:"preset"`
+	// Editable is true only for a user whose rules are exactly a prefix and a
+	// preset, which is everything the edit form can express. Saving the form over
+	// anything else would silently throw rules away.
+	Editable bool `json:"editable"`
+}
+
+// UserList is every user, plus whether the server will still have them after a
+// restart.
+type UserList struct {
+	// Persistent is false on a Redis started without an aclfile. Users there
+	// last only until the next restart, so the panel refuses to create them.
+	Persistent bool   `json:"persistent"`
+	Users      []User `json:"users"`
+}
+
+// CreateUserRequest asks for a new app user.
+type CreateUserRequest struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+	// Prefix confines the user to keys and channels starting with it. Required:
+	// a user that can reach every key is the default user with a second name.
+	Prefix string `json:"prefix"`
+	// Preset is "readwrite" or "readonly".
+	Preset string `json:"preset"`
+}
+
+// UpdateUserRequest is the desired state of a user.
+type UpdateUserRequest struct {
+	Prefix string `json:"prefix"`
+	Preset string `json:"preset"`
+	// Password, when set, replaces the existing one. Empty keeps it.
+	Password string `json:"password,omitempty"`
+}
+
 // KeyDetail is one key opened up.
 //
 // The value is BOUNDED. A list can hold millions of items and a string half a

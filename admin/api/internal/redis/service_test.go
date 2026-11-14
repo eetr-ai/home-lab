@@ -12,6 +12,8 @@ import (
 // records what it was asked, so a test can check the service sent the bounds it
 // was supposed to rather than only what came back.
 type fakeRepo struct {
+	fakeACL
+
 	scanKeys []string
 	scanNext uint64
 	metas    map[string]KeyMeta

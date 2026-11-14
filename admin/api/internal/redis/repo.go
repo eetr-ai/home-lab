@@ -254,6 +254,55 @@ func (r *Repository) readStream(ctx context.Context, key string, items int, ret 
 	return nil
 }
 
+// ACLFile reads the aclfile setting the server started with.
+func (r *Repository) ACLFile(ctx context.Context) (string, error) {
+	values, err := r.client.ConfigGet(ctx, "aclfile").Result()
+	if err != nil {
+		return "", fmt.Errorf("read the aclfile setting: %w", err)
+	}
+	return values["aclfile"], nil
+}
+
+// ACLList answers ACL LIST.
+func (r *Repository) ACLList(ctx context.Context) ([]string, error) {
+	lines, err := r.client.Do(ctx, "ACL", "LIST").StringSlice()
+	if err != nil {
+		return nil, fmt.Errorf("list ACL users: %w", err)
+	}
+	return lines, nil
+}
+
+// ACLSetUser runs ACL SETUSER with the rules as given.
+func (r *Repository) ACLSetUser(ctx context.Context, name string, rules []string) error {
+	command := []any{"ACL", "SETUSER", name}
+	args := make([]any, 0, len(command)+len(rules))
+	args = append(args, command...)
+	for _, rule := range rules {
+		args = append(args, rule)
+	}
+	if err := r.client.Do(ctx, args...).Err(); err != nil {
+		return fmt.Errorf("set ACL user %q: %w", name, err)
+	}
+	return nil
+}
+
+// ACLDelUser removes a user and reports how many it removed.
+func (r *Repository) ACLDelUser(ctx context.Context, name string) (int64, error) {
+	removed, err := r.client.Do(ctx, "ACL", "DELUSER", name).Int64()
+	if err != nil {
+		return 0, fmt.Errorf("delete ACL user %q: %w", name, err)
+	}
+	return removed, nil
+}
+
+// ACLSave writes the users to the aclfile.
+func (r *Repository) ACLSave(ctx context.Context) error {
+	if err := r.client.Do(ctx, "ACL", "SAVE").Err(); err != nil {
+		return fmt.Errorf("save the aclfile: %w", err)
+	}
+	return nil
+}
+
 // Unlink removes a key without blocking on freeing its memory.
 func (r *Repository) Unlink(ctx context.Context, key string) (int64, error) {
 	removed, err := r.client.Unlink(ctx, key).Result()

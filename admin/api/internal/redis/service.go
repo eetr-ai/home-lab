@@ -80,6 +80,8 @@ type repository interface {
 	ReadKey(ctx context.Context, key string, items int, bytes int64) (RawKey, error)
 	// Unlink removes a key and reports how many it removed.
 	Unlink(ctx context.Context, key string) (int64, error)
+
+	userRepository
 }
 
 // Service reads and tends the platform's shared Redis.
