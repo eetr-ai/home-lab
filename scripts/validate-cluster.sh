@@ -10,7 +10,7 @@ for command_name in cilium grep kubectl mktemp openssl; do
   fi
 done
 
-expected_version='v1.36.4'
+expected_version='v1.36.6'
 expected_nodes=3
 
 node_count=$(kubectl get nodes -o name | wc -l | tr -d ' ')

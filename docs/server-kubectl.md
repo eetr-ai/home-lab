@@ -23,7 +23,7 @@ printf '%s\n' \
   | sudo tee /etc/apt/sources.list.d/kubernetes.sources >/dev/null
 
 sudo apt update
-sudo apt install -y kubectl=1.36.4-1.1
+sudo apt install -y kubectl=1.36.6-1.1
 sudo apt-mark hold kubectl
 install -d -m 0700 "$HOME/.kube"
 ```

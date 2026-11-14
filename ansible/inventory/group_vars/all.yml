@@ -1,6 +1,6 @@
 ---
-kubernetes_version: v1.36.4
-kubernetes_package_version: 1.36.4-1.1
+kubernetes_version: v1.36.6
+kubernetes_package_version: 1.36.6-1.1
 kubernetes_package_repository_minor: v1.36
 
 pod_network_cidr: 10.244.0.0/16
