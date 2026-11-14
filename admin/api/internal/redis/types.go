@@ -90,8 +90,10 @@ type Field struct {
 
 // ScoredMember is one member of a sorted set.
 type ScoredMember struct {
-	Member Text    `json:"member"`
-	Score  float64 `json:"score"`
+	Member Text `json:"member"`
+	// Score is written as Redis writes it — "inf", "-inf", or a number — because
+	// a score can be infinite and JSON has no way to say so as a number.
+	Score string `json:"score"`
 }
 
 // StreamEntry is one entry of a stream.

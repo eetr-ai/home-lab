@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // minPasswordLength is the shortest password this panel will set. The same bar
@@ -26,6 +27,15 @@ const defaultUser = "default"
 // no channels, no commands, disabled.
 const ruleReset = "reset"
 
+// The lock every ACL change holds. The key shows up in the key browser while a
+// change is in flight, which is honest: it is a real key, and its name says
+// whose it is. The TTL is far longer than a change takes and short enough that
+// a replica that died holding it frees the users page within seconds.
+const (
+	aclLockKey = "home-lab-admin:acl-lock"
+	aclLockTTL = 10 * time.Second
+)
+
 // The permission presets a user can have, and what each means to Redis.
 //
 // Every user is confined to its own key prefix and the matching pub/sub
@@ -42,9 +52,17 @@ const ruleReset = "reset"
 // CLIENT SETNAME), again minus @dangerous, which is what removes CLIENT KILL from
 // @connection. ORDER MATTERS in ACL rules — a later rule overrides an earlier one
 // — so the subtraction comes last.
+//
+// Both end by denying SCAN and RANDOMKEY. Neither takes a key argument, so the
+// key-pattern check never runs on them and they answer with every key name in
+// the database, whatever the user's prefix — checked against Redis 8.10: a user
+// confined to probe:* got other:secret-name back from both. Values stay
+// protected either way, but the names of another app's keys are not this app's
+// business. The cost is that an app cannot SCAN its own prefix either; it can
+// keep its own index of what it wrote, which is the usual answer.
 var presets = map[string][]string{
-	presetReadWrite: {"+@all", "-@dangerous", "+info"},
-	presetReadOnly:  {"+@read", "+@connection", "-@dangerous"},
+	presetReadWrite: {"+@all", "-@dangerous", "+info", "-scan", "-randomkey"},
+	presetReadOnly:  {"+@read", "+@connection", "-@dangerous", "-scan", "-randomkey"},
 }
 
 // The presets' names. presetCustom is never accepted, only reported: it is what a
@@ -77,6 +95,9 @@ type userRepository interface {
 	// ACLDelUser reports how many users it removed.
 	ACLDelUser(ctx context.Context, name string) (int64, error)
 	ACLSave(ctx context.Context) error
+	// Lock takes a lock key, waiting briefly if it is held, and returns what
+	// releases it. It answers ErrBusy when the wait runs out.
+	Lock(ctx context.Context, key string, ttl time.Duration) (func(context.Context), error)
 }
 
 // ListUsers returns every user on the server, the default one included, and
@@ -108,7 +129,7 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (User, 
 	if len(req.Password) < minPasswordLength {
 		return User{}, fmt.Errorf("%w: a password must be at least %d characters", ErrWeakPassword, minPasswordLength)
 	}
-	rules, err := buildRules(req.Prefix, req.Preset, []string{passwordRule(req.Password)})
+	rules, err := buildRules(req.Prefix, req.Preset, []string{passwordRule(req.Password)}, true)
 	if err != nil {
 		return User{}, err
 	}
@@ -116,21 +137,27 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (User, 
 		return User{}, err
 	}
 
-	if _, found, err := s.findUser(ctx, req.Name); err != nil {
-		return User{}, err
-	} else if found {
-		return User{}, fmt.Errorf("%w: there is already a user %q", ErrAlreadyExists, req.Name)
-	}
+	err = s.exclusively(ctx, func() error {
+		if _, found, err := s.findUser(ctx, req.Name); err != nil {
+			return err
+		} else if found {
+			return fmt.Errorf("%w: there is already a user %q", ErrAlreadyExists, req.Name)
+		}
 
-	// Undoing a creation is deleting it, which needs no memory of what was there.
-	undo := func(ctx context.Context) error {
-		_, err := s.repo.ACLDelUser(ctx, req.Name)
-		return err
-	}
-	if err := s.apply(ctx, func() error { return s.repo.ACLSetUser(ctx, req.Name, rules) }, undo); err != nil {
+		// Undoing a creation is deleting it, which needs no memory of what was there.
+		undo := func(ctx context.Context) error {
+			_, err := s.repo.ACLDelUser(ctx, req.Name)
+			return err
+		}
+		return s.apply(ctx, func() error { return s.repo.ACLSetUser(ctx, req.Name, rules) }, undo)
+	})
+	if err != nil {
 		return User{}, err
 	}
-	return User{Name: req.Name, Enabled: true, Prefix: req.Prefix, Preset: req.Preset, Editable: true}, nil
+	return User{
+		Name: req.Name, Enabled: true, HasPassword: true,
+		Prefix: req.Prefix, Preset: req.Preset, Editable: true,
+	}, nil
 }
 
 // UpdateUser replaces a user's prefix and preset and, optionally, its password.
@@ -138,6 +165,15 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (User, 
 // An empty password keeps the current one. Redis cannot hand a password back —
 // only its hash — so the hash is what is carried over, which is exactly what an
 // edit that does not touch the password should do.
+//
+// The user's on/off state is carried over too: an edit to a disabled user's
+// prefix must not quietly switch its credential back on. And a user the form
+// cannot represent — one whose rules this panel did not write, or one with no
+// password at all — is refused rather than flattened into a preset, which
+// would throw away rules or, for a `nopass` user, leave it unable to log in.
+//
+// The change applies to connections already authenticated as the user, at
+// their next command. Redis checks permissions against the user as it is now.
 func (s *Service) UpdateUser(ctx context.Context, name string, req UpdateUserRequest) (User, error) {
 	if err := validateUserName(name); err != nil {
 		return User{}, err
@@ -149,32 +185,48 @@ func (s *Service) UpdateUser(ctx context.Context, name string, req UpdateUserReq
 		return User{}, err
 	}
 
-	line, found, err := s.findUser(ctx, name)
-	if err != nil {
-		return User{}, err
-	}
-	if !found {
-		return User{}, fmt.Errorf("%w: there is no user %q", ErrNotFound, name)
-	}
+	var ret User
+	err := s.exclusively(ctx, func() error {
+		line, found, err := s.findUser(ctx, name)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("%w: there is no user %q", ErrNotFound, name)
+		}
+		current, _ := parseACLLine(line)
+		if !current.Editable {
+			return fmt.Errorf("%w: %q has rules or a password state this panel does not write; "+
+				"change it with ACL SETUSER instead", ErrProtected, name)
+		}
 
-	passwords := []string{passwordRule(req.Password)}
-	if req.Password == "" {
-		passwords = passwordHashes(line)
-	}
-	rules, err := buildRules(req.Prefix, req.Preset, passwords)
-	if err != nil {
-		return User{}, err
-	}
+		passwords := []string{passwordRule(req.Password)}
+		if req.Password == "" {
+			passwords = passwordHashes(line)
+		}
+		rules, err := buildRules(req.Prefix, req.Preset, passwords, current.Enabled)
+		if err != nil {
+			return err
+		}
 
-	undo := func(ctx context.Context) error { return s.repo.ACLSetUser(ctx, name, restoreRules(line)) }
-	if err := s.apply(ctx, func() error { return s.repo.ACLSetUser(ctx, name, rules) }, undo); err != nil {
-		return User{}, err
-	}
-	return User{Name: name, Enabled: true, Prefix: req.Prefix, Preset: req.Preset, Editable: true}, nil
+		undo := func(ctx context.Context) error { return s.repo.ACLSetUser(ctx, name, restoreRules(line)) }
+		if err := s.apply(ctx, func() error { return s.repo.ACLSetUser(ctx, name, rules) }, undo); err != nil {
+			return err
+		}
+		ret = User{
+			Name: name, Enabled: current.Enabled, HasPassword: true,
+			Prefix: req.Prefix, Preset: req.Preset, Editable: true,
+		}
+		return nil
+	})
+	return ret, err
 }
 
-// DeleteUser removes a user. Connections already authenticated as it stay open
-// until they close; Redis does not cut them.
+// DeleteUser removes a user.
+//
+// Redis closes every connection authenticated as it on the spot, so an app
+// still using the credential loses its connection now, not at its next
+// reconnect. Checked against Redis 8.10.
 func (s *Service) DeleteUser(ctx context.Context, name string) error {
 	if err := validateUserName(name); err != nil {
 		return err
@@ -183,20 +235,44 @@ func (s *Service) DeleteUser(ctx context.Context, name string) error {
 		return err
 	}
 
-	line, found, err := s.findUser(ctx, name)
+	return s.exclusively(ctx, func() error {
+		line, found, err := s.findUser(ctx, name)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("%w: there is no user %q", ErrNotFound, name)
+		}
+
+		undo := func(ctx context.Context) error { return s.repo.ACLSetUser(ctx, name, restoreRules(line)) }
+		remove := func() error {
+			_, err := s.repo.ACLDelUser(ctx, name)
+			return err
+		}
+		return s.apply(ctx, remove, undo)
+	})
+}
+
+// exclusively runs one ACL change — the lookup, the change, the save, and any
+// undo — while holding a lock in Redis itself.
+//
+// Two reasons it cannot run unguarded. Two creates of the same name could both
+// pass the lookup and then overwrite each other, both answering success with
+// only the last password working. And ACL SAVE writes the WHOLE table, so one
+// request's save could persist another request's change in the window before
+// that one is undone. The lock lives in Redis rather than in this process
+// because the API runs more than one replica, and this Redis is the one thing
+// they share.
+//
+// It is held for one change, and expires on its own if this process dies
+// holding it, so a crashed replica cannot wedge the users page.
+func (s *Service) exclusively(ctx context.Context, fn func() error) error {
+	release, err := s.repo.Lock(ctx, aclLockKey, aclLockTTL)
 	if err != nil {
 		return err
 	}
-	if !found {
-		return fmt.Errorf("%w: there is no user %q", ErrNotFound, name)
-	}
-
-	undo := func(ctx context.Context) error { return s.repo.ACLSetUser(ctx, name, restoreRules(line)) }
-	remove := func() error {
-		_, err := s.repo.ACLDelUser(ctx, name)
-		return err
-	}
-	return s.apply(ctx, remove, undo)
+	defer release(context.WithoutCancel(ctx))
+	return fn()
 }
 
 // apply makes a change and writes it to the aclfile, undoing the change when the
@@ -274,7 +350,7 @@ func validateUserName(name string) error {
 // It starts with `reset`, so the result is the whole user rather than a change
 // to whatever it was: nothing a previous edit granted can survive an edit that
 // did not mean to keep it.
-func buildRules(prefix, preset string, passwords []string) ([]string, error) {
+func buildRules(prefix, preset string, passwords []string, enabled bool) ([]string, error) {
 	if !prefixPattern.MatchString(prefix) {
 		return nil, fmt.Errorf("%w: %q is not a key prefix this panel will grant: letters, digits and . _ : / -, "+
 			"and no glob characters", ErrInvalidRequest, prefix)
@@ -285,8 +361,12 @@ func buildRules(prefix, preset string, passwords []string) ([]string, error) {
 			presetReadWrite, presetReadOnly)
 	}
 
+	state := "off"
+	if enabled {
+		state = "on"
+	}
 	return slices.Concat(
-		[]string{ruleReset, "on"},
+		[]string{ruleReset, state},
 		passwords,
 		[]string{"~" + prefix + "*", "&" + prefix + "*"},
 		commands,
@@ -346,7 +426,10 @@ func parseACLLine(line string) (User, bool) {
 	rules := sortRules(fields[2:])
 	ret := User{Name: fields[1], Preset: presetCustom, Enabled: rules.enabled, HasPassword: rules.hasPassword}
 
-	if ret.Name == defaultUser || strings.Contains(line, "(") {
+	// No password means `nopass` or no way in at all, and the form can express
+	// neither: saving it would set a password or drop `nopass`, changing how the
+	// app authenticates. A selector is rules the form has no field for.
+	if ret.Name == defaultUser || !ret.HasPassword || strings.Contains(line, "(") {
 		return ret, true
 	}
 	prefix, ok := confinedPrefix(rules.keys, rules.channels)
@@ -405,17 +488,17 @@ func confinedPrefix(keys, channels []string) (string, bool) {
 	return prefix, true
 }
 
-// sameRules compares command rules as a set, minus the `-@all` that `reset`
-// implies and ACL LIST may or may not spell out.
+// sameRules compares command rules IN ORDER, after dropping a leading `-@all` —
+// the one `reset` implies, which ACL LIST prints and buildRules does not write.
 //
-// Order does matter to Redis, but these lists are only ever written by
-// buildRules, in one order; comparing as sets is about tolerating how a version
-// prints them, not about accepting a different meaning.
+// In order because order is meaning: a later rule overrides an earlier one, so
+// `-@dangerous +@connection +@read` grants CLIENT KILL back, while
+// `+@read +@connection -@dangerous` does not. Redis 8.10 prints rules in the
+// order they were set, so a user this panel wrote reads back exactly, and one
+// whose rules merely contain the same tokens reads as custom — which it is.
 func sameRules(got, want []string) bool {
-	normalize := func(rules []string) []string {
-		ret := slices.DeleteFunc(slices.Clone(rules), func(rule string) bool { return rule == "-@all" })
-		slices.Sort(ret)
-		return slices.Compact(ret)
+	if len(got) > 0 && got[0] == "-@all" {
+		got = got[1:]
 	}
-	return slices.Equal(normalize(got), normalize(want))
+	return slices.Equal(got, want)
 }

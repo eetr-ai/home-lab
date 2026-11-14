@@ -24,6 +24,9 @@ var (
 	// ErrNotSaved reports a user change the server would not write to its
 	// aclfile. The message says whether it was undone.
 	ErrNotSaved = errors.New("not saved")
+	// ErrBusy reports a user change refused because another one held the ACL
+	// lock for longer than this one was willing to wait.
+	ErrBusy = errors.New("busy")
 
 	// errNotUndone marks the worse half of ErrNotSaved: the change is live in
 	// memory and not on disk, and will be lost at the next restart.

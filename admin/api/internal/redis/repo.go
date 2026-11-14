@@ -2,10 +2,13 @@ package redis
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -100,147 +103,135 @@ func (r *Repository) Describe(ctx context.Context, keys []string) ([]KeyMeta, er
 	return ret, nil
 }
 
-// ReadKey reads a key's metadata and the first part of its value.
-func (r *Repository) ReadKey(ctx context.Context, key string, items int, bytes int64) (RawKey, error) {
+// lengthCommands answers how many items each type holds, in the command that
+// counts them without reading them: bytes for a string, items for the rest.
+var lengthCommands = map[string]string{
+	typeString: "STRLEN",
+	typeList:   "LLEN",
+	typeSet:    "SCARD",
+	typeHash:   "HLEN",
+	typeZSet:   "ZCARD",
+	typeStream: "XLEN",
+}
+
+// Inspect reads what a key is without reading its value: type, TTL, the memory
+// Redis attributes to it, and its length. A key that does not exist comes back
+// with Type "none".
+func (r *Repository) Inspect(ctx context.Context, key string) (KeyStats, error) {
 	metas, err := r.Describe(ctx, []string{key})
 	if err != nil {
-		return RawKey{}, err
+		return KeyStats{}, err
 	}
-	ret := RawKey{Type: metas[0].Type, TTLMillis: metas[0].TTLMillis}
+	ret := KeyStats{Type: metas[0].Type, TTLMillis: metas[0].TTLMillis}
 	if ret.Type == typeNone {
 		return ret, nil
 	}
 
-	// A nice-to-have: an error here leaves the figure at zero rather than failing
-	// a read whose point is the value.
+	// A nice-to-have for the panel, and the size estimate ReadValue's caller
+	// budgets with. An error leaves it at zero, which the caller treats as "no
+	// estimate" rather than as "empty".
 	if memory, err := r.client.MemoryUsage(ctx, key).Result(); err == nil {
 		ret.MemoryBytes = memory
 	}
 
-	switch ret.Type {
-	case "string":
-		err = r.readString(ctx, key, bytes, &ret)
-	case "list":
-		err = r.readList(ctx, key, items, &ret)
-	case "set":
-		err = r.readSet(ctx, key, items, &ret)
-	case "hash":
-		err = r.readHash(ctx, key, items, &ret)
-	case "zset":
-		err = r.readSortedSet(ctx, key, items, &ret)
-	case "stream":
-		err = r.readStream(ctx, key, items, &ret)
-	}
-	// A key that went away between TYPE and the read answers redis.Nil or an
-	// empty reply; either way the next request reports it gone, and this one
-	// shows what it got.
-	if err != nil && !errors.Is(err, goredis.Nil) {
-		return RawKey{}, fmt.Errorf("read %s key: %w", ret.Type, err)
+	if command, ok := lengthCommands[ret.Type]; ok {
+		length, err := r.client.Do(ctx, command, key).Int64()
+		if err != nil && !errors.Is(err, goredis.Nil) {
+			return KeyStats{}, fmt.Errorf("measure %s key: %w", ret.Type, err)
+		}
+		ret.Length = length
 	}
 	return ret, nil
 }
 
-//nolint:wrapcheck // ReadKey wraps every reader's error once, with the type in it.
-func (r *Repository) readString(ctx context.Context, key string, bytes int64, ret *RawKey) error {
-	length, err := r.client.StrLen(ctx, key).Result()
-	if err != nil {
-		return err
+// ReadValue reads at most `items` items of a key of the given type, or at most
+// `bytes` bytes of a string. How many is the caller's decision; this only
+// reads what it was told to.
+func (r *Repository) ReadValue(ctx context.Context, key, kind string, items int, bytes int64) (RawKey, error) {
+	ret := RawKey{Type: kind}
+	var err error
+	switch kind {
+	case typeString:
+		ret.String, err = r.client.GetRange(ctx, key, 0, bytes-1).Result()
+	case typeList:
+		ret.Items, err = r.client.LRange(ctx, key, 0, int64(items)-1).Result()
+	case typeSet:
+		ret.Items, err = r.scanSet(ctx, key, items)
+	case typeHash:
+		ret.Pairs, err = r.scanHash(ctx, key, items)
+	case typeZSet:
+		ret.Scored, err = r.readSortedSet(ctx, key, items)
+	case typeStream:
+		ret.Entries, err = r.readStream(ctx, key, items)
 	}
-	ret.Length = length
-	ret.String, err = r.client.GetRange(ctx, key, 0, bytes-1).Result()
-	return err
+	// A key that went away between Inspect and the read answers redis.Nil or an
+	// empty reply; either way the next request reports it gone, and this one
+	// shows what it got.
+	if err != nil && !errors.Is(err, goredis.Nil) {
+		return RawKey{}, fmt.Errorf("read %s key: %w", kind, err)
+	}
+	return ret, nil
 }
 
-//nolint:wrapcheck // ReadKey wraps every reader's error once, with the type in it.
-func (r *Repository) readList(ctx context.Context, key string, items int, ret *RawKey) error {
-	length, err := r.client.LLen(ctx, key).Result()
-	if err != nil {
-		return err
-	}
-	ret.Length = length
-	ret.Items, err = r.client.LRange(ctx, key, 0, int64(items)-1).Result()
-	return err
-}
-
-//nolint:wrapcheck // ReadKey wraps every reader's error once, with the type in it.
-func (r *Repository) readSet(ctx context.Context, key string, items int, ret *RawKey) error {
-	length, err := r.client.SCard(ctx, key).Result()
-	if err != nil {
-		return err
-	}
-	ret.Length = length
-
+//nolint:wrapcheck // ReadValue wraps every reader's error once, with the type in it.
+func (r *Repository) scanSet(ctx context.Context, key string, items int) ([]string, error) {
+	var ret []string
 	var cursor uint64
 	for range maxScanRounds {
-		var page []string
-		page, cursor, err = r.client.SScan(ctx, key, cursor, "", int64(items)).Result()
+		page, next, err := r.client.SScan(ctx, key, cursor, "", int64(items)).Result()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		ret.Items = append(ret.Items, page...)
-		if cursor == 0 || len(ret.Items) >= items {
+		ret = append(ret, page...)
+		cursor = next
+		if cursor == 0 || len(ret) >= items {
 			break
 		}
 	}
-	return nil
+	return ret, nil
 }
 
-//nolint:wrapcheck // ReadKey wraps every reader's error once, with the type in it.
-func (r *Repository) readHash(ctx context.Context, key string, items int, ret *RawKey) error {
-	length, err := r.client.HLen(ctx, key).Result()
-	if err != nil {
-		return err
-	}
-	ret.Length = length
-
+//nolint:wrapcheck // ReadValue wraps every reader's error once, with the type in it.
+func (r *Repository) scanHash(ctx context.Context, key string, items int) ([]RawPair, error) {
+	var ret []RawPair
 	var cursor uint64
 	for range maxScanRounds {
-		var page []string
-		page, cursor, err = r.client.HScan(ctx, key, cursor, "", int64(items)).Result()
+		page, next, err := r.client.HScan(ctx, key, cursor, "", int64(items)).Result()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// HSCAN answers a flat list: field, value, field, value.
 		for i := 0; i+1 < len(page); i += 2 {
-			ret.Pairs = append(ret.Pairs, RawPair{Name: page[i], Value: page[i+1]})
+			ret = append(ret, RawPair{Name: page[i], Value: page[i+1]})
 		}
-		if cursor == 0 || len(ret.Pairs) >= items {
+		cursor = next
+		if cursor == 0 || len(ret) >= items {
 			break
 		}
 	}
-	return nil
+	return ret, nil
 }
 
-//nolint:wrapcheck // ReadKey wraps every reader's error once, with the type in it.
-func (r *Repository) readSortedSet(ctx context.Context, key string, items int, ret *RawKey) error {
-	length, err := r.client.ZCard(ctx, key).Result()
-	if err != nil {
-		return err
-	}
-	ret.Length = length
-
+//nolint:wrapcheck // ReadValue wraps every reader's error once, with the type in it.
+func (r *Repository) readSortedSet(ctx context.Context, key string, items int) ([]RawScored, error) {
 	members, err := r.client.ZRangeWithScores(ctx, key, 0, int64(items)-1).Result()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ret := make([]RawScored, 0, len(members))
 	for _, member := range members {
-		ret.Scored = append(ret.Scored, RawScored{Member: fmt.Sprint(member.Member), Score: member.Score})
+		ret = append(ret, RawScored{Member: fmt.Sprint(member.Member), Score: member.Score})
 	}
-	return nil
+	return ret, nil
 }
 
-//nolint:wrapcheck // ReadKey wraps every reader's error once, with the type in it.
-func (r *Repository) readStream(ctx context.Context, key string, items int, ret *RawKey) error {
-	length, err := r.client.XLen(ctx, key).Result()
-	if err != nil {
-		return err
-	}
-	ret.Length = length
-
+//nolint:wrapcheck // ReadValue wraps every reader's error once, with the type in it.
+func (r *Repository) readStream(ctx context.Context, key string, items int) ([]RawEntry, error) {
 	entries, err := r.client.XRangeN(ctx, key, "-", "+", int64(items)).Result()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	ret := make([]RawEntry, 0, len(entries))
 	for _, entry := range entries {
 		// go-redis hands an entry's fields back as a map, which has already lost
 		// the order they were written in. Sorting at least makes the same entry
@@ -249,9 +240,9 @@ func (r *Repository) readStream(ctx context.Context, key string, items int, ret 
 		for _, name := range slices.Sorted(maps.Keys(entry.Values)) {
 			raw.Fields = append(raw.Fields, RawPair{Name: name, Value: fmt.Sprint(entry.Values[name])})
 		}
-		ret.Entries = append(ret.Entries, raw)
+		ret = append(ret, raw)
 	}
-	return nil
+	return ret, nil
 }
 
 // ACLFile reads the aclfile setting the server started with.
@@ -301,6 +292,57 @@ func (r *Repository) ACLSave(ctx context.Context) error {
 		return fmt.Errorf("save the aclfile: %w", err)
 	}
 	return nil
+}
+
+// lockWait is how long Lock keeps asking for a held lock, and lockRetry how
+// often. An ACL change takes milliseconds, so a lock still held after this long
+// belongs to something stuck, and the caller is better told than kept waiting.
+const (
+	lockWait  = 3 * time.Second
+	lockRetry = 100 * time.Millisecond
+	// lockTokenBytes of randomness tell one holder from another.
+	lockTokenBytes = 16
+)
+
+// releaseScript deletes the lock only if it still holds our token. A plain DEL
+// would free a lock that expired under us and was since taken by another
+// replica — undoing exactly the exclusion the lock is for.
+var releaseScript = goredis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0`)
+
+// Lock takes key with SET NX PX and a random token, retrying briefly while it is
+// held.
+func (r *Repository) Lock(ctx context.Context, key string, ttl time.Duration) (func(context.Context), error) {
+	token := make([]byte, lockTokenBytes)
+	if _, err := rand.Read(token); err != nil {
+		return nil, fmt.Errorf("generate a lock token: %w", err)
+	}
+	value := hex.EncodeToString(token)
+
+	deadline := time.Now().Add(lockWait)
+	for {
+		taken, err := r.client.SetNX(ctx, key, value, ttl).Result()
+		if err != nil {
+			return nil, fmt.Errorf("take the lock %q: %w", key, err)
+		}
+		if taken {
+			return func(ctx context.Context) {
+				// Best effort: if this fails, the TTL frees the lock shortly anyway.
+				_ = releaseScript.Run(ctx, r.client, []string{key}, value).Err()
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("%w: another change to the Redis users is in progress; try again", ErrBusy)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("wait for the lock %q: %w", key, ctx.Err())
+		case <-time.After(lockRetry):
+		}
+	}
 }
 
 // Unlink removes a key without blocking on freeing its memory.

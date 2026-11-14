@@ -22,14 +22,16 @@ func NewHandler(service *Service) *Handler {
 // Register adds the Redis routes to a mux that already requires a verified
 // caller.
 //
-// A key's name is a path segment, so the caller percent-encodes it — every byte
-// of it, for a key that is not text. The mux decodes it back before the service
-// sees it, which is why a key with a slash in it works.
+// A key's name travels as the `key` query parameter, percent-encoded like any
+// query value — every byte of it, for a key that is not text. Not a path
+// segment: URL handling collapses `.` and `..` segments before any router sees
+// them, so a key named `..` could be listed and never opened. A query value has
+// no such rule, and it is the form a caller with nothing but curl gets right.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/redis/overview", h.overview)
 	mux.HandleFunc("GET /api/redis/keys", h.scanKeys)
-	mux.HandleFunc("GET /api/redis/keys/{key}", h.readKey)
-	mux.HandleFunc("DELETE /api/redis/keys/{key}", h.deleteKey)
+	mux.HandleFunc("GET /api/redis/key", h.readKey)
+	mux.HandleFunc("DELETE /api/redis/key", h.deleteKey)
 	mux.HandleFunc("GET /api/redis/users", h.listUsers)
 	mux.HandleFunc("POST /api/redis/users", h.createUser)
 	mux.HandleFunc("PUT /api/redis/users/{user}", h.updateUser)
@@ -105,14 +107,14 @@ func (h *Handler) scanKeys(w http.ResponseWriter, r *http.Request) {
 //	@Tags			redis
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			key	path		string	true	"Key name, percent-encoded"
+//	@Param			key	query		string	true	"Key name, percent-encoded as any query value"
 //	@Success		200	{object}	redis.KeyDetail
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		401	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
-//	@Router			/api/redis/keys/{key} [get]
+//	@Router			/api/redis/key [get]
 func (h *Handler) readKey(w http.ResponseWriter, r *http.Request) {
-	detail, err := h.service.ReadKey(r.Context(), r.PathValue("key"))
+	detail, err := h.service.ReadKey(r.Context(), r.URL.Query().Get("key"))
 	if err != nil {
 		respondError(w, err)
 		return
@@ -128,14 +130,14 @@ func (h *Handler) readKey(w http.ResponseWriter, r *http.Request) {
 //	@Tags			redis
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			key	path	string	true	"Key name, percent-encoded"
+//	@Param			key	query	string	true	"Key name, percent-encoded as any query value"
 //	@Success		204
 //	@Failure		400	{object}	http.ErrorBody
 //	@Failure		401	{object}	http.ErrorBody
 //	@Failure		404	{object}	http.ErrorBody
-//	@Router			/api/redis/keys/{key} [delete]
+//	@Router			/api/redis/key [delete]
 func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.DeleteKey(r.Context(), r.PathValue("key")); err != nil {
+	if err := h.service.DeleteKey(r.Context(), r.URL.Query().Get("key")); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -197,7 +199,9 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary		Update a Redis user
 //	@Description	The whole state, not a set of changes. An empty password keeps the current
-//	@Description	one. Refused for the default user.
+//	@Description	one, and a disabled user stays disabled. Takes effect at once, including on
+//	@Description	connections already authenticated as the user. Refused for the default user
+//	@Description	and for any user whose rules or password state the panel did not write.
 //	@Tags			redis
 //	@Accept			json
 //	@Produce		json
@@ -227,8 +231,8 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 // deleteUser removes a user.
 //
 //	@Summary		Delete a Redis user
-//	@Description	Connections already authenticated as it stay open until they close.
-//	@Description	Refused for the default user.
+//	@Description	Redis closes every connection authenticated as the user immediately, so an
+//	@Description	app still using it loses its connection now. Refused for the default user.
 //	@Tags			redis
 //	@Produce		json
 //	@Security		BearerAuth
@@ -272,6 +276,8 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
 	case errors.Is(err, ErrProtected):
 		httpx.Error(w, http.StatusForbidden, "protected", err.Error())
+	case errors.Is(err, ErrBusy):
+		httpx.Error(w, http.StatusConflict, "busy", err.Error())
 	case errors.Is(err, ErrNotPersistent):
 		// 409: the request is fine and the server is in a state that cannot take
 		// it yet. The message names the fix.

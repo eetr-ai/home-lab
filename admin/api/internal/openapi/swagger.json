@@ -2112,7 +2112,8 @@
                         "$ref": "#/components/schemas/redis.Text"
                     },
                     "score": {
-                        "type": "number"
+                        "description": "Score is written as Redis writes it — \"inf\", \"-inf\", or a number — because\na score can be infinite and JSON has no way to say so as a number.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -9014,6 +9015,131 @@
                 ]
             }
         },
+        "/api/redis/key": {
+            "delete": {
+                "description": "UNLINK, so a large value is freed without stalling the server. There is no\nway to delete more than one key at a time here, on purpose.",
+                "parameters": [
+                    {
+                        "description": "Key name, percent-encoded as any query value",
+                        "in": "query",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete a key",
+                "tags": [
+                    "redis"
+                ]
+            },
+            "get": {
+                "description": "Type, TTL, memory and the first part of the value: the first 100 items of a\ncollection or the first 64 KiB of a string, with truncated saying whether\nthere was more. Bytes that are not UTF-8 come back base64, with encoding\nsaying so.",
+                "parameters": [
+                    {
+                        "description": "Key name, percent-encoded as any query value",
+                        "in": "query",
+                        "name": "key",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/redis.KeyDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read a key",
+                "tags": [
+                    "redis"
+                ]
+            }
+        },
         "/api/redis/keys": {
             "get": {
                 "description": "One SCAN step over keys matching a glob pattern. A page may be empty while\nnextCursor is not: SCAN promises completeness, not page size. Pass nextCursor\nback to continue; it is empty when the scan is finished. count is a hint,\ncapped at 1000.",
@@ -9081,131 +9207,6 @@
                     }
                 ],
                 "summary": "Scan keys",
-                "tags": [
-                    "redis"
-                ]
-            }
-        },
-        "/api/redis/keys/{key}": {
-            "delete": {
-                "description": "UNLINK, so a large value is freed without stalling the server. There is no\nway to delete more than one key at a time here, on purpose.",
-                "parameters": [
-                    {
-                        "description": "Key name, percent-encoded",
-                        "in": "path",
-                        "name": "key",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Delete a key",
-                "tags": [
-                    "redis"
-                ]
-            },
-            "get": {
-                "description": "Type, TTL, memory and the first part of the value: the first 100 items of a\ncollection or the first 64 KiB of a string, with truncated saying whether\nthere was more. Bytes that are not UTF-8 come back base64, with encoding\nsaying so.",
-                "parameters": [
-                    {
-                        "description": "Key name, percent-encoded",
-                        "in": "path",
-                        "name": "key",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/redis.KeyDetail"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Read a key",
                 "tags": [
                     "redis"
                 ]
@@ -9369,7 +9370,7 @@
         },
         "/api/redis/users/{user}": {
             "delete": {
-                "description": "Connections already authenticated as it stay open until they close.\nRefused for the default user.",
+                "description": "Redis closes every connection authenticated as the user immediately, so an\napp still using it loses its connection now. Refused for the default user.",
                 "parameters": [
                     {
                         "description": "User name",
@@ -9447,7 +9448,7 @@
                 ]
             },
             "put": {
-                "description": "The whole state, not a set of changes. An empty password keeps the current\none. Refused for the default user.",
+                "description": "The whole state, not a set of changes. An empty password keeps the current\none, and a disabled user stays disabled. Takes effect at once, including on\nconnections already authenticated as the user. Refused for the default user\nand for any user whose rules or password state the panel did not write.",
                 "parameters": [
                     {
                         "description": "User name",

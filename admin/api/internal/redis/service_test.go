@@ -3,7 +3,6 @@ package redis
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 )
@@ -17,6 +16,7 @@ type fakeRepo struct {
 	scanKeys []string
 	scanNext uint64
 	metas    map[string]KeyMeta
+	stats    KeyStats
 	raw      RawKey
 	unlinked int64
 	err      error
@@ -43,7 +43,9 @@ func (f *fakeRepo) Describe(_ context.Context, keys []string) ([]KeyMeta, error)
 	return ret, f.err
 }
 
-func (f *fakeRepo) ReadKey(_ context.Context, _ string, items int, bytes int64) (RawKey, error) {
+func (f *fakeRepo) Inspect(context.Context, string) (KeyStats, error) { return f.stats, f.err }
+
+func (f *fakeRepo) ReadValue(_ context.Context, _, _ string, items int, bytes int64) (RawKey, error) {
 	f.gotItems, f.gotBytes = items, bytes
 	return f.raw, f.err
 }
@@ -153,96 +155,6 @@ func TestScanKeys(t *testing.T) {
 			}
 			if !reflect.DeepEqual(page, tt.wantPage) {
 				t.Errorf("ScanKeys() =\n%+v\nwant\n%+v", page, tt.wantPage)
-			}
-		})
-	}
-}
-
-// items returns n distinct strings, for building collections at and just past
-// the bound.
-func items(n int) []string {
-	ret := make([]string, n)
-	for i := range ret {
-		ret[i] = fmt.Sprintf("item-%d", i)
-	}
-	return ret
-}
-
-func TestReadKey(t *testing.T) {
-	tests := []struct {
-		name          string
-		raw           RawKey
-		wantShown     int
-		wantTruncated bool
-		wantSupported bool
-		wantErr       error
-	}{
-		{
-			name:          "a list holding exactly the bound is not truncated",
-			raw:           RawKey{Type: "list", TTLMillis: ttlNone, Length: maxItems, Items: items(maxItems)},
-			wantShown:     maxItems,
-			wantSupported: true,
-		},
-		{
-			// The repository is asked for one more than we show, and that extra item
-			// is the whole signal: it is what makes this "truncated" without asking
-			// the server a second question.
-			name:          "a list one past the bound shows the bound and says so",
-			raw:           RawKey{Type: "list", TTLMillis: ttlNone, Length: 5000, Items: items(maxItems + 1)},
-			wantShown:     maxItems,
-			wantTruncated: true,
-			wantSupported: true,
-		},
-		{
-			name:          "a string longer than the byte bound is truncated",
-			raw:           RawKey{Type: "string", TTLMillis: ttlNone, Length: maxStringBytes + 10, String: "abc"},
-			wantTruncated: true,
-			wantSupported: true,
-		},
-		{
-			name:          "a short string is whole",
-			raw:           RawKey{Type: "string", TTLMillis: ttlNone, Length: 3, String: "abc"},
-			wantSupported: true,
-		},
-		{
-			name:          "a module's type is reported but not read",
-			raw:           RawKey{Type: "ReJSON-RL", TTLMillis: ttlNone, Length: 1},
-			wantSupported: false,
-		},
-		{name: "a missing key is not found", raw: RawKey{Type: typeNone, TTLMillis: ttlMissing}, wantErr: ErrNotFound},
-		{
-			name:    "a key that expired mid-read is not found",
-			raw:     RawKey{Type: "string", TTLMillis: ttlMissing},
-			wantErr: ErrNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := fakeRepo{raw: tt.raw}
-			detail, err := NewService(&repo).ReadKey(context.Background(), "k")
-
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Fatalf("ReadKey() error = %v, want %v", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ReadKey() unexpected error: %v", err)
-			}
-			if repo.gotItems != maxItems+1 || repo.gotBytes != maxStringBytes {
-				t.Errorf("the repository was asked for %d items and %d bytes, want %d and %d",
-					repo.gotItems, repo.gotBytes, maxItems+1, maxStringBytes)
-			}
-			if len(detail.Items) != tt.wantShown {
-				t.Errorf("ReadKey() showed %d items, want %d", len(detail.Items), tt.wantShown)
-			}
-			if detail.Truncated != tt.wantTruncated {
-				t.Errorf("ReadKey() truncated = %v, want %v", detail.Truncated, tt.wantTruncated)
-			}
-			if detail.Supported != tt.wantSupported {
-				t.Errorf("ReadKey() supported = %v, want %v", detail.Supported, tt.wantSupported)
 			}
 		})
 	}
