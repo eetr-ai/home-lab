@@ -93,6 +93,23 @@
             },
             "enabled": {
               "type": "boolean"
+            },
+            "acl": {
+              "type": "object",
+              "required": [
+                "size"
+              ],
+              "properties": {
+                "size": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(Ki|Mi|Gi)$",
+                  "description": "The claim holding the aclfile. A line per user, so small."
+                },
+                "storageClassName": {
+                  "type": "string",
+                  "description": "Empty for the cluster default."
+                }
+              }
             }
           },
           "if": {
@@ -107,7 +124,8 @@
           },
           "then": {
             "required": [
-              "passwordSecret"
+              "passwordSecret",
+              "acl"
             ]
           },
           "required": [

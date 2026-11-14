@@ -145,6 +145,28 @@ grep -q -- '--appendonly no' <<<"$redis_deploy"
 # reaching the memory ceiling has to fail a write loudly instead.
 grep -q -- '--maxmemory-policy noeviction' <<<"$redis_deploy"
 
+# ACL users survive a restart, and nothing else does. The users live in an aclfile
+# on a claim; /data stays an emptyDir, so "a restart is an empty cache" is still
+# true of every key.
+grep -q -- '--aclfile "$acl"' <<<"$redis_deploy"
+grep -q 'acl=/acl/users.acl' <<<"$redis_deploy"
+grep -A1 'name: acl$' <<<"$redis_deploy" | grep -q 'persistentVolumeClaim:'
+grep -A1 'name: data$' <<<"$redis_deploy" | grep -q 'emptyDir: {}'
+redis_pvc=$(awk '/^kind: PersistentVolumeClaim$/,/^---$/' <<<"$redis")
+grep -q 'name: redis-acl' <<<"$redis_pvc"
+grep -q 'helm.sh/resource-policy: keep' <<<"$redis_pvc"
+
+# ...and `requirepass` is gone, because redis.conf ignores it once an aclfile is
+# configured. Leaving it in would read as protection while doing nothing: the
+# default user's password is the hashed line the startup script writes from the
+# Secret, and that line has to be there.
+if grep -q -- '--requirepass' <<<"$redis_deploy"; then
+  printf 'requirepass is ignored alongside an aclfile; the default user belongs in the file\n' >&2
+  exit 1
+fi
+grep -q "user default on #%s ~\* &\* +@all" <<<"$redis_deploy"
+grep -q 'sha256sum' <<<"$redis_deploy"
+
 # An unusable Secret reference is refused before it reaches the cluster, and the
 # refusal names the VALUE rather than a line in a template.
 #

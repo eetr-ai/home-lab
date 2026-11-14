@@ -104,6 +104,13 @@ platform:
     # having.
     maxmemory: 128mb
 
+    # The claim the ACL users live on: the only thing here that survives a
+    # restart. A line of text per user, so the size is a formality. Empty
+    # storageClassName means the cluster default, nfs-client on the lab.
+    acl:
+      size: 16Mi
+      storageClassName: ""
+
     resources:
       requests:
         cpu: 25m

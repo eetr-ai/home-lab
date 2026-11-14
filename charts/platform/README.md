@@ -106,6 +106,20 @@ where you may say it from — only namespaces carrying
 `home-lab.example/redis-access: "true"`, the same shape the Gateway uses to decide
 which namespaces may attach a route.
 
+**Users persist, keys do not.** Apps authenticate as their own ACL users, created
+from the admin panel's Redis section, each limited to a key prefix. Those users
+live in an aclfile on a small claim, `redis-acl`, so a restart keeps them. Keys
+are still gone after one. The claim is kept on `helm uninstall`.
+
+The `redis-password` Secret is the **default user's** password. `requirepass`
+is ignored once an aclfile is in use, so the pod writes the default user's line
+into the file itself on every start, hashed with SHA-256. Rotating the Secret and
+restarting the pod still changes it.
+
+Upgrading an existing install to this layout loses nothing. The first start
+creates the file from the Secret, so the panel and every client using the
+default password keep working.
+
 Its first caller is the admin panel's token refresh, which is what lets
 `admin-web` run more than one replica — see `charts/admin`. The panel needs the
 `home-lab.example/redis-access` label on its namespace, which its own installer

@@ -29,6 +29,12 @@
 # restart is an empty cache rather than a slow replay of state that has since
 # gone stale. Anything durable belongs in PostgreSQL, which is not in this
 # cluster; see databases/README.md.
+#
+# The one exception is WHO may connect. The ACL users apps authenticate as are
+# created from the admin panel and live in an aclfile on a small claim, because a
+# user that vanished on every restart would be an app that stopped authenticating
+# on every restart. Keys still go; users stay. The file holds only SHA-256 hashes
+# of passwords, which is the form Redis stores them in anyway.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,13 +70,17 @@ spec:
         - name: redis
           image: {{ printf "%s:%s" .Values.platform.redis.image.repository .Values.platform.redis.image.tag | quote }}
           imagePullPolicy: {{ .Values.platform.redis.image.pullPolicy }}
-          # The password reaches redis-server as an argument, which means it is
-          # visible in the process list INSIDE this container. That is a real
-          # property and not a hidden one, so it is written down rather than
-          # implied: the alternative is an ACL file, which moves the same secret
-          # into a mounted file and buys nothing while this pod runs one process
-          # and admits no shell. The boundary here is the pod and the
-          # NetworkPolicy below, not the argument list.
+          # The default user's password lives in the aclfile, not on the command
+          # line: redis.conf is explicit that `requirepass` is ignored once an
+          # aclfile is in use, so the two cannot be combined. On every start the
+          # default user's line is rewritten from the Secret, hashed, and put
+          # first, keeping every other line as it was. That way rotating the
+          # Secret and restarting the pod is still how the password changes, and
+          # the plaintext is never written anywhere.
+          #
+          # The line grants everything on purpose. The default user is the
+          # platform's own credential, the one the admin panel and its refresh
+          # lock connect with; app users get their narrower ones from the panel.
           #
           # `exec` so redis-server is PID 1 and receives SIGTERM directly; without
           # it the shell holds the signal and the pod waits out its grace period on
@@ -78,13 +88,23 @@ spec:
           command:
             - sh
             - -c
-            - >-
-              exec redis-server
-              --requirepass "$REDIS_PASSWORD"
-              --save ""
-              --appendonly no
-              --maxmemory {{ .Values.platform.redis.maxmemory | quote }}
-              --maxmemory-policy noeviction
+            - |
+              set -eu
+              acl=/acl/users.acl
+              hash=$(printf '%s' "$REDIS_PASSWORD" | sha256sum | cut -d' ' -f1)
+              touch "$acl"
+              others=$(grep -v '^user default ' "$acl" || true)
+              {
+                printf 'user default on #%s ~* &* +@all\n' "$hash"
+                if [ -n "$others" ]; then printf '%s\n' "$others"; fi
+              } > "$acl.next"
+              mv "$acl.next" "$acl"
+              exec redis-server \
+                --aclfile "$acl" \
+                --save "" \
+                --appendonly no \
+                --maxmemory {{ .Values.platform.redis.maxmemory | quote }} \
+                --maxmemory-policy noeviction
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -118,14 +138,48 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
-          # Nothing is written here — persistence is off — but redis-server chdirs
-          # into its working directory at startup and fails on a read-only root.
+          # Nothing is written to /data — persistence is off — but redis-server
+          # chdirs into its working directory at startup and fails on a read-only
+          # root. /acl is the only thing that outlives the pod.
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: acl
+              mountPath: /acl
       volumes:
         - name: data
           emptyDir: {}
+        - name: acl
+          persistentVolumeClaim:
+            claimName: redis-acl
+---
+# Where the ACL users live, and nothing else.
+#
+# Tiny on purpose: a line per user. One writer is guaranteed by the Deployment
+# above — one replica and Recreate — so the access mode does not have to.
+#
+# Kept on uninstall. Uninstalling the platform chart to reinstall it is a normal
+# thing to do here, and having every app lose its credential as a side effect is
+# not what anyone means by it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-acl
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: redis
+    {{- include "home-lab-platform.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.platform.redis.acl.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.platform.redis.acl.size | quote }}
 ---
 apiVersion: v1
 kind: Service
