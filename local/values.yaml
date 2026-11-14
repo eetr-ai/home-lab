@@ -7,10 +7,11 @@
 # script, never written here.
 
 admin:
-  # There is no platform Redis on this cluster. One web replica coordinates its
-  # own token refreshes, and the API's Redis section answers 404.
+  # The platform's Redis template runs here too (scripts/local-cluster.sh applies
+  # it), so the Redis section has a real server to manage. The URL and the
+  # admin-redis Secret are the chart's defaults; the script creates the Secret.
   redis:
-    enabled: false
+    enabled: true
 
   api:
     image:
