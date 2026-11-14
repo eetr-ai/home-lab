@@ -187,6 +187,36 @@ func TestClipStaysOnACharacterBoundary(t *testing.T) {
 	}
 }
 
+// The regression CodeRabbit described, as the read actually returns it: 65,535
+// ASCII bytes and then the first byte of a two-byte ñ, because GETRANGE stopped
+// at maxStringBytes.
+func TestAStringReadCutMidCharacterIsStillText(t *testing.T) {
+	read := strings.Repeat("a", maxStringBytes-1) + "\xc3"
+	repo := fakeRepo{
+		stats: KeyStats{Type: "string", TTLMillis: ttlNone, Length: maxStringBytes + 1},
+		raw:   RawKey{Type: "string", String: read},
+	}
+	detail, err := NewService(&repo).ReadKey(context.Background(), "k")
+	if err != nil {
+		t.Fatalf("ReadKey() unexpected error: %v", err)
+	}
+	if detail.String.Encoding != encodingUTF8 || len(detail.String.Value) != maxStringBytes-1 {
+		t.Errorf("preview is %s with %d bytes; want utf8 with the half character dropped",
+			detail.String.Encoding, len(detail.String.Value))
+	}
+}
+
+func TestTrimPartialRuneLeavesBinaryAlone(t *testing.T) {
+	// Invalid bytes in the middle are not a cut-off tail: that is binary.
+	binary := "\xff\xfeabc"
+	if got := trimPartialRune(binary); got != binary {
+		t.Errorf("trimPartialRune(%q) = %q, want it unchanged", binary, got)
+	}
+	if got := trimPartialRune("ok"); got != "ok" {
+		t.Errorf("a valid value must come back as it is, got %q", got)
+	}
+}
+
 func TestScoresSurviveJSON(t *testing.T) {
 	// The bug this guards: a float64 score of +Inf made encoding/json fail after
 	// the 200 was written, and the panel got an empty body.

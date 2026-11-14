@@ -61,7 +61,7 @@ func TestRedisAccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeRepo{namespaces: map[string]Namespace{
-				"apps":            {Name: "apps"},
+				"apps":            {Name: "apps", ResourceVersion: "42"},
 				"admin":           {Name: "admin"},
 				"platform-system": {Name: "platform-system"},
 			}}
@@ -91,6 +91,11 @@ func TestRedisAccess(t *testing.T) {
 				t.Fatalf("patched %d times, want exactly once", len(repo.labelled))
 			}
 			got := repo.labelled[0]
+			// The version checked is the version written: a namespace that changed
+			// in between makes the API server refuse the patch.
+			if got.version != "42" {
+				t.Errorf("patched with resourceVersion %q, want the one that was read, 42", got.version)
+			}
 			if got.namespace != tt.wantPatch.namespace || got.key != tt.wantPatch.key {
 				t.Errorf("patched %s/%s, want %s/%s", got.namespace, got.key, tt.wantPatch.namespace, tt.wantPatch.key)
 			}

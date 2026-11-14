@@ -64,6 +64,13 @@ spec:
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        # The aclfile claim is the one volume here that must be writable, and a
+        # freshly provisioned one can come up owned by root. fsGroup makes it
+        # group-owned by Redis's group, so the start script's first `touch` works
+        # instead of failing under `set -eu` before redis-server ever starts.
+        # OnRootMismatch, so a restart does not re-walk the volume each time.
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:

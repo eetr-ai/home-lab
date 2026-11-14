@@ -8,9 +8,12 @@ type Namespace struct {
 	// UID identifies this exact object, not just the name. A namespace that is
 	// deleted and recreated keeps its name and gets a new UID, which is what
 	// makes it usable as a delete precondition — see DeleteNamespace.
-	UID    string    `json:"-"`
-	Status string    `json:"status"`
-	Age    time.Time `json:"createdAt"`
+	UID string `json:"-"`
+	// ResourceVersion is the version this read saw, so a write can be refused if
+	// the object changed since — see LabelNamespace.
+	ResourceVersion string    `json:"-"`
+	Status          string    `json:"status"`
+	Age             time.Time `json:"createdAt"`
 	// Labels are carried because policy is decided from them — whether the
 	// namespace is protected, and whether Helm may write to it — and because the
 	// panel shows an operator why a namespace has no delete button.

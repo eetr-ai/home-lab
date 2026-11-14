@@ -38,7 +38,7 @@ type namespaceRepository interface {
 	ReadNamespace(ctx context.Context, name string) (Namespace, error)
 	CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error)
 	// LabelNamespace sets one label, or removes it when value is nil.
-	LabelNamespace(ctx context.Context, name, key string, value *string) (Namespace, error)
+	LabelNamespace(ctx context.Context, name, resourceVersion, key string, value *string) (Namespace, error)
 	DeleteNamespace(ctx context.Context, name, uid string) error
 }
 

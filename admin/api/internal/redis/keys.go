@@ -143,6 +143,12 @@ func itemBudget(memoryBytes, length int64) int {
 func fillValue(ret *KeyDetail, raw RawKey, length int64) {
 	if raw.Type == typeString {
 		value, _ := clip(raw.String, maxStringBytes)
+		// GETRANGE stops at a byte, not a character, so a long UTF-8 string read
+		// in part can end in half a rune — and then the whole preview fails the
+		// UTF-8 check and is shown as base64. Only when the read was cut short.
+		if int64(len(value)) < length {
+			value = trimPartialRune(value)
+		}
 		text := encode(value)
 		ret.String = &text
 		ret.Truncated = int64(len(value)) < length
@@ -231,6 +237,25 @@ func clip(value string, limit int) (string, bool) {
 		}
 	}
 	return ret, true
+}
+
+// trimPartialRune drops an incomplete UTF-8 character from the end of a value
+// that is otherwise text.
+//
+// It touches nothing else: a value that is already valid comes back as it is,
+// and so does one whose invalid bytes are not just a cut-off tail — that is
+// binary, and base64 is the honest way to show it.
+func trimPartialRune(value string) string {
+	if utf8.ValidString(value) {
+		return value
+	}
+	for cut := 1; cut < utf8.UTFMax && cut < len(value); cut++ {
+		head, tail := value[:len(value)-cut], value[len(value)-cut:]
+		if utf8.RuneStart(tail[0]) && !utf8.FullRuneInString(tail) && utf8.ValidString(head) {
+			return head
+		}
+	}
+	return value
 }
 
 // bounded keeps the first maxItems of anything.

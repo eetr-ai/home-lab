@@ -57,7 +57,7 @@ func (s *Service) setRedisAccess(ctx context.Context, name string, value *string
 		return Namespace{}, fmt.Errorf("%w: %s is %s", ErrProtected, name, reason)
 	}
 
-	labelled, err := s.repo.LabelNamespace(ctx, name, LabelRedisAccess, value)
+	labelled, err := s.repo.LabelNamespace(ctx, name, namespace.ResourceVersion, LabelRedisAccess, value)
 	if err != nil {
 		return Namespace{}, err
 	}

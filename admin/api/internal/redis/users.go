@@ -54,16 +54,24 @@ const (
 // @connection. ORDER MATTERS in ACL rules — a later rule overrides an earlier one
 // — so the subtraction comes last.
 //
-// Both end by denying SCAN and RANDOMKEY. Neither takes a key argument, so the
-// key-pattern check never runs on them and they answer with every key name in
-// the database, whatever the user's prefix — checked against Redis 8.10: a user
-// confined to probe:* got other:secret-name back from both. Values stay
-// protected either way, but the names of another app's keys are not this app's
-// business. The cost is that an app cannot SCAN its own prefix either; it can
-// keep its own index of what it wrote, which is the usual answer.
+// Both end by denying SCAN and RANDOMKEY, and PUBSUB CHANNELS and
+// SHARDCHANNELS. None of them takes a key or channel argument, so the pattern
+// checks never run and they answer with every name in the server, whatever the
+// user's prefix — checked against Redis 8.10: a user confined to probe:* got
+// other:secret-name from SCAN, and an o:* user saw billing:events from PUBSUB
+// CHANNELS. Values and messages stay protected either way, but another app's
+// names are not this app's business. The cost is that an app cannot SCAN its
+// own prefix either; it can keep its own index of what it wrote, which is the
+// usual answer.
 var presets = map[string][]string{
-	presetReadWrite: {"+@all", "-@dangerous", "+info", "-scan", "-randomkey"},
-	presetReadOnly:  {"+@read", "+@connection", "-@dangerous", "-scan", "-randomkey"},
+	presetReadWrite: {
+		"+@all", "-@dangerous", "+info",
+		"-scan", "-randomkey", "-pubsub|channels", "-pubsub|shardchannels",
+	},
+	presetReadOnly: {
+		"+@read", "+@connection", "-@dangerous",
+		"-scan", "-randomkey", "-pubsub|channels", "-pubsub|shardchannels",
+	},
 }
 
 // The presets' names. presetCustom is never accepted, only reported: it is what a
@@ -96,9 +104,18 @@ type userRepository interface {
 	// ACLDelUser reports how many users it removed.
 	ACLDelUser(ctx context.Context, name string) (int64, error)
 	ACLSave(ctx context.Context) error
-	// Lock takes a lock key, waiting briefly if it is held, and returns what
-	// releases it. It answers ErrBusy when the wait runs out.
-	Lock(ctx context.Context, key string, ttl time.Duration) (func(context.Context), error)
+	// Lock takes a lock key, waiting briefly if it is held. It answers ErrBusy
+	// when the wait runs out.
+	Lock(ctx context.Context, key string, ttl time.Duration) (Lease, error)
+}
+
+// Lease is a held lock.
+type Lease interface {
+	// Hold confirms the lock is still ours and extends it, in one step. It
+	// answers errLeaseLost when another holder has it now.
+	Hold(ctx context.Context) error
+	// Release gives the lock up, if it is still ours.
+	Release(ctx context.Context)
 }
 
 // ListUsers returns every user on the server, the default one included, and
@@ -138,7 +155,7 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (User, 
 		return User{}, err
 	}
 
-	err = s.exclusively(ctx, func() error {
+	err = s.exclusively(ctx, func(lease Lease) error {
 		if _, found, err := s.findUser(ctx, req.Name); err != nil {
 			return err
 		} else if found {
@@ -150,7 +167,7 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (User, 
 			_, err := s.repo.ACLDelUser(ctx, req.Name)
 			return err
 		}
-		return s.apply(ctx, func() error { return s.repo.ACLSetUser(ctx, req.Name, rules) }, undo)
+		return s.apply(ctx, lease, func() error { return s.repo.ACLSetUser(ctx, req.Name, rules) }, undo)
 	})
 	if err != nil {
 		return User{}, err
@@ -187,7 +204,7 @@ func (s *Service) UpdateUser(ctx context.Context, name string, req UpdateUserReq
 	}
 
 	var ret User
-	err := s.exclusively(ctx, func() error {
+	err := s.exclusively(ctx, func(lease Lease) error {
 		line, found, err := s.findUser(ctx, name)
 		if err != nil {
 			return err
@@ -211,7 +228,7 @@ func (s *Service) UpdateUser(ctx context.Context, name string, req UpdateUserReq
 		}
 
 		undo := func(ctx context.Context) error { return s.repo.ACLSetUser(ctx, name, restoreRules(line)) }
-		if err := s.apply(ctx, func() error { return s.repo.ACLSetUser(ctx, name, rules) }, undo); err != nil {
+		if err := s.apply(ctx, lease, func() error { return s.repo.ACLSetUser(ctx, name, rules) }, undo); err != nil {
 			return err
 		}
 		ret = User{
@@ -236,7 +253,7 @@ func (s *Service) DeleteUser(ctx context.Context, name string) error {
 		return err
 	}
 
-	return s.exclusively(ctx, func() error {
+	return s.exclusively(ctx, func(lease Lease) error {
 		line, found, err := s.findUser(ctx, name)
 		if err != nil {
 			return err
@@ -250,7 +267,7 @@ func (s *Service) DeleteUser(ctx context.Context, name string) error {
 			_, err := s.repo.ACLDelUser(ctx, name)
 			return err
 		}
-		return s.apply(ctx, remove, undo)
+		return s.apply(ctx, lease, remove, undo)
 	})
 }
 
@@ -266,14 +283,17 @@ func (s *Service) DeleteUser(ctx context.Context, name string) error {
 // they share.
 //
 // It is held for one change, and expires on its own if this process dies
-// holding it, so a crashed replica cannot wedge the users page.
-func (s *Service) exclusively(ctx context.Context, fn func() error) error {
-	release, err := s.repo.Lock(ctx, aclLockKey, aclLockTTL)
+// holding it, so a crashed replica cannot wedge the users page. Because it
+// expires, a replica that stalls longer than the TTL could find another holding
+// it when it wakes; apply re-checks the lease before each write for that
+// reason (see Lease.Hold).
+func (s *Service) exclusively(ctx context.Context, fn func(Lease) error) error {
+	lease, err := s.repo.Lock(ctx, aclLockKey, aclLockTTL)
 	if err != nil {
 		return err
 	}
-	defer release(context.WithoutCancel(ctx))
-	return fn()
+	defer lease.Release(context.WithoutCancel(ctx))
+	return fn(lease)
 }
 
 // apply makes a change and writes it to the aclfile, undoing the change when the
@@ -284,9 +304,28 @@ func (s *Service) exclusively(ctx context.Context, fn func() error) error {
 // week and then does not, with nothing in between to say why. So if ACL SAVE
 // fails, the change is reverted in memory and the operator is told, and what the
 // server is doing stays what it will do after a restart.
-func (s *Service) apply(ctx context.Context, change func() error, undo func(context.Context) error) error {
+//
+// The lease is re-checked, and extended, before the change and before the save.
+// A replica that stalled past the lock's TTL must not wake up and write over a
+// change another replica made in the meantime. This narrows that to the instant
+// between a check and its write rather than closing it — Redis has no way to make
+// an ACL write conditional on a key — which is as far as a lease can go.
+func (s *Service) apply(ctx context.Context, lease Lease, change func() error, undo func(context.Context) error) error {
+	if err := lease.Hold(ctx); err != nil {
+		return err
+	}
 	if err := change(); err != nil {
 		return err
+	}
+	if err := lease.Hold(ctx); err != nil {
+		// Someone else holds the lock now, and their save would write our change
+		// along with theirs. Take ours back out of memory before that happens, and
+		// say plainly that the outcome needs checking.
+		undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), undoTimeout)
+		defer cancel()
+		_ = undo(undoCtx)
+		return fmt.Errorf("%w: %w: the change lost its lock before it was saved and was taken back out; "+
+			"another change may have run alongside it: %w", ErrNotSaved, errNotUndone, err)
 	}
 	saveErr := s.repo.ACLSave(ctx)
 	if saveErr == nil {

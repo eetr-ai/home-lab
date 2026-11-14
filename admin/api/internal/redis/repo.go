@@ -331,7 +331,9 @@ return 0`)
 
 // Lock takes key with SET NX PX and a random token, retrying briefly while it is
 // held.
-func (r *Repository) Lock(ctx context.Context, key string, ttl time.Duration) (func(context.Context), error) {
+//
+//nolint:ireturn // the service tests substitute their own Lease.
+func (r *Repository) Lock(ctx context.Context, key string, ttl time.Duration) (Lease, error) {
 	token := make([]byte, lockTokenBytes)
 	if _, err := rand.Read(token); err != nil {
 		return nil, fmt.Errorf("generate a lock token: %w", err)
@@ -345,10 +347,7 @@ func (r *Repository) Lock(ctx context.Context, key string, ttl time.Duration) (f
 			return nil, fmt.Errorf("take the lock %q: %w", key, err)
 		}
 		if taken {
-			return func(ctx context.Context) {
-				// Best effort: if this fails, the TTL frees the lock shortly anyway.
-				_ = releaseScript.Run(ctx, r.client, []string{key}, value).Err()
-			}, nil
+			return &redisLease{client: r.client, key: key, token: value, ttl: ttl}, nil
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("%w: another change to the Redis users is in progress; try again", ErrBusy)
@@ -359,6 +358,41 @@ func (r *Repository) Lock(ctx context.Context, key string, ttl time.Duration) (f
 		case <-time.After(lockRetry):
 		}
 	}
+}
+
+// holdScript extends the lock only if it still holds our token, in one step: a
+// GET followed by a separate PEXPIRE could extend a lock another replica took
+// in between.
+var holdScript = goredis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+end
+return 0`)
+
+// redisLease is a lock taken with Lock.
+type redisLease struct {
+	client *goredis.Client
+	key    string
+	token  string
+	ttl    time.Duration
+}
+
+// Hold confirms the lock is still ours and extends it.
+func (l *redisLease) Hold(ctx context.Context) error {
+	held, err := holdScript.Run(ctx, l.client, []string{l.key}, l.token, l.ttl.Milliseconds()).Int64()
+	if err != nil {
+		return fmt.Errorf("check the lock %q: %w", l.key, err)
+	}
+	if held == 0 {
+		return fmt.Errorf("%w: %w", ErrBusy, errLeaseLost)
+	}
+	return nil
+}
+
+// Release gives the lock up if it is still ours. Best effort: if this fails, the
+// TTL frees it shortly anyway.
+func (l *redisLease) Release(ctx context.Context) {
+	_ = releaseScript.Run(ctx, l.client, []string{l.key}, l.token).Err()
 }
 
 // Unlink removes a key without blocking on freeing its memory.

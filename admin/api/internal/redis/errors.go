@@ -28,7 +28,9 @@ var (
 	// lock for longer than this one was willing to wait.
 	ErrBusy = errors.New("busy")
 
-	// errNotUndone marks the worse half of ErrNotSaved: the change is live in
-	// memory and not on disk, and will be lost at the next restart.
+	// errNotUndone marks the worse half of ErrNotSaved: what Redis does now and
+	// what it will do after a restart may not agree.
 	errNotUndone = errors.New("not undone")
+	// errLeaseLost reports that the ACL lock expired and another holder has it.
+	errLeaseLost = errors.New("the ACL lock is held by another change now")
 )

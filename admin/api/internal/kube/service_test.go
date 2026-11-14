@@ -61,6 +61,7 @@ type fakeRepo struct {
 // removal.
 type labelPatch struct {
 	namespace string
+	version   string
 	key       string
 	value     *string
 }
@@ -93,8 +94,8 @@ func (f *fakeRepo) CreateNamespace(_ context.Context, spec NamespaceSpec) (Names
 	return Namespace{Name: spec.Name, Labels: spec.Labels}, nil
 }
 
-func (f *fakeRepo) LabelNamespace(_ context.Context, name, key string, value *string) (Namespace, error) {
-	f.labelled = append(f.labelled, labelPatch{namespace: name, key: key, value: value})
+func (f *fakeRepo) LabelNamespace(_ context.Context, name, version, key string, value *string) (Namespace, error) {
+	f.labelled = append(f.labelled, labelPatch{namespace: name, version: version, key: key, value: value})
 	namespace := f.namespaces[name]
 	return namespace, nil
 }

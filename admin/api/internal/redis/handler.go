@@ -277,18 +277,21 @@ func respondError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, "already_exists", err.Error())
 	case errors.Is(err, ErrProtected):
 		httpx.Error(w, http.StatusForbidden, "protected", err.Error())
+	case errors.Is(err, ErrNotSaved):
+		// Before ErrBusy: a change that lost its lock after it was made wraps both,
+		// and what the operator needs to hear is that it was not saved.
+		//
+		// Logged in full, because the wrapped cause is the server's own and is what
+		// someone will need. The caller gets our sentence, which says whether it
+		// was undone, without the driver's text.
+		slog.Error("redis ACL change not saved", slog.Any("error", err))
+		httpx.Error(w, http.StatusInternalServerError, "not_saved", notSavedMessage(err))
 	case errors.Is(err, ErrBusy):
 		httpx.Error(w, http.StatusConflict, "busy", err.Error())
 	case errors.Is(err, ErrNotPersistent):
 		// 409: the request is fine and the server is in a state that cannot take
 		// it yet. The message names the fix.
 		httpx.Error(w, http.StatusConflict, "not_persistent", err.Error())
-	case errors.Is(err, ErrNotSaved):
-		// Logged in full, because the wrapped cause is the server's own and is what
-		// someone will need. The caller gets our sentence, which says whether it
-		// was undone, without the driver's text.
-		slog.Error("redis ACL change not saved", slog.Any("error", err))
-		httpx.Error(w, http.StatusInternalServerError, "not_saved", notSavedMessage(err))
 	default:
 		slog.Error("redis request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")

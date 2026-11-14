@@ -165,6 +165,8 @@ if grep -q -- '--requirepass' <<<"$redis_deploy"; then
   exit 1
 fi
 grep -q "user default on #%s ~\* &\* +@all" <<<"$redis_deploy"
+# A root-owned fresh claim is writable by Redis's group only with fsGroup.
+grep -q 'fsGroup: 999' <<<"$redis_deploy"
 grep -q 'sha256sum' <<<"$redis_deploy"
 
 # An unusable Secret reference is refused before it reaches the cluster, and the

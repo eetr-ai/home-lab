@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -34,6 +35,9 @@ type fakeACL struct {
 	held      bool
 	locks     int
 	unguarded int
+	// loseLeaseAt makes the lease lose its lock on that Hold; holds counts them.
+	loseLeaseAt int
+	holds       int
 }
 
 func newFakeACL(lines ...string) fakeACL {
@@ -48,11 +52,27 @@ func newFakeACL(lines ...string) fakeACL {
 
 func (f *fakeACL) ACLFile(context.Context) (string, error) { return f.aclFile, nil }
 
-func (f *fakeACL) Lock(context.Context, string, time.Duration) (func(context.Context), error) {
+//nolint:ireturn // satisfies the repository interface, which returns a Lease.
+func (f *fakeACL) Lock(context.Context, string, time.Duration) (Lease, error) {
 	f.held = true
 	f.locks++
-	return func(context.Context) { f.held = false }, nil
+	return &fakeLease{acl: f}, nil
 }
+
+// fakeLease is the fake's lock. When loseLeaseAt is set, that Hold — counted
+// from one — finds the lock taken by someone else, and so does every Hold after.
+type fakeLease struct{ acl *fakeACL }
+
+func (l *fakeLease) Hold(context.Context) error {
+	l.acl.holds++
+	if l.acl.loseLeaseAt > 0 && l.acl.holds >= l.acl.loseLeaseAt {
+		l.acl.held = false
+		return fmt.Errorf("%w: %w", ErrBusy, errLeaseLost)
+	}
+	return nil
+}
+
+func (l *fakeLease) Release(context.Context) { l.acl.held = false }
 
 func (f *fakeACL) guard() {
 	if !f.held {
@@ -133,13 +153,13 @@ func TestBuildRules(t *testing.T) {
 			name:   "readwrite confines keys and channels to the prefix",
 			prefix: "orders:",
 			preset: presetReadWrite,
-			want:   []string{"reset", "on", "#h", "~orders:*", "&orders:*", "+@all", "-@dangerous", "+info", "-scan", "-randomkey"},
+			want:   []string{"reset", "on", "#h", "~orders:*", "&orders:*", "+@all", "-@dangerous", "+info", "-scan", "-randomkey", "-pubsub|channels", "-pubsub|shardchannels"},
 		},
 		{
 			name:   "readonly subtracts dangerous last, so CLIENT KILL does not ride in on @connection",
 			prefix: "cache",
 			preset: presetReadOnly,
-			want:   []string{"reset", "on", "#h", "~cache*", "&cache*", "+@read", "+@connection", "-@dangerous", "-scan", "-randomkey"},
+			want:   []string{"reset", "on", "#h", "~cache*", "&cache*", "+@read", "+@connection", "-@dangerous", "-scan", "-randomkey", "-pubsub|channels", "-pubsub|shardchannels"},
 		},
 		{
 			// A glob character in the middle of a prefix would widen ~prefix* to keys
@@ -173,7 +193,7 @@ func TestParseACLLine(t *testing.T) {
 	}{
 		{
 			name: "a user this panel wrote reads back as its prefix and preset",
-			line: "user orders on " + testHash + " ~orders:* resetchannels &orders:* -@all +@all -@dangerous +info -scan -randomkey",
+			line: "user orders on " + testHash + " ~orders:* resetchannels &orders:* -@all +@all -@dangerous +info -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 			want: User{Name: "orders", Enabled: true, HasPassword: true, Prefix: "orders:", Preset: presetReadWrite, Editable: true},
 		},
 		{
@@ -181,12 +201,12 @@ func TestParseACLLine(t *testing.T) {
 			// grants CLIENT KILL back (checked with ACL DRYRUN on Redis 8.10). Reading
 			// it as readonly would be a confident claim about a permission it has.
 			name: "the same rules in another order are custom",
-			line: "user cache on #abc ~cache:* &cache:* -@dangerous +@connection +@read -scan -randomkey",
+			line: "user cache on #abc ~cache:* &cache:* -@dangerous +@connection +@read -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 			want: User{Name: "cache", Enabled: true, HasPassword: true, Preset: presetCustom},
 		},
 		{
 			name: "the implied -@all is the one difference tolerated",
-			line: "user cache on #abc ~cache:* &cache:* -@all +@read +@connection -@dangerous -scan -randomkey",
+			line: "user cache on #abc ~cache:* &cache:* -@all +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 			want: User{Name: "cache", Enabled: true, HasPassword: true, Prefix: "cache:", Preset: presetReadOnly, Editable: true},
 		},
 		{
@@ -196,12 +216,12 @@ func TestParseACLLine(t *testing.T) {
 		},
 		{
 			name: "a hand-made user with two key patterns is custom",
-			line: "user mixed on #abc ~a:* ~b:* &a:* +@all -@dangerous +info -scan -randomkey",
+			line: "user mixed on #abc ~a:* ~b:* &a:* +@all -@dangerous +info -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 			want: User{Name: "mixed", Enabled: true, HasPassword: true, Preset: presetCustom},
 		},
 		{
 			name: "one extra command rule is enough to be custom",
-			line: "user extra on #abc ~a:* &a:* +@all -@dangerous +info -scan -randomkey +flushall",
+			line: "user extra on #abc ~a:* &a:* +@all -@dangerous +info -scan -randomkey -pubsub|channels -pubsub|shardchannels +flushall",
 			want: User{Name: "extra", Enabled: true, HasPassword: true, Preset: presetCustom},
 		},
 		{
@@ -212,12 +232,12 @@ func TestParseACLLine(t *testing.T) {
 		{
 			// No password is nopass or no way in, and the form can express neither.
 			name: "a user with no password is not editable",
-			line: "user off-one off ~a:* &a:* +@read +@connection -@dangerous -scan -randomkey",
+			line: "user off-one off ~a:* &a:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 			want: User{Name: "off-one", Preset: presetCustom},
 		},
 		{
 			name: "a disabled user with a password is editable, and reads as disabled",
-			line: "user paused off #abc ~a:* &a:* +@read +@connection -@dangerous -scan -randomkey",
+			line: "user paused off #abc ~a:* &a:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 			want: User{Name: "paused", HasPassword: true, Prefix: "a:", Preset: presetReadOnly, Editable: true},
 		},
 	}
@@ -311,10 +331,10 @@ func TestBuildRulesKeepsADisabledUserDisabled(t *testing.T) {
 }
 
 func TestUpdateUser(t *testing.T) {
-	existing := "user orders on #oldhash ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey"
+	existing := "user orders on #oldhash ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels"
 
 	t.Run("a disabled user stays disabled through an edit", func(t *testing.T) {
-		paused := "user orders off #oldhash ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey"
+		paused := "user orders off #oldhash ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels"
 		repo := &fakeRepo{fakeACL: newFakeACL(paused)}
 		user, err := NewService(repo).UpdateUser(context.Background(), "orders",
 			UpdateUserRequest{Prefix: "orders:v2:", Preset: presetReadOnly})
@@ -330,7 +350,7 @@ func TestUpdateUser(t *testing.T) {
 	refused := map[string]string{
 		// Saving the form would set a password or drop nopass: either way the
 		// app's way of authenticating changes without anyone asking for it.
-		"a nopass user": "user legacy on nopass ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey",
+		"a nopass user": "user legacy on nopass ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels",
 		"a custom user": "user orders on #h ~orders:* &orders:* +@all",
 	}
 	for name, line := range refused {
@@ -356,7 +376,7 @@ func TestUpdateUser(t *testing.T) {
 			t.Fatalf("UpdateUser() unexpected error: %v", err)
 		}
 		got := strings.Join(repo.users["orders"], " ")
-		want := "on #oldhash ~orders:v2:* &orders:v2:* +@all -@dangerous +info -scan -randomkey"
+		want := "on #oldhash ~orders:v2:* &orders:v2:* +@all -@dangerous +info -scan -randomkey -pubsub|channels -pubsub|shardchannels"
 		if got != want {
 			t.Errorf("rules = %q, want %q", got, want)
 		}
@@ -401,7 +421,7 @@ func TestUpdateUser(t *testing.T) {
 }
 
 func TestDeleteUser(t *testing.T) {
-	existing := "user orders on #h ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey"
+	existing := "user orders on #h ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels"
 
 	t.Run("a user is removed and the removal saved", func(t *testing.T) {
 		repo := &fakeRepo{fakeACL: newFakeACL(existing)}
@@ -482,7 +502,7 @@ func TestDeleteUser(t *testing.T) {
 // failed save — has to happen while the lock is held, or two replicas can
 // interleave them. The fake counts any that do not.
 func TestEveryACLWriteHoldsTheLock(t *testing.T) {
-	existing := "user orders on #h ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey"
+	existing := "user orders on #h ~orders:* &orders:* +@read +@connection -@dangerous -scan -randomkey -pubsub|channels -pubsub|shardchannels"
 	failing := func() fakeACL { f := newFakeACL(existing); f.saveErr = errors.New("disk full"); return f }
 
 	writes := map[string]struct {
@@ -519,6 +539,42 @@ func TestEveryACLWriteHoldsTheLock(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A replica that stalls past the lock's TTL must not write over a change made
+// by whoever holds the lock now. apply checks the lease before each write.
+func TestALostLeaseStopsTheWrites(t *testing.T) {
+	existing := "user orders on #h ~orders:* &orders:* +@read +@connection -@dangerous " +
+		"-scan -randomkey -pubsub|channels -pubsub|shardchannels"
+
+	t.Run("lost before the change: nothing is written", func(t *testing.T) {
+		acl := newFakeACL(existing)
+		acl.loseLeaseAt = 1
+		repo := &fakeRepo{fakeACL: acl}
+		err := NewService(repo).DeleteUser(context.Background(), "orders")
+		if !errors.Is(err, ErrBusy) || errors.Is(err, ErrNotSaved) {
+			t.Fatalf("DeleteUser() error = %v, want busy and nothing attempted", err)
+		}
+		if _, ok := repo.users["orders"]; !ok || repo.saves != 0 {
+			t.Errorf("user there = %v, saves = %d; want it untouched and nothing saved", ok, repo.saves)
+		}
+	})
+
+	t.Run("lost after the change: it is taken back and not saved", func(t *testing.T) {
+		acl := newFakeACL(existing)
+		acl.loseLeaseAt = 2
+		repo := &fakeRepo{fakeACL: acl}
+		err := NewService(repo).DeleteUser(context.Background(), "orders")
+		if !errors.Is(err, ErrNotSaved) || !errors.Is(err, errNotUndone) {
+			t.Fatalf("DeleteUser() error = %v, want not saved, with the outcome to check", err)
+		}
+		if _, ok := repo.users["orders"]; !ok {
+			t.Error("the user was not put back after the lease was lost")
+		}
+		if repo.saves != 0 {
+			t.Errorf("saved %d times after losing the lock, want none", repo.saves)
+		}
+	})
 }
 
 func TestListUsersReportsPersistence(t *testing.T) {

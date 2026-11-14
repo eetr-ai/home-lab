@@ -9,12 +9,12 @@ export const PRESETS: { value: RedisPreset; label: string; hint: string }[] = [
 	{
 		value: "readwrite",
 		label: "Read and write",
-		hint: "Every command except the dangerous ones (FLUSHALL, KEYS, CONFIG…), on its own keys only. No SCAN: it would list other apps' key names.",
+		hint: "Every command except the dangerous ones (FLUSHALL, KEYS, CONFIG…), on its own keys only. No SCAN or channel listing: either would show other apps' names.",
 	},
 	{
 		value: "readonly",
 		label: "Read only",
-		hint: "Reads on its own keys, and nothing that changes them. No SCAN, for the same reason.",
+		hint: "Reads on its own keys, and nothing that changes them. No SCAN or channel listing, for the same reason.",
 	},
 ];
 
