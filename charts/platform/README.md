@@ -116,9 +116,11 @@ is ignored once an aclfile is in use, so the pod writes the default user's line
 into the file itself on every start, hashed with SHA-256. Rotating the Secret and
 restarting the pod still changes it.
 
-Upgrading an existing install to this layout loses nothing. The first start
-creates the file from the Secret, so the panel and every client using the
-default password keep working.
+**Upgrading to this layout restarts Redis, and a restart clears its keys**, held
+locks included, as any restart does. Plan it like one: in-flight token refreshes
+may fail once and operators may need to sign in again. Credentials survive it.
+The first start creates the aclfile from the Secret, so the panel and every
+client using the default password keep authenticating.
 
 Its first caller is the admin panel's token refresh, which is what lets
 `admin-web` run more than one replica — see `charts/admin`. The panel needs the

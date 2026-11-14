@@ -21,7 +21,7 @@ export function KeyValue({ detail }: { detail: RedisKeyDetail }) {
 				{detail.items.map((item, index) => (
 					<li key={index} className="flex gap-3 px-4 py-2 font-mono text-sm">
 						<span className="w-8 shrink-0 text-right text-muted-foreground">{index}</span>
-						<span className="min-w-0 break-all">{displayText(item)}</span>
+						<span className="min-w-0 break-all whitespace-pre-wrap">{displayText(item)}</span>
 					</li>
 				))}
 			</ol>
@@ -69,8 +69,8 @@ function Pairs({ heading, rows }: { heading: [string, string]; rows: [string, st
 			<TBody>
 				{rows.map(([left, right], index) => (
 					<tr key={index}>
-						<Td className="align-top font-mono break-all">{left}</Td>
-						<Td className="align-top font-mono break-all">{right}</Td>
+						<Td className="align-top font-mono break-all whitespace-pre-wrap">{left}</Td>
+						<Td className="align-top font-mono break-all whitespace-pre-wrap">{right}</Td>
 					</tr>
 				))}
 			</TBody>

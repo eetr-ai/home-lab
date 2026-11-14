@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -227,18 +225,36 @@ func (r *Repository) readSortedSet(ctx context.Context, key string, items int) (
 
 //nolint:wrapcheck // ReadValue wraps every reader's error once, with the type in it.
 func (r *Repository) readStream(ctx context.Context, key string, items int) ([]RawEntry, error) {
-	entries, err := r.client.XRangeN(ctx, key, "-", "+", int64(items)).Result()
+	// The raw reply rather than go-redis's XRangeN, which decodes each entry's
+	// fields into a map. A stream entry may repeat a field name (XADD s * tag a
+	// tag b stores both), and a map keeps one and silently drops the other. The
+	// raw reply is the entry exactly as stored, in its own order.
+	reply, err := r.client.Do(ctx, "XRANGE", key, "-", "+", "COUNT", items).Slice()
 	if err != nil {
 		return nil, err
 	}
-	ret := make([]RawEntry, 0, len(entries))
-	for _, entry := range entries {
-		// go-redis hands an entry's fields back as a map, which has already lost
-		// the order they were written in. Sorting at least makes the same entry
-		// read the same way twice.
-		raw := RawEntry{ID: entry.ID}
-		for _, name := range slices.Sorted(maps.Keys(entry.Values)) {
-			raw.Fields = append(raw.Fields, RawPair{Name: name, Value: fmt.Sprint(entry.Values[name])})
+	return parseStreamReply(reply)
+}
+
+// parseStreamReply reads XRANGE's reply: a list of [id, [field, value, ...]].
+func parseStreamReply(reply []any) ([]RawEntry, error) {
+	ret := make([]RawEntry, 0, len(reply))
+	for _, item := range reply {
+		entry, ok := item.([]any)
+		if !ok || len(entry) != 2 {
+			return nil, fmt.Errorf("unexpected XRANGE entry %T", item)
+		}
+		id, ok := entry[0].(string)
+		if !ok {
+			return nil, fmt.Errorf("unexpected XRANGE id %T", entry[0])
+		}
+		values, ok := entry[1].([]any)
+		if !ok {
+			return nil, fmt.Errorf("unexpected XRANGE fields %T", entry[1])
+		}
+		raw := RawEntry{ID: id}
+		for i := 0; i+1 < len(values); i += 2 {
+			raw.Fields = append(raw.Fields, RawPair{Name: fmt.Sprint(values[i]), Value: fmt.Sprint(values[i+1])})
 		}
 		ret = append(ret, raw)
 	}

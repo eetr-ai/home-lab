@@ -24,7 +24,11 @@ type fakeACL struct {
 	// saveErr is what the next ACL SAVE answers, and saves counts the ones that
 	// succeeded, so a test can tell "saved" from "never asked to save".
 	saveErr error
-	saves   int
+	// failSaves, when set, fails only that many saves and lets the rest succeed,
+	// which is how a test tells a clean undo from a re-save that failed too.
+	failSaves int
+	failed    int
+	saves     int
 	// held is whether the ACL lock is taken, and unguarded counts writes that
 	// reached the table while it was not: the service promises there are none.
 	held      bool
@@ -86,7 +90,8 @@ func (f *fakeACL) ACLDelUser(_ context.Context, name string) (int64, error) {
 
 func (f *fakeACL) ACLSave(context.Context) error {
 	f.guard()
-	if f.saveErr != nil {
+	if f.saveErr != nil && (f.failSaves == 0 || f.failed < f.failSaves) {
+		f.failed++
 		return f.saveErr
 	}
 	f.saves++
@@ -417,6 +422,48 @@ func TestDeleteUser(t *testing.T) {
 		}
 		if _, ok := repo.users["orders"]; !ok {
 			t.Error("the user was not restored after the save failed")
+		}
+	})
+
+	t.Run("after an undo the restored state is saved too", func(t *testing.T) {
+		// A failed ACL SAVE may have replaced the file before it failed, so the
+		// restored user has to be written back or a restart loses it.
+		acl := newFakeACL(existing)
+		acl.saveErr, acl.failSaves = errors.New("fsync failed"), 1
+		repo := &fakeRepo{fakeACL: acl}
+		err := NewService(repo).DeleteUser(context.Background(), "orders")
+		if !errors.Is(err, ErrNotSaved) || errors.Is(err, errNotUndone) {
+			t.Fatalf("DeleteUser() error = %v, want a clean undo", err)
+		}
+		if repo.saves != 1 {
+			t.Errorf("saved %d times after the undo, want the restored state saved once", repo.saves)
+		}
+	})
+
+	t.Run("a re-save that fails too says the file may still hold the change", func(t *testing.T) {
+		acl := newFakeACL(existing)
+		acl.saveErr = errors.New("read-only file system")
+		repo := &fakeRepo{fakeACL: acl}
+		err := NewService(repo).DeleteUser(context.Background(), "orders")
+		if !errors.Is(err, errNotUndone) {
+			t.Fatalf("DeleteUser() error = %v, want it to say the undo is not complete", err)
+		}
+	})
+
+	t.Run("a user made by hand outside the create format can still be deleted", func(t *testing.T) {
+		repo := &fakeRepo{fakeACL: newFakeACL("user Orders on #h ~o:* &o:* +@all")}
+		if err := NewService(repo).DeleteUser(context.Background(), "Orders"); err != nil {
+			t.Fatalf("DeleteUser() unexpected error: %v", err)
+		}
+		if _, ok := repo.users["Orders"]; ok {
+			t.Error("the user is still there")
+		}
+	})
+
+	t.Run("a name with whitespace is refused before Redis sees it", func(t *testing.T) {
+		repo := &fakeRepo{fakeACL: newFakeACL(existing)}
+		if err := NewService(repo).DeleteUser(context.Background(), "orders allkeys"); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("DeleteUser() error = %v, want %v", err, ErrInvalidRequest)
 		}
 	})
 

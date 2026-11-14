@@ -240,4 +240,22 @@ grep -q 'secretKeyRef' <<<"$redis_password_env"
 grep -q 'kind: NetworkPolicy' <<<"$redis"
 grep -A2 'namespaceSelector:' <<<"$redis" | grep -q 'home-lab.example/redis-access: "true"'
 
+# ...and that label is pinned, because the admin panel grants Redis access by
+# writing exactly it. A different key here would let the panel report a grant
+# that the NetworkPolicy never honours. Asserted on the message: the schema must
+# be what refuses it, naming the property.
+label_error=$(helm template home-lab-platform "${repo_root}/charts/platform" \
+  --namespace platform-system \
+  --set nfs-provisioner.nfs.server=nfs.example.invalid \
+  --set nfs-provisioner.nfs.path=/exports/kubernetes \
+  --set platform.redis.clientNamespaceLabel.key=example.com/other \
+  --show-only templates/redis.yaml 2>&1 >/dev/null) && {
+  printf 'A Redis client label other than the one the admin panel writes must be refused\n' >&2
+  exit 1
+}
+if ! grep -q 'clientNamespaceLabel' <<<"$label_error"; then
+  printf 'The refusal must name clientNamespaceLabel; got: %s\n' "$label_error" >&2
+  exit 1
+fi
+
 printf 'Platform chart validation passed.\n'

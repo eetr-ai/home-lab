@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // minPasswordLength is the shortest password this panel will set. The same bar
@@ -175,7 +176,7 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (User, 
 // The change applies to connections already authenticated as the user, at
 // their next command. Redis checks permissions against the user as it is now.
 func (s *Service) UpdateUser(ctx context.Context, name string, req UpdateUserRequest) (User, error) {
-	if err := validateUserName(name); err != nil {
+	if err := validateExistingUserName(name); err != nil {
 		return User{}, err
 	}
 	if req.Password != "" && len(req.Password) < minPasswordLength {
@@ -228,7 +229,7 @@ func (s *Service) UpdateUser(ctx context.Context, name string, req UpdateUserReq
 // still using the credential loses its connection now, not at its next
 // reconnect. Checked against Redis 8.10.
 func (s *Service) DeleteUser(ctx context.Context, name string) error {
-	if err := validateUserName(name); err != nil {
+	if err := validateExistingUserName(name); err != nil {
 		return err
 	}
 	if err := s.requirePersistence(ctx); err != nil {
@@ -291,12 +292,30 @@ func (s *Service) apply(ctx context.Context, change func() error, undo func(cont
 	if saveErr == nil {
 		return nil
 	}
-	if undoErr := undo(context.WithoutCancel(ctx)); undoErr != nil {
+	// The undo outlives the request: a caller that gave up must not leave the
+	// change half-reverted. Bounded, so a server that has stopped answering
+	// cannot hold this goroutine forever.
+	undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), undoTimeout)
+	defer cancel()
+
+	if undoErr := undo(undoCtx); undoErr != nil {
 		return fmt.Errorf("%w: %w: the change could not be saved (%w) and could not be undone (%w)",
 			ErrNotSaved, errNotUndone, saveErr, undoErr)
 	}
+	// Save the restored state too. A failed ACL SAVE does not prove the file was
+	// left alone: Redis renames the new file into place before it syncs the
+	// directory, so a sync error reports failure after the change is already on
+	// disk. Without this second save, memory would be restored and the file
+	// would not, and the next restart would bring the change back.
+	if resaveErr := s.repo.ACLSave(undoCtx); resaveErr != nil {
+		return fmt.Errorf("%w: %w: the change was undone in memory, but the aclfile may still hold it "+
+			"(%w, then %w)", ErrNotSaved, errNotUndone, saveErr, resaveErr)
+	}
 	return fmt.Errorf("%w: the change could not be written to the aclfile, so it was undone: %w", ErrNotSaved, saveErr)
 }
+
+// undoTimeout bounds the undo and re-save after a failed ACL SAVE.
+const undoTimeout = 5 * time.Second
 
 // requirePersistence refuses to change users on a server that would forget them.
 //
@@ -333,13 +352,33 @@ func (s *Service) findUser(ctx context.Context, name string) (string, bool, erro
 
 // validateUserName refuses a name this panel will not send, and the default user.
 func validateUserName(name string) error {
-	if name == defaultUser {
-		return fmt.Errorf("%w: the default user is the platform's own credential and is managed by its Secret",
-			ErrProtected)
+	if err := validateExistingUserName(name); err != nil {
+		return err
 	}
 	if !userNamePattern.MatchString(name) {
 		return fmt.Errorf("%w: %q is not a user name this panel will create: lowercase letters, digits, "+
 			"dots, dashes and underscores, starting with a letter or digit", ErrInvalidRequest, name)
+	}
+	return nil
+}
+
+// maxUserNameLength bounds a name taken from a URL, well past anything real.
+const maxUserNameLength = 256
+
+// validateExistingUserName is the check for a user that already exists.
+//
+// Looser than validateUserName on purpose. The strict format is about what
+// this panel CREATES; a user made by hand as `Orders` is listed here and must be
+// removable here, or the panel offers a delete button that can only ever be
+// refused. What stays refused is `default`, and a name Redis could not have —
+// empty, or with whitespace, which separates ACL rules.
+func validateExistingUserName(name string) error {
+	if name == defaultUser {
+		return fmt.Errorf("%w: the default user is the platform's own credential and is managed by its Secret",
+			ErrProtected)
+	}
+	if name == "" || len(name) > maxUserNameLength || strings.ContainsFunc(name, unicode.IsSpace) {
+		return fmt.Errorf("%w: %q is not a Redis user name", ErrInvalidRequest, name)
 	}
 	return nil
 }

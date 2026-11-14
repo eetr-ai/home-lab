@@ -7,7 +7,11 @@ describe("searchHref", () => {
 	});
 
 	it("an empty pattern leaves the parameter out rather than setting it empty", () => {
-		expect(searchHref("   ", 5)).toBe("?t=5");
+		expect(searchHref("", 5)).toBe("?t=5");
+	});
+
+	it("keeps leading and trailing spaces, which Redis key names may have", () => {
+		expect(new URLSearchParams(searchHref(" orders:* ", 1)).get("pattern")).toBe(" orders:* ");
 	});
 
 	it("encodes the pattern as a query value", () => {

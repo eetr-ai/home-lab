@@ -255,8 +255,9 @@ func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 // notSavedMessage says what state a failed ACL save left the server in.
 func notSavedMessage(err error) string {
 	if errors.Is(err, errNotUndone) {
-		return "Redis would not write the change to its aclfile, and undoing it failed too: the change is live " +
-			"now and will be lost at the next restart. Check the redis-acl volume, then make the change again."
+		return "Redis would not write the change to its aclfile, and the panel could not fully put things back: " +
+			"what Redis does now may not match what it will do after a restart. Check the redis-acl volume and " +
+			"this user, then make the change again."
 	}
 	return "Redis would not write the change to its aclfile, so it was undone. Check the redis-acl volume and try again."
 }
