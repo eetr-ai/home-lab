@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -92,6 +93,26 @@ func (r *Repository) CreateNamespace(ctx context.Context, spec NamespaceSpec) (N
 	}, metav1.CreateOptions{})
 	if err != nil {
 		return Namespace{}, translate(err, "create namespace "+spec.Name)
+	}
+	return namespaceFrom(item), nil
+}
+
+// LabelNamespace sets one label on a namespace, or removes it when value is nil.
+//
+// A JSON merge patch naming only that key, so every other label is left exactly
+// as it is — including ones written by somebody else between our read and this
+// write. A null in a merge patch deletes the key, which is how removal is spelled.
+func (r *Repository) LabelNamespace(ctx context.Context, name, key string, value *string) (Namespace, error) {
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{"labels": map[string]*string{key: value}},
+	})
+	if err != nil {
+		return Namespace{}, fmt.Errorf("encode the label patch: %w", err)
+	}
+
+	item, err := r.client.CoreV1().Namespaces().Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return Namespace{}, translate(err, "label namespace "+name)
 	}
 	return namespaceFrom(item), nil
 }

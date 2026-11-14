@@ -325,6 +325,7 @@ core/namespaces create
 core/namespaces delete
 core/namespaces get
 core/namespaces list
+core/namespaces patch
 core/namespaces watch
 core/nodes get
 core/nodes list
@@ -373,7 +374,9 @@ if grep -qE "$forbidden_verbs" <<<"$granted_pairs"; then
   exit 1
 fi
 
-# ...and the write verbs it does hold reach only the four workload pairs. Spelled
+# ...and the write verbs it does hold reach only the four workload pairs, plus
+# patch on namespaces for the Redis-access label (bounded by the API, see
+# templates/api/rbac.yaml). Spelled
 # out separately from the list above so that widening that list to, say, secrets
 # still trips this — the two assertions have to be wrong in the same way to pass.
 writable=$(grep -E ' (patch|update)$' <<<"$granted_pairs" | LC_ALL=C sort)
@@ -382,6 +385,7 @@ apps/deployments patch
 apps/deployments/scale update
 apps/statefulsets patch
 apps/statefulsets/scale update
+core/namespaces patch
 WRITABLE
 )
 if [[ $writable != "$expected_writable" ]]; then
@@ -419,10 +423,10 @@ fi
 # looks where it expects trouble is an assertion that stops finding it.
 unmanaged_pairs=$(render --set admin.api.kubernetes.namespaces.manage=false \
   --show-only templates/api/rbac.yaml | extract_pairs)
-expected_unmanaged_pairs=$(grep -v '^core/namespaces \(create\|delete\)$' \
+expected_unmanaged_pairs=$(grep -v '^core/namespaces \(create\|delete\|patch\)$' \
   <<<"$expected_pairs" | LC_ALL=C sort)
 if [[ $unmanaged_pairs != "$expected_unmanaged_pairs" ]]; then
-  printf 'Disabling namespace management must remove create and delete on namespaces, and nothing else.\n' >&2
+  printf 'Disabling namespace management must remove create, delete and patch on namespaces, and nothing else.\n' >&2
   diff <(printf '%s\n' "$expected_unmanaged_pairs") <(printf '%s\n' "$unmanaged_pairs") >&2 || true
   exit 1
 fi

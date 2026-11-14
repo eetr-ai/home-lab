@@ -18,6 +18,8 @@ type repository interface {
 	ListNamespaces(ctx context.Context) ([]Namespace, error)
 	ReadNamespace(ctx context.Context, name string) (Namespace, error)
 	CreateNamespace(ctx context.Context, spec NamespaceSpec) (Namespace, error)
+	// LabelNamespace sets one label, or removes it when value is nil.
+	LabelNamespace(ctx context.Context, name, key string, value *string) (Namespace, error)
 	DeleteNamespace(ctx context.Context, name, uid string) error
 	ListWorkloads(ctx context.Context, namespace string) ([]Workload, error)
 	ListPods(ctx context.Context, namespace string) ([]Pod, error)
