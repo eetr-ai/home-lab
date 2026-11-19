@@ -6,6 +6,7 @@ import { changeRolePrivileges } from "@/app/actions/postgres";
 import { Button } from "@/components/ui";
 import type { PostgresObjectPrivileges, PostgresRolePrivileges } from "@/lib/api/types";
 import {
+	MAX_CHANGES_PER_REQUEST,
 	PRIVILEGES,
 	baselineDraft,
 	countDifferences,
@@ -63,9 +64,20 @@ export function PrivilegeGrid({
 	};
 
 	function apply() {
+		const changes = diffChanges(privileges, draft);
+		if (changes.length > MAX_CHANGES_PER_REQUEST) {
+			// Explained here rather than sent and refused: the draft is kept, and the
+			// operator can apply it in parts or use "Grant a schema" for the bulk.
+			onError(
+				`These boxes make ${changes.length} separate grants and revokes; one apply can carry at most ${MAX_CHANGES_PER_REQUEST}. Apply part of them first, or use "Grant a schema" for a whole schema.`,
+			);
+			return;
+		}
 		onError(null);
 		startTransition(async () => {
-			const result = await changeRolePrivileges(privileges.database, privileges.role, diffChanges(privileges, draft));
+			// On failure nothing below changes the draft, so the boxes stay as
+			// ticked and editable again once pending clears.
+			const result = await changeRolePrivileges(privileges.database, privileges.role, changes);
 			if (!result.ok) {
 				onError(result.error);
 				return;
@@ -85,7 +97,9 @@ export function PrivilegeGrid({
 					objects={objectsOf(section)}
 					qualified={qualified}
 					ticked={(object) => draft[objectKey(section, object)] ?? object.granted}
-					editable={(object) => isEditable(privileges, object)}
+					// Locked while applying: an edit made now would not be in the request,
+					// and the refresh that follows success would discard it.
+					editable={(object) => !pending && isEditable(privileges, object)}
 					onToggle={(object, privilege) => setDraft((current) => togglePrivilege(current, section, object, privilege))}
 				/>
 			))}

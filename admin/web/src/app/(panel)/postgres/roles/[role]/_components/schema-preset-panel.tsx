@@ -64,6 +64,15 @@ export function SchemaPresetPanel({
 			}}
 			onSubmit={async () => {
 				if (!draft.schema) return { ok: false as const, error: "choose a schema" };
+				// Checked rather than left to presetChanges, which drops the default
+				// privileges when there is no owner: the grant would then succeed
+				// without the part this box asked for.
+				if (draft.future && !owners.includes(draft.owner)) {
+					return {
+						ok: false as const,
+						error: "choose who creates the later tables, or untick that option; the roles could not be listed",
+					};
+				}
 				const result = await changeRolePrivileges(
 					privileges.database,
 					privileges.role,

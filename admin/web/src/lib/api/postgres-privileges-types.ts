@@ -18,6 +18,11 @@ export interface PostgresObjectPrivileges {
 	kind: string;
 	owner: string;
 	granted: string[];
+	/**
+	 * Entries of `granted` made by a role other than the owner. The panel's revoke
+	 * acts as the owner and cannot remove them, so their boxes are not offered.
+	 */
+	foreignGrants: { privilege: string; grantor: string }[];
 	effective: string[];
 }
 

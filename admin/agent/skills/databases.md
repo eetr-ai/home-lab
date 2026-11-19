@@ -73,6 +73,10 @@ two lists, and the difference matters when you explain an answer:
   belongs to, ownership, and superuser. A privilege that is effective but not
   granted has to be revoked wherever it was granted; say so rather than
   revoking and reporting success.
+- `foreignGrants` — entries of `granted` that a role other than the owner
+  made. The panel's revoke acts as the owner and cannot remove them: a revoke
+  that would leave one in place is a 422 naming the grantor, and nothing is
+  applied. Tell the operator who granted it rather than retrying.
 
 `defaults` lists `ALTER DEFAULT PRIVILEGES` entries: privileges objects created
 **later** will get — but only objects created by that entry's `owner`. A new

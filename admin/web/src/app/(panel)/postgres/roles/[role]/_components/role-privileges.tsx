@@ -5,6 +5,7 @@ import { Plus, ShieldCheck } from "lucide-react";
 import { Banner, Button, EmptyState } from "@/components/ui";
 import { ScopePicker } from "../../../../_components/scope-picker";
 import type { PostgresRolePrivileges } from "@/lib/api/types";
+import { gridIdentity } from "@/lib/postgres/privileges";
 import { AppliedStatements } from "./applied-statements";
 import { DefaultPrivilegesList } from "./default-privileges-list";
 import { PrivilegeGrid } from "./privilege-grid";
@@ -36,7 +37,10 @@ export function RolePrivileges({
 	privileges: PostgresRolePrivileges | null;
 	loadError: string | null;
 }) {
-	const [error, setError] = useState<string | null>(loadError);
+	// Feedback from this page's own changes. A failure to load comes from the
+	// server render as loadError and is shown from the prop directly, so a refresh
+	// that fails after the page mounted still says so.
+	const [error, setError] = useState<string | null>(null);
 	const [applied, setApplied] = useState<string[]>([]);
 	const [presetOpen, setPresetOpen] = useState(false);
 
@@ -69,6 +73,7 @@ export function RolePrivileges({
 
 			<ScopePicker label="Database" param="database" options={databases} selected={selected} />
 
+			<Banner variant="error" message={loadError} />
 			<Banner variant="error" message={error} />
 			<AppliedStatements statements={applied} onDismiss={() => setApplied([])} />
 			{privileges?.isSuperuser ? (
@@ -79,7 +84,7 @@ export function RolePrivileges({
 			) : null}
 
 			{privileges === null ? (
-				error ? null : (
+				loadError ? null : (
 					<EmptyState
 						icon={ShieldCheck}
 						title="No databases"
@@ -89,9 +94,11 @@ export function RolePrivileges({
 			) : (
 				<>
 					<PrivilegeGrid
-						// Keyed by what was loaded, so the refresh after a change starts the
-						// boxes from the new state instead of the draft that produced it.
-						key={JSON.stringify(privileges)}
+						// Keyed by what the grid shows, so the refresh after a change starts
+						// the boxes from the new state instead of the draft that produced it —
+						// but not by the default privileges, whose revoke must not discard
+						// boxes ticked and not yet applied.
+						key={gridIdentity(privileges)}
 						privileges={privileges}
 						onApplied={report}
 						onError={setError}

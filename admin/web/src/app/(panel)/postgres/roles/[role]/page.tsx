@@ -39,7 +39,9 @@ export default async function PostgresRolePrivilegesPage({
 		listDatabases(),
 		listRoles(),
 	]);
-	const role = decodeURIComponent(raw);
+	// Already decoded: Next decodes dynamic route params, and decoding again would
+	// turn a role named `app%41` into `appA` — or throw on one named `app%x`.
+	const role = raw;
 	if (roles.ok && !roles.data.some((one) => one.name === role)) notFound();
 
 	const offered = databases.ok ? databases.data.filter((one) => !NOT_OFFERED.includes(one.name)) : [];

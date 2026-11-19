@@ -4,6 +4,9 @@ import {
 	baselineDraft,
 	countDifferences,
 	diffChanges,
+	MAX_OBJECTS_PER_CHANGE,
+	foreignGrantor,
+	gridIdentity,
 	isEditable,
 	objectKey,
 	presetChanges,
@@ -11,7 +14,7 @@ import {
 } from "./privileges";
 
 function table(name: string, granted: string[] = [], schema = "public"): PostgresObjectPrivileges {
-	return { schema, name, kind: "table", owner: "migrator", granted, effective: granted };
+	return { schema, name, kind: "table", owner: "migrator", granted, foreignGrants: [], effective: granted };
 }
 
 function state(overrides: Partial<PostgresRolePrivileges> = {}): PostgresRolePrivileges {
@@ -19,12 +22,12 @@ function state(overrides: Partial<PostgresRolePrivileges> = {}): PostgresRolePri
 		role: "app",
 		database: "appdb",
 		isSuperuser: false,
-		databasePrivileges: { name: "appdb", kind: "database", owner: "migrator", granted: [], effective: ["CONNECT"] },
-		schemas: [{ name: "public", kind: "schema", owner: "migrator", granted: [], effective: ["USAGE"] }],
+		databasePrivileges: { name: "appdb", kind: "database", owner: "migrator", granted: [], foreignGrants: [], effective: ["CONNECT"] },
+		schemas: [{ name: "public", kind: "schema", owner: "migrator", granted: [], foreignGrants: [], effective: ["USAGE"] }],
 		tables: [table("products"), table("packages"), table("secrets", ["SELECT"])],
 		sequences: [
-			{ schema: "public", name: "products_id_seq", kind: "sequence", owner: "migrator", granted: [], effective: [] },
-			{ schema: "public", name: "packages_id_seq", kind: "sequence", owner: "migrator", granted: [], effective: [] },
+			{ schema: "public", name: "products_id_seq", kind: "sequence", owner: "migrator", granted: [], foreignGrants: [], effective: [] },
+			{ schema: "public", name: "packages_id_seq", kind: "sequence", owner: "migrator", granted: [], foreignGrants: [], effective: [] },
 		],
 		defaults: [],
 		...overrides,
@@ -184,5 +187,39 @@ describe("isEditable", () => {
 		expect(isEditable(privileges, table("t"))).toBe(true);
 		expect(isEditable(privileges, { ...table("t"), owner: "app" })).toBe(false);
 		expect(isEditable({ ...privileges, isSuperuser: true }, table("t"))).toBe(false);
+	});
+});
+
+describe("diffChanges limits", () => {
+	// The API takes at most 200 names in one change; a bigger group is split into
+	// several changes in the same request rather than refused whole.
+	it("splits a group larger than the per-change limit", () => {
+		const tables = Array.from({ length: MAX_OBJECTS_PER_CHANGE + 1 }, (_, i) => table(`t${i}`));
+		const privileges = state({ tables });
+		let draft = baselineDraft(privileges);
+		for (const one of tables) draft = togglePrivilege(draft, "table", one, "SELECT");
+
+		const changes = diffChanges(privileges, draft);
+		expect(changes.map((one) => one.objects?.length)).toEqual([MAX_OBJECTS_PER_CHANGE, 1]);
+		expect(changes.flatMap((one) => one.objects)).toEqual(tables.map((one) => one.name));
+	});
+});
+
+describe("foreignGrantor", () => {
+	it("names who granted a privilege when it was not the owner", () => {
+		const object = { ...table("t", ["SELECT"]), foreignGrants: [{ privilege: "SELECT", grantor: "lead" }] };
+		expect(foreignGrantor(object, "SELECT")).toBe("lead");
+		expect(foreignGrantor(object, "INSERT")).toBeUndefined();
+	});
+});
+
+describe("gridIdentity", () => {
+	// Revoking a default-privileges entry must not reset boxes ticked but not yet
+	// applied, so the defaults are not part of what the grid is keyed by.
+	it("ignores default privileges and follows everything else", () => {
+		const before = state();
+		const defaultsChanged = { ...before, defaults: [{ owner: "m", objectType: "tables" as const, privileges: ["SELECT"] }] };
+		expect(gridIdentity(defaultsChanged)).toBe(gridIdentity(before));
+		expect(gridIdentity({ ...before, tables: [table("products", ["SELECT"])] })).not.toBe(gridIdentity(before));
 	});
 });

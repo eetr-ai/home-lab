@@ -3,6 +3,7 @@
 import { Check } from "lucide-react";
 import { Table, TBody, THead, Td, Th } from "@/components/ui";
 import type { PostgresObjectPrivileges } from "@/lib/api/types";
+import { foreignGrantor } from "@/lib/postgres/privileges";
 
 /**
  * One kind of object as a grid: a row per object, a column per privilege.
@@ -13,8 +14,11 @@ import type { PostgresObjectPrivileges } from "@/lib/api/types";
  *
  * - a muted tick, when the role holds the privilege without it being granted by
  *   name — through PUBLIC or a role it belongs to. Unticking cannot remove that.
- * - "owner", on an object the role owns. An owner holds everything implicitly,
- *   so its boxes are disabled rather than offered as something to revoke.
+ * - "owner", on an object the role owns. An owner is granted everything by
+ *   default, so its boxes are disabled rather than offered as something to revoke.
+ *
+ * A box whose privilege another role granted is locked, with the grantor in its
+ * tooltip: the panel's revoke acts as the owner and cannot remove that grant.
  */
 export function PrivilegeMatrix({
 	role,
@@ -76,6 +80,7 @@ export function PrivilegeMatrix({
 								</Td>
 								{columns.map((privilege) => {
 									const inherited = object.effective.includes(privilege) && !object.granted.includes(privilege);
+									const grantor = foreignGrantor(object, privilege);
 									return (
 										<Td key={privilege} className="text-center">
 											<span className="inline-flex items-center gap-1">
@@ -83,7 +88,8 @@ export function PrivilegeMatrix({
 													type="checkbox"
 													aria-label={`${privilege} on ${label}`}
 													checked={boxes.includes(privilege)}
-													disabled={!canEdit}
+													disabled={!canEdit || grantor !== undefined}
+													title={grantor ? `Granted by ${grantor}; revoke it as ${grantor}` : undefined}
 													onChange={() => onToggle(object, privilege)}
 													className="h-4 w-4 cursor-pointer rounded-chip border-border accent-brand disabled:cursor-default disabled:opacity-50"
 												/>
