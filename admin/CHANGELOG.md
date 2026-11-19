@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.12.0...admin-v1.13.0) (2026-11-19)
+
+
+### Features
+
+* **admin:** add and remove keys on Kubernetes Secrets ([#148](https://github.com/eetr-ai/home-lab/issues/148)) ([781a420](https://github.com/eetr-ai/home-lab/commit/781a42009d6430162a79c67dec93659c568183e0))
+* **admin:** manage PostgreSQL role privileges per database ([#149](https://github.com/eetr-ai/home-lab/issues/149)) ([e16d1ec](https://github.com/eetr-ai/home-lab/commit/e16d1ec457f2715688adcfcdef4ae72fbeb666ab))
+
 ## [1.12.0](https://github.com/eetr-ai/home-lab/compare/admin-v1.11.0...admin-v1.12.0) (2026-11-14)
 
 
