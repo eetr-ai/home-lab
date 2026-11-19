@@ -892,6 +892,15 @@ func TestEditSecretRefusesAKeyRepeatedInsideOneObject(t *testing.T) {
 	bodies := map[string]string{
 		"replace": `{"replace":{"password":"a","password":"b"}}`,
 		"add":     `{"add":{"apikey":"a","apikey":"b"}}`,
+		// Two whole objects under one member: decoding keeps only the second,
+		// so the repetition is invisible to any check made after it.
+		"replace twice": `{"replace":{"password":"a"},"replace":{"password":"b"}}`,
+		"add twice":     `{"add":{"apikey":"a"},"add":{"apikey":"b"}}`,
+		"remove twice":  `{"remove":["username"],"remove":["database"]}`,
+		// What DecodeJSON's DisallowUnknownFields refused, still refused.
+		"unknown member": `{"replace":{"password":"a"},"data":{"password":"b"}}`,
+		"not an object":  `["replace"]`,
+		"empty body":     ``,
 	}
 	for name, body := range bodies {
 		t.Run(name, func(t *testing.T) {

@@ -61,7 +61,7 @@ export function EditSecretPanel({
 			// The thing that is true and easy to miss. Nothing in this panel
 			// restarts anything, and an edit somebody believes took effect is worse
 			// than one they know is waiting.
-			description="Replace a value, remove a key, or add new ones; keys you leave alone keep their values. This writes the Secret and restarts nothing: pods that mount it as a volume see the change shortly, but ones that read it through environment variables keep the old values until restarted, which is the Workloads tab."
+			description="Replace a value, remove a key, or add new ones; keys you leave alone keep their values. This writes the Secret and restarts nothing: pods that mount it as an ordinary volume see the change shortly, but ones that read it through environment variables or a subPath mount keep the old values until restarted, which is the Workloads tab."
 			dirty={isEditDirty(draft)}
 			onClose={reset}
 			onSubmit={async () => {

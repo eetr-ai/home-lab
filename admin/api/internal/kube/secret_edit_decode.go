@@ -5,42 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	httpx "github.com/eetr-ai/home-lab/admin/api/internal/http"
 )
 
-// secretEditBody is SecretEdit with the two maps left undecoded, so a key named
-// twice inside one of them can be seen before encoding/json quietly keeps the
-// last one.
-type secretEditBody struct {
-	Replace json.RawMessage `json:"replace,omitempty"`
-	Add     json.RawMessage `json:"add,omitempty"`
-	Remove  []string        `json:"remove,omitempty"`
-}
-
-// decodeSecretEdit reads an edit request, refusing a key repeated inside
-// "replace" or "add".
+// decodeSecretEdit reads an edit request, refusing any member named twice —
+// "replace", "add" or "remove" at the top level, or one key inside "replace" or
+// "add".
 //
-// encoding/json resolves {"password": "a", "password": "b"} to "b" without a
-// word, so a caller who sent two values for one key would get a 200 for a value
-// it may not have meant. validateSecretEdit refuses a key named twice across the
-// lists or within "remove"; this is the one place the repetition is still
-// visible for the two maps, because after decoding it is gone. Kept to this
-// route rather than put in httpx.DecodeJSON, which every other handler shares.
+// encoding/json resolves a repeated member to the last one without a word, so
+// {"password": "a", "password": "b"} — or two whole "replace" objects — would
+// get a 200 for a value the caller may not have meant. validateSecretEdit
+// refuses a key named twice across the lists or within "remove"; this is the one
+// place the other repetitions are still visible, because after decoding they are
+// gone. Kept to this route rather than put in httpx.DecodeJSON, which every
+// other handler shares. Unknown members are refused here too, as DecodeJSON's
+// DisallowUnknownFields would have.
 func decodeSecretEdit(w http.ResponseWriter, r *http.Request) (SecretEdit, bool) {
-	var body secretEditBody
-	if !httpx.DecodeJSON(w, r, &body) {
-		return SecretEdit{}, false
-	}
-
-	replace, err := decodeUniqueStringMap(body.Replace)
+	edit, err := parseSecretEdit(r.Body)
 	if err == nil {
-		var add map[string]string
-		add, err = decodeUniqueStringMap(body.Add)
-		if err == nil {
-			return SecretEdit{Replace: replace, Add: add, Remove: body.Remove}, true
-		}
+		return edit, true
 	}
 
 	var dup duplicateMemberError
@@ -53,19 +39,45 @@ func decodeSecretEdit(w http.ResponseWriter, r *http.Request) (SecretEdit, bool)
 	return SecretEdit{}, false
 }
 
+func parseSecretEdit(body io.Reader) (SecretEdit, error) {
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return SecretEdit{}, fmt.Errorf("read body: %w", err)
+	}
+	members, err := decodeUniqueObject(raw)
+	if err != nil {
+		return SecretEdit{}, err
+	}
+	for name := range members {
+		if name != "replace" && name != "add" && name != "remove" {
+			return SecretEdit{}, fmt.Errorf("unknown member %q", name)
+		}
+	}
+
+	var edit SecretEdit
+	if edit.Replace, err = decodeUniqueStringMap(members["replace"]); err != nil {
+		return SecretEdit{}, err
+	}
+	if edit.Add, err = decodeUniqueStringMap(members["add"]); err != nil {
+		return SecretEdit{}, err
+	}
+	if remove := members["remove"]; len(remove) > 0 {
+		if err := json.Unmarshal(remove, &edit.Remove); err != nil {
+			return SecretEdit{}, fmt.Errorf("read remove: %w", err)
+		}
+	}
+	return edit, nil
+}
+
 type duplicateMemberError struct{ key string }
 
 func (e duplicateMemberError) Error() string {
 	return fmt.Sprintf("%q is named more than once in the same object", e.key)
 }
 
-// decodeUniqueStringMap decodes a JSON object of strings, failing on a repeated
-// member. Absent and null both come back as a nil map.
-func decodeUniqueStringMap(raw json.RawMessage) (map[string]string, error) {
-	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, nil
-	}
-
+// decodeUniqueObject splits a JSON object into its members, failing on a
+// repeated one. Each value is left undecoded.
+func decodeUniqueObject(raw []byte) (map[string]json.RawMessage, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	open, err := decoder.Token()
 	if err != nil {
@@ -75,18 +87,39 @@ func decodeUniqueStringMap(raw json.RawMessage) (map[string]string, error) {
 		return nil, errors.New("not an object")
 	}
 
-	values := map[string]string{}
+	members := map[string]json.RawMessage{}
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
 			return nil, fmt.Errorf("read key: %w", err)
 		}
 		key, _ := token.(string) // an object key is always a string token
-		if _, seen := values[key]; seen {
+		if _, seen := members[key]; seen {
 			return nil, duplicateMemberError{key: key}
 		}
-		var value string
+		var value json.RawMessage
 		if err := decoder.Decode(&value); err != nil {
+			return nil, fmt.Errorf("read value of %q: %w", key, err)
+		}
+		members[key] = value
+	}
+	return members, nil
+}
+
+// decodeUniqueStringMap decodes a JSON object of strings, failing on a repeated
+// member. Absent and null both come back as a nil map.
+func decodeUniqueStringMap(raw json.RawMessage) (map[string]string, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	members, err := decodeUniqueObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(members))
+	for key, member := range members {
+		var value string
+		if err := json.Unmarshal(member, &value); err != nil {
 			return nil, fmt.Errorf("read value of %q: %w", key, err)
 		}
 		values[key] = value
