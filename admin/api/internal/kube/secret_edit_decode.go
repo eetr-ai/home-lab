@@ -103,6 +103,16 @@ func decodeUniqueObject(raw []byte) (map[string]json.RawMessage, error) {
 		}
 		members[key] = value
 	}
+	// More() reports false at EOF and before a stray ']' alike, so the loop
+	// ending says nothing about whether the object was closed. The closing
+	// brace has to be read to know the body was whole.
+	closing, err := decoder.Token()
+	if err != nil {
+		return nil, fmt.Errorf("read end of object: %w", err)
+	}
+	if delim, ok := closing.(json.Delim); !ok || delim != '}' {
+		return nil, errors.New("object not closed")
+	}
 	return members, nil
 }
 

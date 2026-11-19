@@ -901,6 +901,10 @@ func TestEditSecretRefusesAKeyRepeatedInsideOneObject(t *testing.T) {
 		"unknown member": `{"replace":{"password":"a"},"data":{"password":"b"}}`,
 		"not an object":  `["replace"]`,
 		"empty body":     ``,
+		// An unclosed object stopped the member loop at EOF and was accepted.
+		"unclosed body": `{"replace":{"password":"a"}`,
+		"unclosed map":  `{"replace":{"password":"a"`,
+		"wrong closer":  `{"replace":{"password":"a"}]`,
 	}
 	for name, body := range bodies {
 		t.Run(name, func(t *testing.T) {
@@ -938,6 +942,8 @@ func TestDecodeUniqueStringMap(t *testing.T) {
 		{raw: `{"a":"1","a":"2"}`, wantErr: true},
 		{raw: `{"a":1}`, wantErr: true},
 		{raw: `["a"]`, wantErr: true},
+		{raw: `{"a":"1"`, wantErr: true},
+		{raw: `{"a":"1"]`, wantErr: true},
 	}
 	for _, test := range tests {
 		got, err := decodeUniqueStringMap([]byte(test.raw))
