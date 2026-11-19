@@ -55,7 +55,7 @@ type secretRepository interface {
 	ListSecrets(ctx context.Context, namespace string) ([]SecretSummary, error)
 	ReadSecret(ctx context.Context, namespace, name string) (SecretSummary, error)
 	DeleteSecret(ctx context.Context, namespace string, target SecretSummary) error
-	RotateSecretKeys(ctx context.Context, namespace, name string, values map[string]string) error
+	EditSecretKeys(ctx context.Context, namespace, name string, edit SecretEdit) error
 }
 
 // Enrolment is the Helm enrolment this service reports and repairs. Declared

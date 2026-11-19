@@ -247,7 +247,7 @@ func TestReservedSecretNamesWhatThePanelWillNotTouch(t *testing.T) {
 	}
 }
 
-// Listing decorates each row with whether the panel will delete or rotate it, so
+// Listing decorates each row with whether the panel will delete or edit it, so
 // that the panel and the write paths cannot disagree about the same Secret.
 //
 // The protected namespace is the interesting one: it lists, because the panel's
@@ -346,10 +346,10 @@ func TestNoSecretResponseCarriesAValue(t *testing.T) {
 	}{
 		{name: "list", method: "GET", target: "/api/kubernetes/namespaces/apps/secrets", wantMax: 200},
 		{
-			name:   "rotate",
-			method: "POST",
-			target: "/api/kubernetes/namespaces/apps/secrets/octo-database/rotate",
-			body:   `{"data":{"password":"` + sentinel + `"}}`,
+			name:   "edit",
+			method: "PATCH",
+			target: "/api/kubernetes/namespaces/apps/secrets/octo-database",
+			body:   `{"replace":{"password":"` + sentinel + `"},"add":{"apikey":"` + sentinel + `"}}`,
 		},
 	}
 
@@ -363,7 +363,7 @@ func TestNoSecretResponseCarriesAValue(t *testing.T) {
 			if recorder.Code >= 300 {
 				t.Fatalf("%s %s = %d: %s", request.method, request.target, recorder.Code, recorder.Body)
 			}
-			// The rotation sends the value in, so finding it in the response would
+			// The edit sends values in, so finding one in the response would
 			// mean the API echoed back a credential — which is the same leak by a
 			// shorter route.
 			if strings.Contains(recorder.Body.String(), sentinel) {
@@ -373,34 +373,31 @@ func TestNoSecretResponseCarriesAValue(t *testing.T) {
 	}
 }
 
-// Rotation replaces a value and must not disturb the keys it was not asked
-// about. The panel cannot see them, so nothing else is in a position to notice.
-func TestRotateSecretLeavesTheOtherKeysAlone(t *testing.T) {
+// An edit changes the keys it names and must not disturb the ones it does not.
+// The panel cannot see them, so nothing else is in a position to notice.
+func TestEditSecretLeavesTheOtherKeysAlone(t *testing.T) {
 	repo := &fakeRepo{namespaces: namespacesForSecretTests(), live: liveSecretsForTests()}
-	ref, err := newTestService(repo).RotateSecret(t.Context(), "apps", "octo-database",
-		SecretRotation{Data: map[string]string{"password": "new-password"}})
+	ref, err := newTestService(repo).EditSecret(t.Context(), "apps", "octo-database", SecretEdit{
+		Replace: map[string]string{"password": "new-password"},
+		Add:     map[string]string{"apikey": "new-key"},
+		Remove:  []string{"database"},
+	})
 	if err != nil {
-		t.Fatalf("RotateSecret() error = %v", err)
+		t.Fatalf("EditSecret() error = %v", err)
 	}
 
-	if len(repo.rotated) != 1 {
-		t.Fatalf("rotated %d times, want 1", len(repo.rotated))
+	if len(repo.edited) != 1 {
+		t.Fatalf("edited %d times, want 1", len(repo.edited))
 	}
-	got := repo.rotated[0]
-	if got["password"] != "new-password" {
-		t.Errorf("password = %q, want the new one", got["password"])
-	}
-	if got["username"] != "octo" {
-		t.Errorf("username = %q, want it untouched", got["username"])
-	}
-	if got["database"] != "octo" {
-		t.Errorf("database = %q, want it untouched", got["database"])
+	want := map[string]string{"username": "octo", "password": "new-password", "apikey": "new-key"}
+	if got := repo.edited[0]; !maps.Equal(got, want) {
+		t.Errorf("Secret after the edit = %v, want %v", got, want)
 	}
 
-	// The response names the keys that changed, not the keys the Secret has:
-	// saying "username" here would claim a rotation that did not happen.
-	if !slices.Equal(ref.Keys, []string{"password"}) {
-		t.Errorf("Keys = %v, want [password]", ref.Keys)
+	// The keys the Secret has now — what a chart's existingSecret can point at —
+	// not the keys the request named. "database" is gone and must not be claimed.
+	if !slices.Equal(ref.Keys, []string{"apikey", "password", "username"}) {
+		t.Errorf("Keys = %v, want [apikey password username]", ref.Keys)
 	}
 }
 
@@ -411,16 +408,19 @@ func TestSecretWritesRefuseBeforeTheyReachTheCluster(t *testing.T) {
 		name       string
 		namespace  string
 		secretName string
-		rotation   map[string]string
-		wantErr    error
+		edit       SecretEdit
+		// editOnly marks a case about the edit's payload, which a delete does not
+		// carry — so the delete is not expected to refuse it.
+		editOnly bool
+		wantErr  error
 	}{
 		{
-			name:       "a Secret the panel wrote is rotated and deleted",
+			name:       "a Secret the panel wrote is edited and deleted",
 			namespace:  "apps",
 			secretName: "octo-database",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 		},
-		// G101 fires on the rotation maps below, whose keys are called "password"
+		// G101 fires on the edit maps below, whose keys are called "password"
 		// and "token" because that is what a real Secret's keys are called. The
 		// values beside them are fixtures.
 		//nolint:gosec // G101: Secret key names in a fixture, not credentials.
@@ -430,14 +430,14 @@ func TestSecretWritesRefuseBeforeTheyReachTheCluster(t *testing.T) {
 			name:       "Helm's release storage is refused",
 			namespace:  "apps",
 			secretName: "sh.helm.release.v1.octo.v3",
-			rotation:   map[string]string{"release": "anything"},
+			edit:       SecretEdit{Replace: map[string]string{"release": "anything"}},
 			wantErr:    ErrReserved,
 		},
 		{
 			name:       "a ServiceAccount token is refused",
 			namespace:  "apps",
 			secretName: "octo-token",
-			rotation:   map[string]string{"token": "anything"},
+			edit:       SecretEdit{Replace: map[string]string{"token": "anything"}},
 			wantErr:    ErrReserved,
 		},
 		{
@@ -446,84 +446,165 @@ func TestSecretWritesRefuseBeforeTheyReachTheCluster(t *testing.T) {
 			name:       "an immutable Secret is refused",
 			namespace:  "apps",
 			secretName: "octo-pinned",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr:    ErrReserved,
 		},
 		{
-			// Rotation replaces; adding a key is PutSecret's job, where replacing
-			// what is already there has to be said out loud. Without this rule
-			// rotate is a second create with weaker guards.
-			name:       "a key the Secret does not have is refused",
+			// Replace means "this key, new value". A typo in a rotation must be
+			// refused rather than land as a second key beside the credential the
+			// operator believes they replaced.
+			name:       "replacing a key the Secret does not have is refused",
 			namespace:  "apps",
 			secretName: "octo-database",
-			rotation:   map[string]string{"apikey": "new-value"},
+			edit:       SecretEdit{Replace: map[string]string{"pasword": "new-value"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			// And the other way round: adding is not a quiet overwrite.
+			name:       "adding a key the Secret already has is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Add: map[string]string{"password": "new-value"}},
+			editOnly:   true,
+			wantErr:    ErrAlreadyExists,
+		},
+		{
+			name:       "removing a key the Secret does not have is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Remove: []string{"apikey"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			// That is a delete, and the delete has its own confirmation.
+			name:       "removing every key is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Remove: []string{"database", "password", "username"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			name:       "removing every key while adding one is an edit",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit: SecretEdit{
+				Add:    map[string]string{"apikey": "new-value"},
+				Remove: []string{"database", "password", "username"},
+			},
+			editOnly: true,
+		},
+		{
+			// No order of applying it is obviously what was meant.
+			name:       "a key named in two lists is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit: SecretEdit{
+				Replace: map[string]string{"password": "new-value"},
+				Remove:  []string{"password"},
+			},
+			editOnly: true,
+			wantErr:  ErrInvalidName,
+		},
+		{
+			name:       "a key named twice in remove is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Remove: []string{"password", "password"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			name:       "an added key Kubernetes would not accept is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Add: map[string]string{"api key": "new-value"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			name:       "an edit that changes nothing is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{},
+			editOnly:   true,
 			wantErr:    ErrInvalidName,
 		},
 		{
 			name:       "an empty value is refused",
 			namespace:  "apps",
 			secretName: "octo-database",
-			rotation:   map[string]string{"password": ""},
+			edit:       SecretEdit{Replace: map[string]string{"password": ""}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			name:       "an empty added value is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Add: map[string]string{"apikey": ""}},
+			editOnly:   true,
 			wantErr:    ErrInvalidName,
 		},
 		{
 			name:       "a protected namespace is refused",
 			namespace:  "admin",
 			secretName: "octo-database",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr:    ErrProtected,
 		},
 		{
 			name:       "a namespace the panel does not manage is refused",
 			namespace:  "unmanaged",
 			secretName: "octo-database",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr:    ErrNotManaged,
 		},
 		{
 			name:       "a malformed namespace is refused",
 			namespace:  "Apps",
 			secretName: "octo-database",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr:    ErrInvalidName,
 		},
 		{
 			name:       "a malformed Secret name is refused",
 			namespace:  "apps",
 			secretName: "Octo Database",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr:    ErrInvalidName,
 		},
 		{
 			name:       "a Secret that is not there is a not-found",
 			namespace:  "apps",
 			secretName: "missing",
-			rotation:   map[string]string{"password": "new-password"},
+			edit:       SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr:    ErrNotFound,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Run("rotate", func(t *testing.T) {
+			t.Run("edit", func(t *testing.T) {
 				repo := &fakeRepo{namespaces: namespacesForSecretTests(), live: liveSecretsForTests()}
-				_, err := newTestService(repo).RotateSecret(t.Context(), test.namespace, test.secretName,
-					SecretRotation{Data: test.rotation})
+				_, err := newTestService(repo).EditSecret(t.Context(), test.namespace, test.secretName,
+					test.edit)
 
 				if !errors.Is(err, test.wantErr) {
-					t.Fatalf("RotateSecret() error = %v, want %v", err, test.wantErr)
+					t.Fatalf("EditSecret() error = %v, want %v", err, test.wantErr)
 				}
-				if test.wantErr != nil && len(repo.rotated) != 0 {
-					t.Errorf("a refused rotation wrote %v", repo.rotated)
+				if test.wantErr != nil && len(repo.edited) != 0 {
+					t.Errorf("a refused edit wrote %v", repo.edited)
+				}
+				if test.wantErr == nil && len(repo.edited) != 1 {
+					t.Errorf("EditSecret() wrote %d times, want 1", len(repo.edited))
 				}
 			})
 
 			t.Run("delete", func(t *testing.T) {
-				// The empty-value and unknown-key cases are rotation's alone —
-				// a delete carries no data — so they are not expected to refuse
-				// here and the row is skipped rather than asserted wrongly.
-				if test.name == "an empty value is refused" ||
-					test.name == "a key the Secret does not have is refused" {
+				if test.editOnly {
 					t.Skip("a delete carries no data")
 				}
 
@@ -532,7 +613,7 @@ func TestSecretWritesRefuseBeforeTheyReachTheCluster(t *testing.T) {
 
 				wantErr := test.wantErr
 				// An immutable Secret can be deleted; immutability is a rule about
-				// changing one, not about removing it. Rotation is where it bites.
+				// changing one, not about removing it. Editing is where it bites.
 				if test.name == "an immutable Secret is refused" {
 					wantErr = nil
 				}
@@ -616,15 +697,16 @@ func liveSecretsForTests() map[string]liveSecret {
 // The service's verdict is about a Secret it read; the write lands on whatever
 // holds that name a moment later. These two guard that gap.
 //
-// rotatable is the repository's re-check, made inside the retry loop against the
-// object the Update is about to replace. The cases below are the three ways that
-// object could have become one nobody may rotate between the read and the write.
-func TestRotatableJudgesTheObjectBeingWritten(t *testing.T) {
+// editable is the repository's re-check, made inside the retry loop against the
+// object the Update is about to replace. The cases below are the ways that object
+// could have become one this edit must not be applied to between the read and the
+// write.
+func TestEditableJudgesTheObjectBeingWritten(t *testing.T) {
 	pinned := true
 	tests := []struct {
 		name    string
 		live    *corev1.Secret
-		values  map[string]string
+		edit    SecretEdit
 		wantErr error
 	}{
 		{
@@ -634,7 +716,7 @@ func TestRotatableJudgesTheObjectBeingWritten(t *testing.T) {
 				Type:       corev1.SecretTypeOpaque,
 				Data:       map[string][]byte{"password": []byte("hunter2")},
 			},
-			values: map[string]string{"password": "new-password"},
+			edit: SecretEdit{Replace: map[string]string{"password": "new-password"}},
 		},
 		{
 			name: "replaced by Helm's release storage",
@@ -643,7 +725,7 @@ func TestRotatableJudgesTheObjectBeingWritten(t *testing.T) {
 				Type:       corev1.SecretType(helmReleaseSecretType),
 				Data:       map[string][]byte{"password": []byte("hunter2")},
 			},
-			values:  map[string]string{"password": "new-password"},
+			edit:    SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr: ErrReserved,
 		},
 		{
@@ -654,25 +736,47 @@ func TestRotatableJudgesTheObjectBeingWritten(t *testing.T) {
 				Immutable:  &pinned,
 				Data:       map[string][]byte{"password": []byte("hunter2")},
 			},
-			values:  map[string]string{"password": "new-password"},
+			edit:    SecretEdit{Replace: map[string]string{"password": "new-password"}},
 			wantErr: ErrReserved,
 		},
 		{
-			name: "no longer has the key being rotated",
+			name: "no longer has the key being replaced",
 			live: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
 				Type:       corev1.SecretTypeOpaque,
 				Data:       map[string][]byte{"username": []byte("octo")},
 			},
-			values:  map[string]string{"password": "new-password"},
+			edit:    SecretEdit{Replace: map[string]string{"password": "new-password"}},
+			wantErr: ErrInvalidName,
+		},
+		{
+			name: "has gained the key being added",
+			live: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"password": []byte("hunter2"), "apikey": []byte("theirs")},
+			},
+			edit:    SecretEdit{Add: map[string]string{"apikey": "mine"}},
+			wantErr: ErrAlreadyExists,
+		},
+		{
+			// Somebody else removed the other keys; this removal would now
+			// empty the Secret, which is a delete nobody confirmed.
+			name: "would be left with no keys",
+			live: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"password": []byte("hunter2")},
+			},
+			edit:    SecretEdit{Remove: []string{"password"}},
 			wantErr: ErrInvalidName,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := rotatable(test.live, test.values); !errors.Is(err, test.wantErr) {
-				t.Errorf("rotatable() error = %v, want %v", err, test.wantErr)
+			if err := editable(test.live, test.edit); !errors.Is(err, test.wantErr) {
+				t.Errorf("editable() error = %v, want %v", err, test.wantErr)
 			}
 		})
 	}
@@ -695,5 +799,44 @@ func TestSummarizeSecretCarriesTheIdentityAWriteIsBoundTo(t *testing.T) {
 	if summary.uid != "6f0b2a1e-0000-4000-8000-000000000001" || summary.resourceVersion != "4711" {
 		t.Errorf("summarizeSecret() uid = %q version = %q, want the live ones",
 			summary.uid, summary.resourceVersion)
+	}
+}
+
+// The merge, on the real object. Every key not named comes through byte for byte,
+// and StringData cannot survive to bring a removed key back or override a
+// replaced one.
+func TestApplySecretEditChangesOnlyTheNamedKeys(t *testing.T) {
+	live := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "octo-database"},
+		Type:       corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"username": []byte("octo"),
+			"password": []byte("hunter2"),
+			"database": []byte("octo"),
+		},
+		StringData: map[string]string{"database": "stale", "pending": "not yet folded"},
+	}
+
+	applySecretEdit(live, SecretEdit{
+		Replace: map[string]string{"password": "new-password"},
+		Add:     map[string]string{"apikey": "new-key"},
+		Remove:  []string{"database"},
+	})
+
+	got := map[string]string{}
+	for key, value := range live.Data {
+		got[key] = string(value)
+	}
+	want := map[string]string{
+		"username": "octo",
+		"password": "new-password",
+		"apikey":   "new-key",
+		"pending":  "not yet folded",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("Data = %v, want %v", got, want)
+	}
+	if live.StringData != nil {
+		t.Errorf("StringData = %v, want it cleared", live.StringData)
 	}
 }

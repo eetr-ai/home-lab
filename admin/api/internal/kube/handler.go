@@ -64,8 +64,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		h.putSecret)
 	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/secrets/{name}",
 		h.deleteSecret)
-	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/secrets/{name}/rotate",
-		h.rotateSecret)
+	mux.HandleFunc("PATCH /api/kubernetes/namespaces/{namespace}/secrets/{name}",
+		h.editSecret)
 	mux.HandleFunc("POST /api/kubernetes/namespaces/{namespace}/helm-enrolment",
 		h.enrolNamespace)
 	mux.HandleFunc("DELETE /api/kubernetes/namespaces/{namespace}/helm-enrolment",
@@ -680,7 +680,7 @@ func (h *Handler) putSecret(w http.ResponseWriter, r *http.Request) {
 //	@Description	Names, types, keys and ages. No value is ever returned by this API,
 //	@Description	and there is no endpoint that reveals one — a credential written
 //	@Description	through the panel is visible once, in the browser, when it is made.
-//	@Description	Each row reports whether the panel will delete or rotate it, and why
+//	@Description	Each row reports whether the panel will delete or edit it, and why
 //	@Description	not: Helm's release storage and ServiceAccount tokens are refused
 //	@Description	whatever the namespace policy says.
 //	@Tags			kubernetes
@@ -731,38 +731,43 @@ func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// rotateSecret replaces the values of keys a Secret already has.
+// editSecret replaces, adds and removes keys on a Secret that already exists.
 //
-//	@Summary		Rotate a Secret's values
+//	@Summary		Edit a Secret's keys
 //	@Description	Names only the keys to change; every other key keeps its value, which
 //	@Description	is why this is not a PUT — the caller cannot read a value back, so it
-//	@Description	cannot resend a key it is not rotating. A key the Secret does not
-//	@Description	already have is refused: rotation replaces a value, it does not add
-//	@Description	one. Refused for the same namespaces and Secret types as a delete, and
-//	@Description	for an immutable Secret. The response carries the keys and nothing
-//	@Description	else. NOTE that this writes the Secret and stops: pods already running
-//	@Description	hold the old value until something restarts them.
+//	@Description	cannot resend a key it is not changing. Each key says what is
+//	@Description	happening to it: replace a key the Secret has (rotating a credential),
+//	@Description	add one it does not have, or remove one it has. A key in the wrong
+//	@Description	list is refused rather than reinterpreted, so a mistyped rotation
+//	@Description	cannot quietly add a new key — 400 for replacing or removing a key
+//	@Description	that is not there, 409 for adding one that is. Removing every key is
+//	@Description	refused; delete the Secret instead. Refused for the same namespaces and
+//	@Description	Secret types as a delete, and for an immutable Secret. The response
+//	@Description	carries the keys the Secret now has and nothing else. NOTE that this
+//	@Description	writes the Secret and stops: pods already running hold the old values
+//	@Description	until something restarts them.
 //	@Tags			kubernetes
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			namespace	path		string					true	"Namespace name"
-//	@Param			name		path		string					true	"Secret name"
-//	@Param			request		body		kube.SecretRotation		true	"The keys to replace"
+//	@Param			namespace	path		string			true	"Namespace name"
+//	@Param			name		path		string			true	"Secret name"
+//	@Param			request		body		kube.SecretEdit	true	"The keys to replace, add and remove"
 //	@Success		200			{object}	kube.SecretRef
 //	@Failure		400			{object}	http.ErrorBody
 //	@Failure		401			{object}	http.ErrorBody
 //	@Failure		403			{object}	http.ErrorBody
 //	@Failure		404			{object}	http.ErrorBody
-//	@Router			/api/kubernetes/namespaces/{namespace}/secrets/{name}/rotate [post]
-func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
-	var rotation SecretRotation
-	if !httpx.DecodeJSON(w, r, &rotation) {
+//	@Failure		409			{object}	http.ErrorBody
+//	@Router			/api/kubernetes/namespaces/{namespace}/secrets/{name} [patch]
+func (h *Handler) editSecret(w http.ResponseWriter, r *http.Request) {
+	var edit SecretEdit
+	if !httpx.DecodeJSON(w, r, &edit) {
 		return
 	}
 
-	ref, err := h.service.RotateSecret(
-		r.Context(), r.PathValue("namespace"), r.PathValue("name"), rotation)
+	ref, err := h.service.EditSecret(r.Context(), r.PathValue("namespace"), r.PathValue("name"), edit)
 	if err != nil {
 		respondError(w, err)
 		return

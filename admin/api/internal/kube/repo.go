@@ -440,80 +440,96 @@ func (r *Repository) DeleteSecret(ctx context.Context, namespace string, target 
 	return translate(err, "delete secret "+namespace+"/"+target.Name)
 }
 
-// RotateSecretKeys replaces the values of the named keys and leaves the rest.
+// EditSecretKeys replaces, adds and removes the named keys and leaves the rest.
 //
 // A read-modify-write, which is the one place in this file that is deliberately
 // not the apply-style update UpdateSecret uses. The difference is what the caller
-// knows: an overwrite is somebody saying "make it say exactly this", while a
-// rotation is somebody who cannot see the other keys and must not disturb them.
+// knows: an overwrite is somebody saying "make it say exactly this", while an
+// edit is somebody who cannot see the other keys and must not disturb them.
 //
 // Under RetryOnConflict because the window between the read and the write is real
-// and the loss would be silent — the second writer's rotation would answer 409
-// and the operator would reasonably read that as "nothing happened", which is
-// true but leaves them holding a password that is not installed anywhere.
+// and the loss would be silent — the second writer's edit would answer 409 and the
+// operator would reasonably read that as "nothing happened", which is true but
+// leaves them holding a password that is not installed anywhere.
 //
 // Data rather than StringData, because the object read back has its values in
 // Data and setting both leaves StringData winning for the keys it names and Data
 // for the rest — which works, and is a rule nobody should have to know.
-func (r *Repository) RotateSecretKeys(
-	ctx context.Context, namespace, name string, values map[string]string,
+func (r *Repository) EditSecretKeys(
+	ctx context.Context, namespace, name string, edit SecretEdit,
 ) error {
 	secrets := r.client.CoreV1().Secrets(namespace)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		live, err := secrets.Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return fmt.Errorf("read for rotation: %w", err)
+			return fmt.Errorf("read for edit: %w", err)
 		}
 		// Re-checked against this read, not against the one the service made.
 		// Every trip round this loop is a fresh object, and a retry provoked by a
 		// conflict is precisely the case where the object changed under us — so
-		// the guards that decided this Secret was rotatable have to decide it
+		// the guards that decided this Secret was editable have to decide it
 		// again about the thing actually being written.
-		if err = rotatable(live, values); err != nil {
+		if err = editable(live, edit); err != nil {
 			return err
 		}
-		if live.Data == nil {
-			live.Data = map[string][]byte{}
-		}
-		for key, value := range values {
-			live.Data[key] = []byte(value)
-		}
-		// StringData is cleared rather than trusted to be empty: a Secret written
-		// by an apply carries none, but this is the object the API server will
-		// take literally and leaving a field unexamined here is how a value from
-		// somewhere else wins.
-		live.StringData = nil
+		applySecretEdit(live, edit)
 		// Wrapped with %w rather than returned bare: RetryOnConflict decides
 		// whether to go round again with apierrors.IsConflict, which unwraps, so
 		// the retry still sees a conflict for what it is.
 		if _, err = secrets.Update(ctx, live, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("write for rotation: %w", err)
+			return fmt.Errorf("write for edit: %w", err)
 		}
 		return nil
 	})
-	return translate(err, "rotate secret "+namespace+"/"+name)
+	return translate(err, "edit secret "+namespace+"/"+name)
 }
 
-// rotatable repeats the service's verdict about the object that is about to be
+// applySecretEdit changes the object in place. Separate so the merge — the part
+// where a key not named must come through untouched — can be tested on its own.
+func applySecretEdit(live *corev1.Secret, edit SecretEdit) {
+	if live.Data == nil {
+		live.Data = map[string][]byte{}
+	}
+	// Folded in first, so clearing StringData below cannot drop a key that the
+	// checks in editable counted as present. Empty on any Secret read back from
+	// the API server; this is for the one that is not.
+	for key, value := range live.StringData {
+		if _, already := live.Data[key]; !already {
+			live.Data[key] = []byte(value)
+		}
+	}
+	for key, value := range edit.Replace {
+		live.Data[key] = []byte(value)
+	}
+	for key, value := range edit.Add {
+		live.Data[key] = []byte(value)
+	}
+	for _, key := range edit.Remove {
+		delete(live.Data, key)
+	}
+	// StringData is cleared rather than trusted to be empty: a Secret written by
+	// an apply carries none, but this is the object the API server will take
+	// literally and leaving a field unexamined here is how a value from somewhere
+	// else wins — or how a removed key comes back.
+	live.StringData = nil
+}
+
+// editable repeats the service's verdict about the object that is about to be
 // written, and returns an error RetryOnConflict will not retry.
 //
-// It duplicates three checks the service already made, and that duplication is
-// the point: the service made them about an object it read a moment ago, and the
+// It duplicates checks the service already made, and that duplication is the
+// point: the service made them about an object it read a moment ago, and the
 // only object whose type, mutability and keys matter is the one this Update is
 // going to replace.
-func rotatable(live *corev1.Secret, values map[string]string) error {
+func editable(live *corev1.Secret, edit SecretEdit) error {
 	if reserved, reason := reservedSecret(string(live.Type)); reserved {
 		return fmt.Errorf("%w: %s is %s", ErrReserved, live.Name, reason)
 	}
 	if live.Immutable != nil && *live.Immutable {
 		return fmt.Errorf("%w: %s is immutable", ErrReserved, live.Name)
 	}
-	for key := range values {
-		if _, has := live.Data[key]; !has {
-			return fmt.Errorf("%w: %s has no key %q", ErrInvalidName, live.Name, key)
-		}
-	}
-	return nil
+	_, err := editedKeys(live.Name, summarizeSecret(live).Keys, edit)
+	return err
 }
 
 // summarizeSecret is the projection, and the only place a live Secret is turned
