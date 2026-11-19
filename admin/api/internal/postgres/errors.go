@@ -21,4 +21,7 @@ var (
 	// own message, which is the useful part — a syntax error names the position,
 	// and a read-only refusal names the statement kind.
 	ErrQueryFailed = errors.New("query failed")
+	// ErrNotRevocable reports a revoke that would have left the role holding the
+	// privilege, because another role granted it. See verifyRevoked.
+	ErrNotRevocable = errors.New("not revocable here")
 )

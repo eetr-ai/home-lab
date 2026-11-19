@@ -59,6 +59,57 @@ response gives you for the next; when there is no `nextCursor`, that was the las
 page. A view or a table without a primary key has nothing to page over, so it
 comes back as one capped page — `truncated` says whether rows were left off.
 
+### Privileges
+
+Roles get row access through grants, and the panel manages them — so "give
+`app` access to its tables" is a call, not SQL in the console.
+
+`GET /api/postgres/databases/{db}/roles/{role}/privileges` answers what a role
+holds **in that database** (privileges are per database). Each object carries
+two lists, and the difference matters when you explain an answer:
+
+- `granted` — granted to this role by name. Only these can be revoked from it.
+- `effective` — what it can actually do, which also counts PUBLIC, roles it
+  belongs to, ownership, and superuser. A privilege that is effective but not
+  granted has to be revoked wherever it was granted; say so rather than
+  revoking and reporting success.
+- `foreignGrants` — entries of `granted` that a role other than the owner
+  made. The panel's revoke acts as the owner and cannot remove them: a revoke
+  that would leave one in place is a 422 naming the grantor, and nothing is
+  applied. Tell the operator who granted it rather than retrying.
+
+`defaults` lists `ALTER DEFAULT PRIVILEGES` entries: privileges objects created
+**later** will get — but only objects created by that entry's `owner`. A new
+table that "lost" its grants was usually created by a different role.
+
+To change them, `POST` the same path with `{"changes": [...]}`. Every change is
+`{"action": "grant"|"revoke", "target", "privileges": [...]}` plus what the
+target needs:
+
+| `target` | Also needs | Privileges |
+| --- | --- | --- |
+| `database` | nothing | `CONNECT`, `CREATE`, `TEMPORARY` |
+| `schema` | `schema` | `USAGE`, `CREATE` |
+| `table` | `schema`, `objects` (table names) | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` |
+| `sequence` | `schema`, `objects` | `USAGE`, `SELECT`, `UPDATE` |
+| `allTables` / `allSequences` | `schema` | as for tables / sequences — every one that exists **now** |
+| `defaultTables` / `defaultSequences` | `owner`; `schema` optional (absent = every schema) | as for tables / sequences |
+
+A field the target does not use is a 400, not ignored. The whole list runs in
+one transaction, and the response has the `statements` that ran and the role's
+state afterwards; a statement the server refuses (a table that does not exist)
+is a 422 with PostgreSQL's message, and nothing was applied. Superusers, the
+panel's own account, `pg_*` roles, and the `postgres`/`template*` databases are
+refused (403).
+
+Read-write access for an application usually means all of: `CONNECT` on the
+database, `USAGE` on the schema, `SELECT, INSERT, UPDATE, DELETE` on the tables,
+and `USAGE, SELECT` on the sequences — without `USAGE` on a sequence, inserting
+into a serial column fails even though `INSERT` was granted. Add the default
+targets, with the role the app's migrations run as for `owner`, if tables
+created later should be covered too. The panel's role page
+(`/postgres/roles/{role}?database={db}`) does the same from a form.
+
 ## MongoDB
 
 `/api/mongo/databases` lists databases with their sizes,

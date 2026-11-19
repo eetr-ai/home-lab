@@ -1673,6 +1673,34 @@
                 },
                 "type": "object"
             },
+            "postgres.ChangePrivilegesRequest": {
+                "properties": {
+                    "changes": {
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.PrivilegeChange"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.ChangePrivilegesResult": {
+                "properties": {
+                    "privileges": {
+                        "$ref": "#/components/schemas/postgres.RolePrivileges"
+                    },
+                    "statements": {
+                        "description": "Statements are the GRANT and REVOKE statements that were committed, in\norder, so the caller can see — and keep — exactly what was done.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "postgres.Column": {
                 "properties": {
                     "name": {
@@ -1756,6 +1784,29 @@
                 },
                 "type": "object"
             },
+            "postgres.DefaultPrivileges": {
+                "properties": {
+                    "objectType": {
+                        "description": "ObjectType is \"tables\" or \"sequences\".",
+                        "type": "string"
+                    },
+                    "owner": {
+                        "type": "string"
+                    },
+                    "privileges": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "schema": {
+                        "description": "Schema is empty for an entry that applies in every schema.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "postgres.ExecuteResult": {
                 "properties": {
                     "columns": {
@@ -1799,6 +1850,95 @@
                         "type": "string"
                     },
                     "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.ForeignGrant": {
+                "properties": {
+                    "grantor": {
+                        "type": "string"
+                    },
+                    "privilege": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.ObjectPrivileges": {
+                "description": "DatabasePrivileges is CONNECT, CREATE and TEMPORARY on the database itself.",
+                "properties": {
+                    "effective": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "foreignGrants": {
+                        "description": "ForeignGrants are the entries of Granted that a role other than the owner\ngranted. The panel's revoke acts as the owner and cannot remove them, so\nthey are reported for the caller to leave alone, not to offer as a revoke.",
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.ForeignGrant"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "granted": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kind": {
+                        "description": "Kind is \"database\", \"schema\", \"table\", \"view\", \"matview\", \"foreign\", or\n\"sequence\". A view is granted to with the same statement as a table, so the\ndistinction is only for display.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "owner": {
+                        "description": "Owner is the object's owner. An owner is granted every privilege by\ndefault, so for an object the role owns, Granted lists all of them unless the\nowner has revoked some from itself — which it can, and can grant back.",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "description": "Schema is empty for the database and for a schema itself.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.PrivilegeChange": {
+                "properties": {
+                    "action": {
+                        "description": "Action is \"grant\" or \"revoke\".",
+                        "type": "string"
+                    },
+                    "objects": {
+                        "description": "Objects are table or sequence names within Schema.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "owner": {
+                        "description": "Owner is the role whose future objects a default target covers.",
+                        "type": "string"
+                    },
+                    "privileges": {
+                        "description": "Privileges are keywords valid for the target, e.g. SELECT for a table or\nUSAGE for a sequence. ALL is not accepted: it means different things on\ndifferent PostgreSQL versions, and the panel shows a fixed set.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "schema": {
+                        "type": "string"
+                    },
+                    "target": {
                         "type": "string"
                     }
                 },
@@ -1890,6 +2030,53 @@
                     },
                     "name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "postgres.RolePrivileges": {
+                "description": "Privileges is the role's state in the database after the change.",
+                "properties": {
+                    "database": {
+                        "type": "string"
+                    },
+                    "databasePrivileges": {
+                        "$ref": "#/components/schemas/postgres.ObjectPrivileges"
+                    },
+                    "defaults": {
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.DefaultPrivileges"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "isSuperuser": {
+                        "description": "IsSuperuser is reported because a superuser bypasses every privilege check:\nevery Effective list is full, and granting to it changes nothing.",
+                        "type": "boolean"
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "schemas": {
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.ObjectPrivileges"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sequences": {
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.ObjectPrivileges"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "tables": {
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.ObjectPrivileges"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -8687,6 +8874,196 @@
                     }
                 ],
                 "summary": "Run a read-only query",
+                "tags": [
+                    "postgres"
+                ]
+            }
+        },
+        "/api/postgres/databases/{database}/roles/{role}/privileges": {
+            "get": {
+                "description": "Per database, because privileges are: the database itself (CONNECT, CREATE,\nTEMPORARY), each schema (USAGE, CREATE), each table or view (SELECT, INSERT,\nUPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER) and each sequence (USAGE,\nSELECT, UPDATE), plus the ALTER DEFAULT PRIVILEGES entries naming the role.\nEach object carries `granted` — granted to this role by name, which is what\na revoke from it removes — and `effective`, which also counts PUBLIC,\ninherited memberships, ownership and superuser.",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Role name",
+                        "in": "path",
+                        "name": "role",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.RolePrivileges"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a role's privileges in a database",
+                "tags": [
+                    "postgres"
+                ]
+            },
+            "post": {
+                "description": "A list of changes applied in one transaction, so a group — read-write\naccess to a schema, say — lands whole or not at all. Each change is a grant\nor revoke of named privileges on the database, a schema, named tables or\nsequences, every table or sequence that exists in a schema now\n(allTables, allSequences), or those an owner creates later (defaultTables,\ndefaultSequences: ALTER DEFAULT PRIVILEGES FOR ROLE owner — it covers only\nobjects that owner creates). Privileges are checked against a fixed list per\ntarget. PostgreSQL's own roles and databases, superusers, and the panel's own\naccount are refused. Returns the statements that ran and the role's state\nafterwards; a statement the server refuses is a 422 with its message. A revoke\nonly removes grants the object's owner made: one that would leave a grant by\nanother role in place (see foreignGrants) is a 422 naming it, and nothing is\napplied.",
+                "parameters": [
+                    {
+                        "description": "Database name",
+                        "in": "path",
+                        "name": "database",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Role name",
+                        "in": "path",
+                        "name": "role",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/postgres.ChangePrivilegesRequest",
+                                        "summary": "request",
+                                        "description": "The changes"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The changes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/postgres.ChangePrivilegesResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Entity"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Grant or revoke a role's privileges in a database",
                 "tags": [
                     "postgres"
                 ]

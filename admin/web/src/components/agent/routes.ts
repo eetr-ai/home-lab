@@ -68,6 +68,10 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	{ path: "/postgres", description: "The PostgreSQL section." },
 	{ path: "/postgres/databases", description: "The databases. Creating and dropping one happens here." },
 	{ path: "/postgres/roles", description: "The roles, and what each may do. Creating and dropping one happens here." },
+	{
+		path: "/postgres/roles/{role}?database={database}",
+		description: "One role's privileges in one database: what it is granted on each schema, table and sequence, granting a whole schema read-only or read-write, and its default privileges.",
+	},
 	{ path: "/postgres/extensions?database={database}", description: "The extensions installed in one database, and installing another." },
 	{ path: "/postgres/query?database={database}", description: "The read-only SQL console, opened on one database. Take somebody here when the answer is a query they should run or adjust themselves." },
 

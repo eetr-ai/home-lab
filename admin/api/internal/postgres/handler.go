@@ -36,6 +36,81 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/postgres/databases/{database}/execute", h.execute)
 	mux.HandleFunc("GET /api/postgres/databases/{database}/tables", h.listTables)
 	mux.HandleFunc("POST /api/postgres/databases/{database}/browse", h.browse)
+	mux.HandleFunc("GET /api/postgres/databases/{database}/roles/{role}/privileges", h.listPrivileges)
+	mux.HandleFunc("POST /api/postgres/databases/{database}/roles/{role}/privileges", h.changePrivileges)
+}
+
+// listPrivileges returns what one role holds in one database.
+//
+//	@Summary		List a role's privileges in a database
+//	@Description	Per database, because privileges are: the database itself (CONNECT, CREATE,
+//	@Description	TEMPORARY), each schema (USAGE, CREATE), each table or view (SELECT, INSERT,
+//	@Description	UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER) and each sequence (USAGE,
+//	@Description	SELECT, UPDATE), plus the ALTER DEFAULT PRIVILEGES entries naming the role.
+//	@Description	Each object carries `granted` — granted to this role by name, which is what
+//	@Description	a revoke from it removes — and `effective`, which also counts PUBLIC,
+//	@Description	inherited memberships, ownership and superuser.
+//	@Tags			postgres
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string	true	"Database name"
+//	@Param			role		path		string	true	"Role name"
+//	@Success		200			{object}	postgres.RolePrivileges
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database}/roles/{role}/privileges [get]
+func (h *Handler) listPrivileges(w http.ResponseWriter, r *http.Request) {
+	privileges, err := h.service.ListPrivileges(r.Context(), r.PathValue("database"), r.PathValue("role"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, privileges)
+}
+
+// changePrivileges grants and revokes privileges for one role in one database.
+//
+//	@Summary		Grant or revoke a role's privileges in a database
+//	@Description	A list of changes applied in one transaction, so a group — read-write
+//	@Description	access to a schema, say — lands whole or not at all. Each change is a grant
+//	@Description	or revoke of named privileges on the database, a schema, named tables or
+//	@Description	sequences, every table or sequence that exists in a schema now
+//	@Description	(allTables, allSequences), or those an owner creates later (defaultTables,
+//	@Description	defaultSequences: ALTER DEFAULT PRIVILEGES FOR ROLE owner — it covers only
+//	@Description	objects that owner creates). Privileges are checked against a fixed list per
+//	@Description	target. PostgreSQL's own roles and databases, superusers, and the panel's own
+//	@Description	account are refused. Returns the statements that ran and the role's state
+//	@Description	afterwards; a statement the server refuses is a 422 with its message. A revoke
+//	@Description	only removes grants the object's owner made: one that would leave a grant by
+//	@Description	another role in place (see foreignGrants) is a 422 naming it, and nothing is
+//	@Description	applied.
+//	@Tags			postgres
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			database	path		string								true	"Database name"
+//	@Param			role		path		string								true	"Role name"
+//	@Param			request		body		postgres.ChangePrivilegesRequest	true	"The changes"
+//	@Success		200			{object}	postgres.ChangePrivilegesResult
+//	@Failure		400			{object}	http.ErrorBody
+//	@Failure		401			{object}	http.ErrorBody
+//	@Failure		403			{object}	http.ErrorBody
+//	@Failure		404			{object}	http.ErrorBody
+//	@Failure		422			{object}	http.ErrorBody
+//	@Router			/api/postgres/databases/{database}/roles/{role}/privileges [post]
+func (h *Handler) changePrivileges(w http.ResponseWriter, r *http.Request) {
+	var request ChangePrivilegesRequest
+	if !httpx.DecodeJSON(w, r, &request) {
+		return
+	}
+
+	result, err := h.service.ChangePrivileges(r.Context(), r.PathValue("database"), r.PathValue("role"), request)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, result)
 }
 
 // updateRole sets a role's flags, connection limit, and optionally its password.
@@ -432,6 +507,11 @@ func respondError(w http.ResponseWriter, err error) {
 		// which names the syntax position or the write it refused — and that is the
 		// whole value of a query console.
 		httpx.Error(w, http.StatusUnprocessableEntity, "query_failed", err.Error())
+	case errors.Is(err, ErrNotRevocable):
+		// 422 for the same reason as a refused query: the request was well formed,
+		// and what it asked for cannot be done from here. The message names the
+		// grant and its grantor, which is what the operator has to act on.
+		httpx.Error(w, http.StatusUnprocessableEntity, "not_revocable", err.Error())
 	default:
 		slog.Error("postgres request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")

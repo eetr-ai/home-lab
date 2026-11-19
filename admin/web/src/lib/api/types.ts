@@ -57,6 +57,8 @@ export interface PostgresRelation {
 	columns: PostgresColumn[];
 }
 
+export type * from "./postgres-privileges-types";
+
 export interface CreatePostgresDatabase {
 	name: string;
 	/** Optional; the connecting superuser owns it when omitted. */
