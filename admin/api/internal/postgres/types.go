@@ -200,3 +200,107 @@ type QueryResult struct {
 	// for when it is being tuned rather than read.
 	ElapsedMs int64 `json:"elapsedMs"`
 }
+
+// ObjectPrivileges is what one role holds on one object: the database itself, a
+// schema, a table, or a sequence.
+//
+// Two lists rather than one, because they answer different questions and the
+// difference is exactly what an operator trips over. Granted is what was granted
+// to this role by name — what a REVOKE from it can take away. Effective is what
+// the role can actually do, which also counts privileges granted to PUBLIC and to
+// any role it inherits from. A privilege in Effective but not Granted cannot be
+// revoked here; it has to be revoked where it was granted.
+type ObjectPrivileges struct {
+	// Schema is empty for the database and for a schema itself.
+	Schema string `json:"schema,omitempty"`
+	Name   string `json:"name"`
+	// Kind is "database", "schema", "table", "view", "matview", "foreign", or
+	// "sequence". A view is granted to with the same statement as a table, so the
+	// distinction is only for display.
+	Kind string `json:"kind"`
+	// Owner is the object's owner. An owner holds every privilege implicitly, so
+	// for an object the role owns, Granted lists all of them.
+	Owner     string   `json:"owner"`
+	Granted   []string `json:"granted"`
+	Effective []string `json:"effective"`
+}
+
+// DefaultPrivileges is one ALTER DEFAULT PRIVILEGES entry naming the role.
+//
+// It is not a privilege on anything that exists. It says that objects created
+// later, by Owner, in Schema, will be created with these privileges granted to
+// the role — and only objects created by that owner: a table someone else
+// creates is not covered, which is the mistake this type's fields exist to make
+// visible.
+type DefaultPrivileges struct {
+	Owner string `json:"owner"`
+	// Schema is empty for an entry that applies in every schema.
+	Schema string `json:"schema,omitempty"`
+	// ObjectType is "tables" or "sequences".
+	ObjectType string   `json:"objectType"`
+	Privileges []string `json:"privileges"`
+}
+
+// RolePrivileges is everything one role holds in one database.
+//
+// Per database because privileges are: a table's ACL lives in that database's
+// catalog, and the same role can hold quite different things in two databases.
+type RolePrivileges struct {
+	Role     string `json:"role"`
+	Database string `json:"database"`
+	// IsSuperuser is reported because a superuser bypasses every privilege check:
+	// every Effective list is full, and granting to it changes nothing.
+	IsSuperuser bool `json:"isSuperuser"`
+	// DatabasePrivileges is CONNECT, CREATE and TEMPORARY on the database itself.
+	DatabasePrivileges ObjectPrivileges    `json:"databasePrivileges"`
+	Schemas            []ObjectPrivileges  `json:"schemas"`
+	Tables             []ObjectPrivileges  `json:"tables"`
+	Sequences          []ObjectPrivileges  `json:"sequences"`
+	Defaults           []DefaultPrivileges `json:"defaults"`
+}
+
+// PrivilegeChange is one GRANT or REVOKE.
+//
+// Target says what kind of object it applies to, and the other fields are read
+// according to it — and refused when they do not apply, rather than ignored, so a
+// caller who sent Objects with "allTables" learns that the list meant nothing:
+//
+//   - "database": the database in the path. No Schema, no Objects.
+//   - "schema": Schema itself.
+//   - "table", "sequence": each of Objects, in Schema.
+//   - "allTables", "allSequences": every one that exists in Schema now. Not ones
+//     created later — that is what the default targets are for.
+//   - "defaultTables", "defaultSequences": ALTER DEFAULT PRIVILEGES for objects
+//     Owner creates later, in Schema, or in every schema when Schema is empty.
+type PrivilegeChange struct {
+	// Action is "grant" or "revoke".
+	Action string `json:"action"`
+	Target string `json:"target"`
+	Schema string `json:"schema,omitempty"`
+	// Objects are table or sequence names within Schema.
+	Objects []string `json:"objects,omitempty"`
+	// Privileges are keywords valid for the target, e.g. SELECT for a table or
+	// USAGE for a sequence. ALL is not accepted: it means different things on
+	// different PostgreSQL versions, and the panel shows a fixed set.
+	Privileges []string `json:"privileges"`
+	// Owner is the role whose future objects a default target covers.
+	Owner string `json:"owner,omitempty"`
+}
+
+// ChangePrivilegesRequest is a set of changes applied together.
+//
+// A list because the useful changes come in groups — read-write access to a
+// schema is USAGE on it, four privileges on its tables and two on its sequences —
+// and the group is applied in one transaction, so it lands whole or not at all.
+type ChangePrivilegesRequest struct {
+	Changes []PrivilegeChange `json:"changes"`
+}
+
+// ChangePrivilegesResult is what a change ran and where it left the role.
+type ChangePrivilegesResult struct {
+	// Statements are the GRANT and REVOKE statements that were committed, in
+	// order, so the caller can see — and keep — exactly what was done.
+	Statements []string `json:"statements"`
+	// Privileges is the role's state in the database after the change.
+	Privileges RolePrivileges `json:"privileges"`
+}

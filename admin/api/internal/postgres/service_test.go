@@ -39,6 +39,12 @@ type fakeRepo struct {
 	executeResult ExecuteResult
 	relations     []Relation
 	browseResult  BrowseResult
+
+	// The statements ApplyPrivileges was handed, and the database it was handed
+	// them for, so a test can check both what ran and that a refusal ran nothing.
+	appliedStatements []string
+	appliedDatabase   string
+	privileges        RolePrivileges
 }
 
 func newFakeRepo() *fakeRepo {
@@ -151,6 +157,18 @@ func (f *fakeRepo) CreateExtension(_ context.Context, database, name string) err
 	f.created = append(f.created, "extension:"+database+"."+name)
 	f.lastExtension = name
 	f.extensions[database] = append(f.extensions[database], Extension{Name: name})
+	return f.err
+}
+
+func (f *fakeRepo) ListPrivileges(_ context.Context, database, role string) (RolePrivileges, error) {
+	result := f.privileges
+	result.Database, result.Role = database, role
+	return result, f.err
+}
+
+func (f *fakeRepo) ApplyPrivileges(_ context.Context, database string, statements []string) error {
+	f.appliedDatabase = database
+	f.appliedStatements = append(f.appliedStatements, statements...)
 	return f.err
 }
 
