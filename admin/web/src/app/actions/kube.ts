@@ -14,7 +14,7 @@ import type {
 	Namespace,
 	Pod,
 	PutSecret,
-	RotateSecret,
+	EditSecret,
 	SecretRef,
 	SecretSummary,
 	Storage,
@@ -95,17 +95,17 @@ export async function deleteSecret(namespace: string, name: string): Promise<Act
 }
 
 /**
- * Replaces the values of keys a Secret already has.
+ * Replaces, adds and removes keys on a Secret that already exists.
  *
- * Revalidates the section because the key list is what a row shows and a rotation
- * can change nothing else about it — the values were never on the page.
+ * Revalidates the section because the key list is what a row shows, and an edit
+ * that adds or removes one changes it — the values were never on the page.
  */
-export async function rotateSecret(
+export async function editSecret(
 	namespace: string,
 	name: string,
-	request: RotateSecret,
+	request: EditSecret,
 ): Promise<ActionResult<SecretRef>> {
-	const result = await withWrite(() => kube.rotateSecret(namespace, name, request));
+	const result = await withWrite(() => kube.editSecret(namespace, name, request));
 	if (result.ok) revalidatePath("/kubernetes", "layout");
 	return result;
 }

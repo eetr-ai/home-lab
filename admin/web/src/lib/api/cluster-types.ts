@@ -79,14 +79,14 @@ export interface SecretSummary {
 	name: string;
 	/** Kubernetes' own type: "Opaque", "helm.sh/release.v1", "kubernetes.io/tls". */
 	type: string;
-	/** The data keys, sorted. Enough to point a chart at one, or to rotate it. */
+	/** The data keys, sorted. Enough to point a chart at one, or to edit it. */
 	keys: string[];
 	/** Kubernetes refuses every write to an immutable Secret. */
 	immutable: boolean;
 	/** Whether this is one the panel wrote, from the label it stamps. */
 	panelManaged: boolean;
 	/**
-	 * Whether delete and rotate are offered, and `reason` says why not. Decided by
+	 * Whether delete and edit are offered, and `reason` says why not. Decided by
 	 * the API from the namespace policy and the Secret's type — the panel renders
 	 * this answer rather than working one out, so the two cannot disagree.
 	 */
@@ -96,14 +96,23 @@ export interface SecretSummary {
 }
 
 /**
- * A request to replace the values of keys a Secret already has.
+ * A request to change the keys of a Secret that already exists.
  *
  * Only the keys being changed are named. The panel cannot read a value back, so
- * it cannot resend a key it is not rotating; the API merges against the live
+ * it cannot resend a key it is not changing; the API merges against the live
  * object and the keys not named keep their values.
+ *
+ * Each key says which of three things is happening to it, and the API refuses a
+ * key in the wrong list rather than reinterpreting it — so a mistyped rotation
+ * cannot quietly become a new key beside the credential it meant to replace.
  */
-export interface RotateSecret {
-	data: Record<string, string>;
+export interface EditSecret {
+	/** New values for keys the Secret already has. */
+	replace?: Record<string, string>;
+	/** Keys the Secret does not have yet. */
+	add?: Record<string, string>;
+	/** Keys to take out. Removing every key is refused; that is a delete. */
+	remove?: string[];
 }
 
 export interface Workload {

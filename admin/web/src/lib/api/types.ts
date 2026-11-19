@@ -141,7 +141,7 @@ export type {
 	PutSecret,
 	Resources,
 	Scale,
-	RotateSecret,
+	EditSecret,
 	SecretRef,
 	SecretSummary,
 	Storage,

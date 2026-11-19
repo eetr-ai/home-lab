@@ -18,8 +18,8 @@ import {
  * Shared because they are the same control in each: a key beside a value, the
  * value being a SecretInput so it can be generated rather than invented. What
  * differs is only whether the key is typed or fixed, which is the `keyOptions`
- * prop — a rotation may only name keys the Secret already has, so there it is a
- * list to pick from rather than a box.
+ * prop — replacing a value may only name keys the Secret already has, so there
+ * the key is fixed rather than a box.
  *
  * Each row also picks how its value is typed: the password field, or a textarea
  * for a value that is a file's contents. See SecretFormat for why that matters.
@@ -33,12 +33,20 @@ export function KeyValueRows({
 	onChange,
 	keyOptions,
 	idPrefix,
+	minRows = 1,
 }: {
 	rows: SecretRow[];
 	onChange: (rows: SecretRow[]) => void;
 	/** When set, the key is one of these rather than free text. */
 	keyOptions?: string[];
 	idPrefix: string;
+	/**
+	 * How few rows the remove buttons may leave. One by default: a create form
+	 * with no rows has nothing to type into and no obvious way back. The edit
+	 * panel's new keys pass zero, because adding none is a legitimate answer
+	 * there and the panel draws its own way back in.
+	 */
+	minRows?: number;
 }) {
 	function update(id: string, patch: Partial<SecretRow>) {
 		onChange(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -135,9 +143,7 @@ export function KeyValueRows({
 									type="button"
 									variant="danger"
 									aria-label={`Remove row ${index + 1}`}
-									// The last row is not removable: a form with no rows has
-									// nothing to type into and no obvious way back.
-									disabled={rows.length === 1}
+									disabled={rows.length <= minRows}
 									onClick={() => onChange(rows.filter((other) => other.id !== row.id))}
 									// Level with the middle of a single-line field, which is
 									// what the row's top edge is.

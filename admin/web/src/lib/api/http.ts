@@ -48,7 +48,7 @@ const client = new RestClient({
  * a timeout, and a 500 all arrive as the same kind of value.
  */
 export async function call<T>(
-	method: "GET" | "POST" | "PUT" | "DELETE",
+	method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
 	path: string,
 	body?: unknown,
 ): Promise<ActionResult<T>> {

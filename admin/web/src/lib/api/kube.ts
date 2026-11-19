@@ -9,7 +9,7 @@ import type {
 	Namespace,
 	Pod,
 	PutSecret,
-	RotateSecret,
+	EditSecret,
 	SecretRef,
 	SecretSummary,
 	Storage,
@@ -83,7 +83,7 @@ export function putSecret(
  * The Secrets in a namespace, without any of their contents.
  *
  * Names, types, keys and ages. Each row carries whether the panel will delete or
- * rotate it, so the list and the buttons on it cannot disagree with what the API
+ * edit it, so the list and the buttons on it cannot disagree with what the API
  * would answer.
  */
 export function listSecrets(namespace: string): Promise<ActionResult<SecretSummary[]>> {
@@ -102,20 +102,20 @@ export function deleteSecret(namespace: string, name: string): Promise<ActionRes
 }
 
 /**
- * Replace the values of keys a Secret already has.
+ * Replace, add and remove keys on a Secret that already exists.
  *
- * This writes the Secret and stops. Pods already running hold the old value until
- * something restarts them, and the panel says so rather than reporting a rotation
- * as though it had taken effect.
+ * This writes the Secret and stops. Pods already running hold the old values
+ * until something restarts them, and the panel says so rather than reporting an
+ * edit as though it had taken effect.
  */
-export function rotateSecret(
+export function editSecret(
 	namespace: string,
 	name: string,
-	request: RotateSecret,
+	request: EditSecret,
 ): Promise<ActionResult<SecretRef>> {
 	return call<SecretRef>(
-		"POST",
-		`/api/kubernetes/namespaces/${seg(namespace)}/secrets/${seg(name)}/rotate`,
+		"PATCH",
+		`/api/kubernetes/namespaces/${seg(namespace)}/secrets/${seg(name)}`,
 		request,
 	);
 }

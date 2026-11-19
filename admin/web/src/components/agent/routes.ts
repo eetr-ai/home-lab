@@ -51,7 +51,7 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
 	{ path: "/kubernetes/pods?namespace={namespace}", description: "Pods with phase and restart counts, in the chosen namespace or in every namespace. Naming one moves the panel's shared scope to it." },
 	{ path: "/kubernetes/events?namespace={namespace}", description: "Recent events — where a pod that will not start says why. Naming a namespace moves the panel's shared scope to it; without one this is the whole cluster, capped at the hundred most recent." },
 	{ path: "/kubernetes/namespaces", description: "Every namespace, whether the panel may delete it, and creating one. A protected namespace shows why it is protected instead of a delete action." },
-	{ path: "/kubernetes/secrets?namespace={namespace}", description: "The Secrets in one namespace — names, types and key names, never values — and where one is created or rotated. The namespace is required in practice: there is no cluster-wide list of Secrets, so without one the page asks for a namespace." },
+	{ path: "/kubernetes/secrets?namespace={namespace}", description: "The Secrets in one namespace — names, types and key names, never values — and where one is created, or its keys are replaced, added or removed. The namespace is required in practice: there is no cluster-wide list of Secrets, so without one the page asks for a namespace." },
 	{ path: "/kubernetes/storage", description: "PersistentVolumes, claims and storage classes." },
 
 	{ path: "/helm/dashboard?namespace={namespace}", description: "Every Helm release the panel can see, including any installed outside it, filterable by namespace. The Helm section opens here." },

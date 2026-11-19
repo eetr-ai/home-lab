@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, Lock, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { KeyRound, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { deleteSecret } from "@/app/actions/kube";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
+import { InteractiveRow, stopRowActivation } from "../../../_components/interactive-row";
 import { useRowDelete } from "../../../_components/use-row-delete";
 import { formatAge } from "@/lib/format/age";
 import type { SecretSummary } from "@/lib/api/types";
 import { CreateSecretPanel } from "./create-secret-panel";
-import { RotateSecretPanel } from "./rotate-secret-panel";
+import { EditSecretPanel } from "./edit-secret-panel";
 
 export function SecretList({
 	namespace,
@@ -24,7 +25,7 @@ export function SecretList({
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
-	const [rotating, setRotating] = useState<SecretSummary | null>(null);
+	const [editing, setEditing] = useState<SecretSummary | null>(null);
 	const rowDelete = useRowDelete(setError);
 
 	const create = (
@@ -59,28 +60,41 @@ export function SecretList({
 						<ActionsHeader />
 					</>
 				}
-				rows={secrets.map((secret) => (
-					<tr key={secret.name}>
-						<Td className="font-medium">{secret.name}</Td>
-						<Td className="text-muted-foreground">
-							<Keys secret={secret} />
-						</Td>
-						<Td className="text-muted-foreground">
-							<Type secret={secret} />
-						</Td>
-						<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
-							{formatAge(secret.createdAt, now)}
-						</Td>
-						<Td className="text-right">
-							<SecretActions
-								secret={secret}
-								namespace={namespace}
-								rowDelete={rowDelete}
-								onRotate={() => setRotating(secret)}
-							/>
-						</Td>
-					</tr>
-				))}
+				rows={secrets.map((secret) => {
+					const cells = (
+						<>
+							<Td className={editable(secret) ? "font-medium group-hover:underline" : "font-medium"}>
+								{secret.name}
+							</Td>
+							<Td className="text-muted-foreground">
+								<Keys secret={secret} />
+							</Td>
+							<Td className="text-muted-foreground">
+								<Type secret={secret} />
+							</Td>
+							<Td className="w-px whitespace-nowrap text-right text-muted-foreground">
+								{formatAge(secret.createdAt, now)}
+							</Td>
+							<Td className="text-right" onClick={stopRowActivation}>
+								<SecretActions
+									secret={secret}
+									namespace={namespace}
+									rowDelete={rowDelete}
+									onEdit={() => setEditing(secret)}
+								/>
+							</Td>
+						</>
+					);
+					// Only a row with an edit to open is clickable; one that looks
+					// interactive and does nothing is worse than one that plainly is not.
+					return editable(secret) ? (
+						<InteractiveRow key={secret.name} onActivate={() => setEditing(secret)}>
+							{cells}
+						</InteractiveRow>
+					) : (
+						<tr key={secret.name}>{cells}</tr>
+					);
+				})}
 			/>
 
 			<CreateSecretPanel
@@ -88,13 +102,13 @@ export function SecretList({
 				namespace={namespace}
 				onClose={() => setCreating(false)}
 			/>
-			<RotateSecretPanel
+			<EditSecretPanel
 				// Keyed by name so the panel re-initialises per row rather than
 				// carrying the previous Secret's keys into the next one.
-				key={rotating?.name}
-				secret={rotating}
+				key={editing?.name}
+				secret={editing}
 				namespace={namespace}
-				onClose={() => setRotating(null)}
+				onClose={() => setEditing(null)}
 			/>
 		</>
 	);
@@ -146,13 +160,21 @@ function Type({ secret }: { secret: SecretSummary }) {
 }
 
 /**
- * Rotate and delete, or neither.
+ * Whether a row has an edit to open: the API allows writing it, and Kubernetes
+ * will accept a change to it.
+ */
+function editable(secret: SecretSummary): boolean {
+	return secret.removable && !secret.immutable;
+}
+
+/**
+ * Edit and delete, or neither.
  *
  * `removable` is the API's answer, not one worked out here, so a button cannot
  * appear where the request would come back 403. A row that has none shows its
  * reason in the Type column instead.
  *
- * Rotate is additionally withheld from an immutable Secret: Kubernetes refuses
+ * Edit is additionally withheld from an immutable Secret: Kubernetes refuses
  * every write to one, and deleting it is still legitimate — immutability is a
  * rule about changing a Secret, not about removing it.
  */
@@ -160,12 +182,12 @@ function SecretActions({
 	secret,
 	namespace,
 	rowDelete,
-	onRotate,
+	onEdit,
 }: {
 	secret: SecretSummary;
 	namespace: string;
 	rowDelete: ReturnType<typeof useRowDelete>;
-	onRotate: () => void;
+	onEdit: () => void;
 }) {
 	if (!secret.removable) {
 		return null;
@@ -187,11 +209,11 @@ function SecretActions({
 
 	return (
 		<div className="flex items-center justify-end gap-1">
-			{secret.immutable ? null : (
-				<IconButton aria-label={`Rotate ${secret.name}`} onClick={onRotate}>
-					<RefreshCw className="h-4 w-4" />
+			{editable(secret) ? (
+				<IconButton aria-label={`Edit ${secret.name}`} onClick={onEdit}>
+					<Pencil className="h-4 w-4" />
 				</IconButton>
-			)}
+			) : null}
 			<IconButton
 				variant="danger"
 				aria-label={`Delete ${secret.name}`}
