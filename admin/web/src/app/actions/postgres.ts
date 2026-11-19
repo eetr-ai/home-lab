@@ -7,13 +7,16 @@ import type { ActionResult } from "@/lib/api/result";
 import type {
 	BrowseRequest,
 	BrowseResult,
+	ChangePostgresPrivilegesResult,
 	ExecuteResult,
 	CreatePostgresDatabase,
 	CreatePostgresRole,
 	PostgresDatabase,
 	PostgresExtension,
 	PostgresRelation,
+	PostgresPrivilegeChange,
 	PostgresRole,
+	PostgresRolePrivileges,
 	QueryResult,
 	UpdatePostgresDatabase,
 	UpdatePostgresRole,
@@ -160,4 +163,29 @@ export async function browseTable(
 	request: BrowseRequest,
 ): Promise<ActionResult<BrowseResult>> {
 	return withRead(() => postgres.browseTable(database, request));
+}
+
+/** What one role holds in one database. A read, like listing the roles. */
+export async function listRolePrivileges(
+	database: string,
+	role: string,
+): Promise<ActionResult<PostgresRolePrivileges>> {
+	return withRead(() => postgres.listRolePrivileges(database, role));
+}
+
+/**
+ * Grant and revoke. withWrite, like every other change to a role: this is DDL run
+ * as the panel's superuser, so it sits behind the same write allowlist as
+ * creating or dropping one.
+ */
+export async function changeRolePrivileges(
+	database: string,
+	role: string,
+	changes: PostgresPrivilegeChange[],
+): Promise<ActionResult<ChangePostgresPrivilegesResult>> {
+	return withWrite(async () => {
+		const result = await postgres.changeRolePrivileges(database, role, changes);
+		if (result.ok) revalidatePath(SECTION, "layout");
+		return result;
+	});
 }

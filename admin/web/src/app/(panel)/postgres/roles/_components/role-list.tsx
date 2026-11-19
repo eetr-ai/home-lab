@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Pencil, Plus, Trash2, Users } from "lucide-react";
+import Link from "next/link";
+import { Check, Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 import { dropRole } from "@/app/actions/postgres";
 import { Button, IconButton, InlineDeleteConfirm, Td, Th } from "@/components/ui";
 import { ActionsHeader, Directory } from "../../../_components/directory";
@@ -95,8 +96,19 @@ export function RoleList({
 									onCancel={rowDelete.cancel}
 								/>
 							) : (
-								/* Pencil then Trash2, per the UX guidelines' row-action order. */
+								/* The surface-specific action first, then Pencil, then Trash2, per
+								   the UX guidelines' row-action order. Privileges are a link, not a
+								   panel: they are per database and need a page with that scope in
+								   its address. */
 								<div className="flex items-center justify-end gap-1">
+									<Link
+										href={`/postgres/roles/${encodeURIComponent(role.name)}`}
+										aria-label={`Privileges of ${role.name}`}
+										title="Privileges"
+										className="rounded-full p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+									>
+										<ShieldCheck className="h-4 w-4" aria-hidden />
+									</Link>
 									<IconButton
 										aria-label={`Edit ${role.name}`}
 										onClick={() => setEditing(role)}
