@@ -50,6 +50,7 @@ as "disk used".
 | `/api/postgres/databases/{db}/tables` | The tables and views in one, with columns, types and primary keys. |
 | `/api/postgres/databases/{db}/extensions` | Which extensions are installed in one. |
 | `/api/postgres/roles` | The roles, and what each may do. |
+| `/api/postgres/databases/{db}/roles/{role}/privileges` | What one role holds in one database: the database, each schema, table and sequence (`granted` by name vs `effective`), and its default privileges. |
 | `/api/mongo/databases` | The databases, with their sizes. |
 | `/api/mongo/databases/{db}/collections` | The collections in one. |
 | `/api/mongo/databases/{db}/users` | The users on one, and their roles. |
@@ -100,6 +101,7 @@ identifier for a destructive call.
 | `POST` / `PUT` / `DELETE` on `/api/postgres/databases`, `/api/postgres/roles` | Create, alter the owner, drop. |
 | `POST /api/postgres/databases/{db}/execute` | Run a statement that **commits**. Body `{"sql": "..."}`. This — not `/query` — is how you seed rows or run an `INSERT`/`UPDATE`/`DELETE`/DDL; `/query` would refuse the write. Returns the command tag and rows affected. |
 | `POST /api/postgres/databases/{db}/extensions` | Install an extension. |
+| `POST /api/postgres/databases/{db}/roles/{role}/privileges` | Grant or revoke. Body `{"changes": [...]}`, applied in one transaction. Load the `databases` skill first for the shape. |
 | `POST` / `PUT` / `DELETE` on `/api/mongo/databases`, its collections and users | The same, for MongoDB. |
 | `PUT /api/kubernetes/namespaces/{ns}/secrets/{name}` | Write a Secret. Refused if one of that name is there, unless you send `overwrite`. |
 | `POST /api/kubernetes/namespaces/{ns}/secrets/{name}/rotate` | Replace the values of keys it already has. |
