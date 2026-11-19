@@ -5,13 +5,9 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
-)
 
-// maxSecretKeyLength is Kubernetes' bound on a data key. The key is a path
-// segment when the Secret is mounted as a volume, which is where the limit comes
-// from.
-const maxSecretKeyLength = 253
+	"k8s.io/apimachinery/pkg/util/validation"
+)
 
 // PutSecret writes an Opaque Secret into a namespace.
 //
@@ -20,8 +16,8 @@ const maxSecretKeyLength = 253
 // that moment, and without this the operator runs `kubectl create secret` by hand
 // — which is the step that used to leave a credential in a shell history.
 //
-// This is the panel's only write to a Secret, and it is deliberately narrow. The
-// type is always Opaque, there is no delete, and an existing Secret is left alone
+// This is the panel's only way to create a Secret, and it is deliberately narrow.
+// The type is always Opaque, and an existing Secret is left alone
 // unless the caller says to replace it: overwriting one is how a running release
 // loses the credential it was started with, so it takes saying so.
 //
@@ -143,11 +139,8 @@ func validateSecretData(data map[string]string) error {
 		return fmt.Errorf("%w: a Secret with no data", ErrInvalidName)
 	}
 	for key, value := range data {
-		if key == "" || len(key) > maxSecretKeyLength {
-			return fmt.Errorf("%w: %q is not a valid Secret key", ErrInvalidName, key)
-		}
-		if strings.Trim(key, secretKeyCharset) != "" {
-			return fmt.Errorf("%w: %q is not a valid Secret key", ErrInvalidName, key)
+		if err := validateSecretKey(key); err != nil {
+			return err
 		}
 		if value == "" {
 			return fmt.Errorf("%w: %q has no value", ErrInvalidName, key)
@@ -156,8 +149,17 @@ func validateSecretData(data map[string]string) error {
 	return nil
 }
 
-// secretKeyCharset is every character Kubernetes permits in a data key.
-const secretKeyCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+// validateSecretKey checks one data key with apimachinery's own rule, which is
+// the one the API server applies: the characters and length, and also that the
+// key is not ".", "..", or anything starting with "..", because a key becomes a
+// filename when the Secret is mounted. Matching it exactly is the point — a key
+// it would refuse otherwise comes back as a 500 about a field path.
+func validateSecretKey(key string) error {
+	if len(validation.IsConfigMapKey(key)) > 0 {
+		return fmt.Errorf("%w: %q is not a valid Secret key", ErrInvalidName, key)
+	}
+	return nil
+}
 
 // ListSecrets reports the Secrets in a namespace, without any of their contents.
 //
@@ -196,7 +198,7 @@ func (s *Service) ListSecrets(ctx context.Context, namespace string) ([]SecretSu
 	return secrets, nil
 }
 
-// removable decides whether a row gets a delete and a rotate, and says why not.
+// removable decides whether a row gets a delete and an edit, and says why not.
 //
 // Pure, and separate from the listing, because the panel and the two write paths
 // have to agree about it: a row that offers a button the API then refuses is
@@ -231,22 +233,28 @@ func (s *Service) DeleteSecret(ctx context.Context, namespace, name string) erro
 	return s.repo.DeleteSecret(ctx, namespace, target)
 }
 
-// RotateSecret replaces the values of keys the Secret already has.
+// EditSecret changes which keys a Secret holds and what some of them say.
 //
-// It refuses a key that is not there, and that refusal is what keeps this from
-// being a second create with different guards. Rotation means "this credential,
-// but new"; bringing a key into existence is PutSecret's job, where overwriting
-// something has to be said out loud.
+// Three lists, and the split is the feature rather than a detail of the payload.
+// Replace names keys that must already be there, Add names keys that must not,
+// and Remove names keys that must. A single "set these keys" map would be
+// shorter and would lose the one guard that matters here: an operator rotating
+// "pasword" meant "password", and a map that adds whatever it does not find would
+// write a second key beside the credential they believe they replaced. Saying
+// which of the three each key is means a typo is refused instead of stored.
 //
 // The merge is done in the repository against the object it just read, so the
 // keys not named keep their values and this layer never holds them. Note that
 // this is an update, not a patch: the object written is the live one with some
-// values replaced, so a key still has exactly one value and a Secret can never
-// end up holding a new credential beside the one it replaced.
-func (s *Service) RotateSecret(
-	ctx context.Context, namespace, name string, rotation SecretRotation,
+// keys changed, so a key still has exactly one value and a Secret can never end
+// up holding a new credential beside the one it replaced.
+//
+// An edit that would leave the Secret with no keys at all is refused. That is a
+// delete, and the delete has its own confirmation for good reason.
+func (s *Service) EditSecret(
+	ctx context.Context, namespace, name string, edit SecretEdit,
 ) (SecretRef, error) {
-	if err := validateSecretData(rotation.Data); err != nil {
+	if err := validateSecretEdit(edit); err != nil {
 		return SecretRef{}, err
 	}
 
@@ -257,18 +265,93 @@ func (s *Service) RotateSecret(
 	if live.Immutable {
 		return SecretRef{}, fmt.Errorf("%w: %s is immutable", ErrReserved, name)
 	}
-	for key := range rotation.Data {
-		if !slices.Contains(live.Keys, key) {
-			return SecretRef{}, fmt.Errorf(
-				"%w: %s has no key %q — rotation replaces a value, it does not add one",
-				ErrInvalidName, name, key)
-		}
-	}
-
-	if err := s.repo.RotateSecretKeys(ctx, namespace, name, rotation.Data); err != nil {
+	if err := checkEditKeys(name, live.Keys, edit); err != nil {
 		return SecretRef{}, err
 	}
-	return secretRef(namespace, SecretSpec{Name: name, Data: rotation.Data}), nil
+
+	// The keys from the object that was written, not from the read above: a
+	// key another writer added in between survives the merge, and a response
+	// that left it out would be describing a Secret that no longer exists.
+	keys, err := s.repo.EditSecretKeys(ctx, namespace, name, edit)
+	if err != nil {
+		return SecretRef{}, err
+	}
+	return SecretRef{Namespace: namespace, Name: name, Keys: keys}, nil
+}
+
+// validateSecretEdit checks an edit's shape, before anything is read.
+//
+// Every key named anywhere must be one Kubernetes would accept, and every value
+// must be non-empty for the reason validateSecretData gives. A key named twice —
+// in two lists, or twice in Remove — is refused rather than resolved, because
+// there is no order of applying it that is obviously what was meant.
+func validateSecretEdit(edit SecretEdit) error {
+	if len(edit.Replace)+len(edit.Add)+len(edit.Remove) == 0 {
+		return fmt.Errorf("%w: an edit that changes nothing", ErrInvalidName)
+	}
+
+	seen := map[string]bool{}
+	claim := func(key string) error {
+		if err := validateSecretKey(key); err != nil {
+			return err
+		}
+		if seen[key] {
+			return fmt.Errorf("%w: %q is named more than once", ErrInvalidName, key)
+		}
+		seen[key] = true
+		return nil
+	}
+
+	for _, values := range []map[string]string{edit.Replace, edit.Add} {
+		for key, value := range values {
+			if err := claim(key); err != nil {
+				return err
+			}
+			if value == "" {
+				return fmt.Errorf("%w: %q has no value", ErrInvalidName, key)
+			}
+		}
+	}
+	for _, key := range edit.Remove {
+		if err := claim(key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkEditKeys checks an edit against the keys a Secret has: replace and
+// remove must name keys that are there, add must name keys that are not, and the
+// Secret must be left with at least one key.
+//
+// Pure, and shared with the repository, which repeats it against the object it
+// is about to write — see editable.
+func checkEditKeys(name string, have []string, edit SecretEdit) error {
+	for key := range edit.Replace {
+		if !slices.Contains(have, key) {
+			return fmt.Errorf(
+				"%w: %s has no key %q to replace — add it instead", ErrInvalidName, name, key)
+		}
+	}
+	for _, key := range edit.Remove {
+		if !slices.Contains(have, key) {
+			return fmt.Errorf("%w: %s has no key %q to remove", ErrInvalidName, name, key)
+		}
+	}
+	for key := range edit.Add {
+		if slices.Contains(have, key) {
+			return fmt.Errorf(
+				"%w: %s already has a key %q — replace it instead", ErrAlreadyExists, name, key)
+		}
+	}
+	// Every key named in Remove is one the Secret has, and none is named twice —
+	// validateSecretEdit saw to that — so this is the count it will be left with.
+	if len(have)-len(edit.Remove)+len(edit.Add) == 0 {
+		return fmt.Errorf(
+			"%w: removing every key from %s would leave it empty — delete the Secret instead",
+			ErrInvalidName, name)
+	}
+	return nil
 }
 
 // writableSecret runs every check the two write paths share and hands back the

@@ -1117,6 +1117,33 @@
                 },
                 "type": "object"
             },
+            "kube.SecretEdit": {
+                "properties": {
+                    "add": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Add brings keys into the Secret that it does not have yet.",
+                        "type": "object"
+                    },
+                    "remove": {
+                        "description": "Remove takes keys out of the Secret.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "replace": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Replace gives new values to keys the Secret already has.",
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
             "kube.SecretRef": {
                 "properties": {
                     "keys": {
@@ -1131,17 +1158,6 @@
                     },
                     "namespace": {
                         "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "kube.SecretRotation": {
-                "properties": {
-                    "data": {
-                        "additionalProperties": {
-                            "type": "string"
-                        },
-                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -1172,11 +1188,11 @@
                         "type": "string"
                     },
                     "immutable": {
-                        "description": "Immutable Secrets refuse every write after creation, Kubernetes' own rule.\nCarried so the panel can say that rather than offering a rotation the API\nserver will reject.",
+                        "description": "Immutable Secrets refuse every write after creation, Kubernetes' own rule.\nCarried so the panel can say that rather than offering an edit the API\nserver will reject.",
                         "type": "boolean"
                     },
                     "keys": {
-                        "description": "Keys are the data keys, sorted. Enough to point a chart's existingSecret at\none, and to choose what a rotation replaces.",
+                        "description": "Keys are the data keys, sorted. Enough to point a chart's existingSecret at\none, and to choose what an edit replaces or removes.",
                         "items": {
                             "type": "string"
                         },
@@ -1194,7 +1210,7 @@
                         "type": "string"
                     },
                     "removable": {
-                        "description": "Removable reports whether delete and rotate are offered, and Reason says why\nnot. Decided by the service from the namespace policy and the Secret's type,\nnever by the browser — the same answer the API would give if asked, computed\nonce so the panel does not have to reimplement the rule.",
+                        "description": "Removable reports whether delete and edit are offered, and Reason says why\nnot. Decided by the service from the namespace policy and the Secret's type,\nnever by the browser — the same answer the API would give if asked, computed\nonce so the panel does not have to reimplement the rule.",
                         "type": "boolean"
                     },
                     "type": {
@@ -6328,7 +6344,7 @@
         },
         "/api/kubernetes/namespaces/{namespace}/secrets": {
             "get": {
-                "description": "Names, types, keys and ages. No value is ever returned by this API,\nand there is no endpoint that reveals one — a credential written\nthrough the panel is visible once, in the browser, when it is made.\nEach row reports whether the panel will delete or rotate it, and why\nnot: Helm's release storage and ServiceAccount tokens are refused\nwhatever the namespace policy says.",
+                "description": "Names, types, keys and ages. No value is ever returned by this API,\nand there is no endpoint that reveals one — a credential written\nthrough the panel is visible once, in the browser, when it is made.\nEach row reports whether the panel will delete or edit it, and why\nnot: Helm's release storage and ServiceAccount tokens are refused\nwhatever the namespace policy says.",
                 "parameters": [
                     {
                         "description": "Namespace name",
@@ -6484,6 +6500,120 @@
                     "kubernetes"
                 ]
             },
+            "patch": {
+                "description": "Names only the keys to change; every other key keeps its value, which\nis why this is not a PUT — the caller cannot read a value back, so it\ncannot resend a key it is not changing. Each key says what is\nhappening to it: replace a key the Secret has (rotating a credential),\nadd one it does not have, or remove one it has. A key in the wrong\nlist is refused rather than reinterpreted, so a mistyped rotation\ncannot quietly add a new key — 400 for replacing or removing a key\nthat is not there, 409 for adding one that is. An edit is refused only\nwhen the Secret it would leave has no keys at all — removing every key\nwhile adding another in the same edit is accepted; to empty a Secret,\ndelete it. A key named twice anywhere in the request is refused.\nRefused for the same namespaces and Secret types as a delete, for an\nimmutable Secret, and with 400 when Kubernetes rejects the result (a\nTLS Secret without tls.key, say). The response carries the keys the\nSecret now has and nothing else. NOTE that this writes the Secret and\nrestarts nothing. A Secret mounted as an ordinary volume is updated in\nrunning pods after a short delay, removed keys included; one read\nthrough environment variables or a subPath mount keeps its old values\nuntil the pod restarts.",
+                "parameters": [
+                    {
+                        "description": "Namespace name",
+                        "in": "path",
+                        "name": "namespace",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Secret name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/kube.SecretEdit",
+                                        "summary": "request",
+                                        "description": "The keys to replace, add and remove"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The keys to replace, add and remove",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/kube.SecretRef"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/http.ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Edit a Secret's keys",
+                "tags": [
+                    "kubernetes"
+                ]
+            },
             "put": {
                 "description": "Creates an Opaque Secret so a credential the panel just issued can\nreach the chart that will use it. Refused for a protected namespace,\nand refused with 409 when a Secret of that name is already there\nunless overwrite is set — replacing one is how a running release\nloses the credential it started with. The values are never readable\nback through this API: the response carries the keys and nothing else.",
                 "parameters": [
@@ -6594,112 +6724,6 @@
                     }
                 ],
                 "summary": "Write a Secret",
-                "tags": [
-                    "kubernetes"
-                ]
-            }
-        },
-        "/api/kubernetes/namespaces/{namespace}/secrets/{name}/rotate": {
-            "post": {
-                "description": "Names only the keys to change; every other key keeps its value, which\nis why this is not a PUT — the caller cannot read a value back, so it\ncannot resend a key it is not rotating. A key the Secret does not\nalready have is refused: rotation replaces a value, it does not add\none. Refused for the same namespaces and Secret types as a delete, and\nfor an immutable Secret. The response carries the keys and nothing\nelse. NOTE that this writes the Secret and stops: pods already running\nhold the old value until something restarts them.",
-                "parameters": [
-                    {
-                        "description": "Namespace name",
-                        "in": "path",
-                        "name": "namespace",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Secret name",
-                        "in": "path",
-                        "name": "name",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/kube.SecretRotation",
-                                        "summary": "request",
-                                        "description": "The keys to replace"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "The keys to replace",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/kube.SecretRef"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/http.ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Rotate a Secret's values",
                 "tags": [
                     "kubernetes"
                 ]

@@ -6,11 +6,9 @@ import {
 	shownValue,
 	usesCrlf,
 	planCreate,
-	planRotate,
 	type CreateDraft,
 	type SecretRow,
 } from "./secret-draft";
-import type { SecretSummary } from "@/lib/api/types";
 
 function rows(...pairs: [string, string][]): SecretRow[] {
 	return pairs.map(([key, value], index) => ({ id: String(index), key, value, format: "password" }));
@@ -20,16 +18,6 @@ function rows(...pairs: [string, string][]): SecretRow[] {
 function draft(partial: Omit<CreateDraft, "namespace">): CreateDraft {
 	return { namespace: "apps", ...partial };
 }
-
-const secret: SecretSummary = {
-	name: "octo-database",
-	type: "Opaque",
-	keys: ["database", "password", "username"],
-	immutable: false,
-	panelManaged: true,
-	removable: true,
-	createdAt: "2026-08-01T00:00:00Z",
-};
 
 describe("planCreate", () => {
 	it("turns filled rows into a payload", () => {
@@ -139,29 +127,6 @@ describe("planCreate", () => {
 	});
 });
 
-describe("planRotate", () => {
-	it("sends only the keys being rotated", () => {
-		const plan = planRotate(secret, rows(["password", "new-password"]));
-		expect(plan).toEqual({ ok: true, request: { data: { password: "new-password" } } });
-	});
-
-	// The rule that keeps rotation from being a create with weaker guards.
-	it("refuses a key the Secret does not have", () => {
-		const plan = planRotate(secret, rows(["apikey", "new-value"]));
-		expect(plan.ok).toBe(false);
-		if (!plan.ok) expect(plan.error).toContain("apikey");
-	});
-
-	it("refuses a rotation that would change nothing", () => {
-		expect(planRotate(secret, []).ok).toBe(false);
-		expect(planRotate(secret, rows(["", ""])).ok).toBe(false);
-	});
-
-	it("refuses an empty new value", () => {
-		expect(planRotate(secret, rows(["password", ""])).ok).toBe(false);
-	});
-});
-
 describe("file values", () => {
 	const pem = "-----BEGIN PRIVATE KEY-----\nMIIBVQ==\n-----END PRIVATE KEY-----\n";
 
@@ -174,11 +139,6 @@ describe("file values", () => {
 			overwrite: false,
 		}));
 		expect(plan.ok && plan.request.data["tls.key"]).toBe(pem);
-	});
-
-	it("rotates to a multi-line value exactly as typed", () => {
-		const plan = planRotate(secret, [{ id: "0", key: "password", value: pem, format: "file" }]);
-		expect(plan.ok && plan.request.data.password).toBe(pem);
 	});
 });
 

@@ -376,17 +376,17 @@ type SecretSummary struct {
 	// so it is shown rather than kept for the refusal.
 	Type string `json:"type"`
 	// Keys are the data keys, sorted. Enough to point a chart's existingSecret at
-	// one, and to choose what a rotation replaces.
+	// one, and to choose what an edit replaces or removes.
 	Keys []string `json:"keys"`
 	// Immutable Secrets refuse every write after creation, Kubernetes' own rule.
-	// Carried so the panel can say that rather than offering a rotation the API
+	// Carried so the panel can say that rather than offering an edit the API
 	// server will reject.
 	Immutable bool `json:"immutable"`
 	// PanelManaged is whether this Secret carries the label PutSecret stamps, so
 	// one the panel wrote is distinguishable from one an operator or a chart
 	// created. It changes nothing about what is permitted; it is context.
 	PanelManaged bool `json:"panelManaged"`
-	// Removable reports whether delete and rotate are offered, and Reason says why
+	// Removable reports whether delete and edit are offered, and Reason says why
 	// not. Decided by the service from the namespace policy and the Secret's type,
 	// never by the browser — the same answer the API would give if asked, computed
 	// once so the panel does not have to reimplement the rule.
@@ -401,12 +401,20 @@ type SecretSummary struct {
 	resourceVersion string
 }
 
-// SecretRotation is a request to replace the values of keys a Secret already has.
+// SecretEdit is a request to change the keys of a Secret that already exists.
 //
 // Only the keys being changed are named. The rest of the Secret is left as it is,
 // which is the whole reason this is not a PutSecret with everything resent: the
-// panel cannot read a value back, so it cannot resend a key it is not rotating,
+// panel cannot read a value back, so it cannot resend a key it is not changing,
 // and a write built from what the browser knows would blank the others.
-type SecretRotation struct {
-	Data map[string]string `json:"data"`
+//
+// Each key says which of three things is happening to it — see
+// Service.EditSecret for why that is not one map.
+type SecretEdit struct {
+	// Replace gives new values to keys the Secret already has.
+	Replace map[string]string `json:"replace,omitempty"`
+	// Add brings keys into the Secret that it does not have yet.
+	Add map[string]string `json:"add,omitempty"`
+	// Remove takes keys out of the Secret.
+	Remove []string `json:"remove,omitempty"`
 }

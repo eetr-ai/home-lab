@@ -2,8 +2,8 @@
  * What Kubernetes will accept as a Secret data key.
  *
  * One module because three places need the identical rule — composing a database
- * credential's Secret, filling in a new Secret by hand, and choosing what a
- * rotation replaces — and a validation regex copied three times is a validation
+ * credential's Secret, filling in a new Secret by hand, and adding a key to one
+ * that exists — and a validation regex copied three times is a validation
  * regex that will disagree with itself.
  *
  * Checked in the browser as well as in the API so the message names the offending

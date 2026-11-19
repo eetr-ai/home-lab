@@ -104,7 +104,7 @@ identifier for a destructive call.
 | `POST /api/postgres/databases/{db}/roles/{role}/privileges` | Grant or revoke. Body `{"changes": [...]}`, applied in one transaction. Load the `databases` skill first for the shape. |
 | `POST` / `PUT` / `DELETE` on `/api/mongo/databases`, its collections and users | The same, for MongoDB. |
 | `PUT /api/kubernetes/namespaces/{ns}/secrets/{name}` | Write a Secret. Refused if one of that name is there, unless you send `overwrite`. |
-| `POST /api/kubernetes/namespaces/{ns}/secrets/{name}/rotate` | Replace the values of keys it already has. |
+| `PATCH /api/kubernetes/namespaces/{ns}/secrets/{name}` | Change its keys. Body `{"replace": {k: v}, "add": {k: v}, "remove": [k]}`, any of the three. `replace` is a key it has (rotating a credential), `add` one it does not, `remove` one it has — the wrong list is refused, not reinterpreted. An edit that would leave it with no keys is refused — that is a delete — but removing every key while adding one is fine. A key named twice anywhere is refused. |
 | `DELETE /api/kubernetes/namespaces/{ns}/secrets/{name}` | Remove one. |
 | `DELETE /api/redis/key?key=` | Remove one Redis key. There is no flush, and no way to remove more than one at a time: the panel's sign-in locks live there. A key with no TTL that looks like a lock is the usual reason. |
 | `POST /api/redis/users` | Create an app's Redis user. Body `{"name", "password", "prefix", "preset"}`; `preset` is `readwrite` or `readonly`, and the user can reach only keys and channels starting with `prefix` (and cannot SCAN, which would list other apps' key names). |
@@ -149,8 +149,10 @@ Two Secrets the panel refuses whatever you ask: Helm's own release storage
 ServiceAccount tokens. The listing marks each row with whether it is touchable and
 why not, so read it before offering to delete something.
 
-**Rotating writes the Secret and stops.** Pods already running hold the old value
-until something restarts them. Say so — every time, without being asked. Then
+**Editing writes the Secret and restarts nothing.** A pod that mounts it as an
+ordinary volume sees the change after a short delay, removed keys included; one
+that reads it through environment variables or a `subPath` mount keeps the old
+values until it restarts. Say so — every time, without being asked. Then
 offer the restart as a separate step, because it is one.
 
 ## Helm

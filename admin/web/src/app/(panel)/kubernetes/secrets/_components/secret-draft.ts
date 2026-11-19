@@ -1,8 +1,9 @@
 import { isValidSecretKey } from "@/lib/secrets/keys";
-import type { PutSecret, RotateSecret, SecretSummary } from "@/lib/api/types";
+import type { PutSecret } from "@/lib/api/types";
 
 /**
- * The rules behind the two Secret forms, kept out of the components.
+ * The rules behind the Secret forms, kept out of the components. The edit's own
+ * rules are in secret-edit.ts; the rows and their checks are shared from here.
  *
  * A Secret is a list of key/value rows, and a list of rows is where the silent
  * mistakes live: two rows with the same key leave one value and it is whichever
@@ -126,8 +127,6 @@ export type CreatePlan =
 	| { ok: true; namespace: string; name: string; request: PutSecret }
 	| { ok: false; error: string };
 
-export type RotatePlan = { ok: true; request: RotateSecret } | { ok: false; error: string };
-
 /**
  * A name the API will accept for a Secret it is creating.
  *
@@ -167,32 +166,6 @@ export function planCreate(draft: CreateDraft): CreatePlan {
 }
 
 /**
- * What a rotation sends: the chosen keys and their new values, and nothing else.
- *
- * A key that is not on the Secret is refused here as well as by the API, because
- * the message is better — "rotation replaces a value" is the rule, and it reads
- * as an explanation under the field rather than as a rejected request.
- */
-export function planRotate(secret: SecretSummary, rows: SecretRow[]): RotatePlan {
-	const chosen = rows.filter((row) => row.key);
-	if (chosen.length === 0) {
-		return { ok: false, error: "Choose at least one key to rotate." };
-	}
-
-	const unknown = chosen.find((row) => !secret.keys.includes(row.key));
-	if (unknown) {
-		return {
-			ok: false,
-			error: `"${unknown.key}" is not a key on this Secret. Rotation replaces a value; it does not add one.`,
-		};
-	}
-
-	const data = collect(chosen);
-	if (!data.ok) return data;
-	return { ok: true, request: { data: data.data } };
-}
-
-/**
  * Rows to a payload, or to the reason there is not one.
  *
  * The duplicate check is the point. `Object.fromEntries` over two rows with the
@@ -200,7 +173,7 @@ export function planRotate(secret: SecretSummary, rows: SecretRow[]): RotatePlan
  * password can end up holding the password twice — and since nothing reads it
  * back, the first sign would be a workload that will not authenticate.
  */
-function collect(
+export function collect(
 	rows: SecretRow[],
 ): { ok: true; data: Record<string, string> } | { ok: false; error: string } {
 	const filled = rows.filter((row) => row.key || row.value);

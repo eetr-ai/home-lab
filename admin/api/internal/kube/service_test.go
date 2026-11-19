@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -41,7 +43,7 @@ type fakeRepo struct {
 	// conflict in front of the service without a cluster.
 	secretErr error
 	// live is what ReadSecret and ListSecrets answer with, keyed by name, holding
-	// the values as well so a rotation can be checked for leaving the other keys
+	// the values as well so an edit can be checked for leaving the other keys
 	// alone. Nothing the service can reach ever sees this map — that is the point
 	// of it being here and of SecretSummary having nowhere to put a value.
 	live map[string]liveSecret
@@ -49,9 +51,9 @@ type fakeRepo struct {
 	// service handed them over — so a test can assert the delete was bound to the
 	// object that was checked and not just to its name.
 	removed []SecretSummary
-	// rotated records each rotation as the fake merged it, so a test can assert
-	// the keys not named kept their values.
-	rotated []map[string]string
+	// edited records each edit as the fake merged it, so a test can assert the
+	// keys not named kept their values.
+	edited []map[string]string
 	// labelled records every label patch that reached the cluster, so a test can
 	// assert both what was written and that a refusal wrote nothing.
 	labelled []labelPatch
@@ -216,21 +218,28 @@ func (f *fakeRepo) DeleteSecret(_ context.Context, _ string, target SecretSummar
 // The merge is the repository's job in the real one, so the fake does it too —
 // otherwise a test asserting the untouched keys survived would be asserting
 // against nothing.
-func (f *fakeRepo) RotateSecretKeys(
-	_ context.Context, _, name string, values map[string]string,
-) error {
+func (f *fakeRepo) EditSecretKeys(
+	_ context.Context, _, name string, edit SecretEdit,
+) ([]string, error) {
 	if f.secretErr != nil {
-		return f.secretErr
+		return nil, f.secretErr
 	}
 	merged := map[string]string{}
 	for key, value := range f.live[name].data {
 		merged[key] = value
 	}
-	for key, value := range values {
+	for key, value := range edit.Replace {
 		merged[key] = value
 	}
-	f.rotated = append(f.rotated, merged)
-	return nil
+	for key, value := range edit.Add {
+		merged[key] = value
+	}
+	for _, key := range edit.Remove {
+		delete(merged, key)
+	}
+	f.edited = append(f.edited, merged)
+	keys := slices.Sorted(maps.Keys(merged))
+	return keys, nil
 }
 
 // A malformed namespace must be refused here rather than sent to the API server,
