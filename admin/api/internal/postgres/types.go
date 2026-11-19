@@ -218,11 +218,23 @@ type ObjectPrivileges struct {
 	// "sequence". A view is granted to with the same statement as a table, so the
 	// distinction is only for display.
 	Kind string `json:"kind"`
-	// Owner is the object's owner. An owner holds every privilege implicitly, so
-	// for an object the role owns, Granted lists all of them.
-	Owner     string   `json:"owner"`
-	Granted   []string `json:"granted"`
-	Effective []string `json:"effective"`
+	// Owner is the object's owner. An owner is granted every privilege by
+	// default, so for an object the role owns, Granted lists all of them unless the
+	// owner has revoked some from itself — which it can, and can grant back.
+	Owner   string   `json:"owner"`
+	Granted []string `json:"granted"`
+	// ForeignGrants are the entries of Granted that a role other than the owner
+	// granted. The panel's revoke acts as the owner and cannot remove them, so
+	// they are reported for the caller to leave alone, not to offer as a revoke.
+	ForeignGrants []ForeignGrant `json:"foreignGrants"`
+	Effective     []string       `json:"effective"`
+}
+
+// ForeignGrant is one privilege granted to the role by somebody other than the
+// object's owner — a role that held it WITH GRANT OPTION.
+type ForeignGrant struct {
+	Privilege string `json:"privilege"`
+	Grantor   string `json:"grantor"`
 }
 
 // DefaultPrivileges is one ALTER DEFAULT PRIVILEGES entry naming the role.

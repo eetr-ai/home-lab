@@ -69,7 +69,9 @@ type repository interface {
 	Browse(ctx context.Context, database, schema, table, cursor string, pageSize int) (BrowseResult, error)
 
 	ListPrivileges(ctx context.Context, database, role string) (RolePrivileges, error)
-	ApplyPrivileges(ctx context.Context, database string, statements []string) error
+	ApplyPrivileges(
+		ctx context.Context, database, role string, changes []PrivilegeChange, statements []string,
+	) (RolePrivileges, error)
 }
 
 // Service manages the databases and roles on the PostgreSQL server.

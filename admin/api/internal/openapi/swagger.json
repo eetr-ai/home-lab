@@ -1839,12 +1839,31 @@
                 },
                 "type": "object"
             },
+            "postgres.ForeignGrant": {
+                "properties": {
+                    "grantor": {
+                        "type": "string"
+                    },
+                    "privilege": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "postgres.ObjectPrivileges": {
                 "description": "DatabasePrivileges is CONNECT, CREATE and TEMPORARY on the database itself.",
                 "properties": {
                     "effective": {
                         "items": {
                             "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "foreignGrants": {
+                        "description": "ForeignGrants are the entries of Granted that a role other than the owner\ngranted. The panel's revoke acts as the owner and cannot remove them, so\nthey are reported for the caller to leave alone, not to offer as a revoke.",
+                        "items": {
+                            "$ref": "#/components/schemas/postgres.ForeignGrant"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -1864,7 +1883,7 @@
                         "type": "string"
                     },
                     "owner": {
-                        "description": "Owner is the object's owner. An owner holds every privilege implicitly, so\nfor an object the role owns, Granted lists all of them.",
+                        "description": "Owner is the object's owner. An owner is granted every privilege by\ndefault, so for an object the role owns, Granted lists all of them unless the\nowner has revoked some from itself — which it can, and can grant back.",
                         "type": "string"
                     },
                     "schema": {
@@ -8912,7 +8931,7 @@
                 ]
             },
             "post": {
-                "description": "A list of changes applied in one transaction, so a group — read-write\naccess to a schema, say — lands whole or not at all. Each change is a grant\nor revoke of named privileges on the database, a schema, named tables or\nsequences, every table or sequence that exists in a schema now\n(allTables, allSequences), or those an owner creates later (defaultTables,\ndefaultSequences: ALTER DEFAULT PRIVILEGES FOR ROLE owner — it covers only\nobjects that owner creates). Privileges are checked against a fixed list per\ntarget. PostgreSQL's own roles and databases, superusers, and the panel's own\naccount are refused. Returns the statements that ran and the role's state\nafterwards; a statement the server refuses is a 422 with its message.",
+                "description": "A list of changes applied in one transaction, so a group — read-write\naccess to a schema, say — lands whole or not at all. Each change is a grant\nor revoke of named privileges on the database, a schema, named tables or\nsequences, every table or sequence that exists in a schema now\n(allTables, allSequences), or those an owner creates later (defaultTables,\ndefaultSequences: ALTER DEFAULT PRIVILEGES FOR ROLE owner — it covers only\nobjects that owner creates). Privileges are checked against a fixed list per\ntarget. PostgreSQL's own roles and databases, superusers, and the panel's own\naccount are refused. Returns the statements that ran and the role's state\nafterwards; a statement the server refuses is a 422 with its message. A revoke\nonly removes grants the object's owner made: one that would leave a grant by\nanother role in place (see foreignGrants) is a 422 naming it, and nothing is\napplied.",
                 "parameters": [
                     {
                         "description": "Database name",

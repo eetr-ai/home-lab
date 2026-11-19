@@ -72,6 +72,17 @@ func TestPrivilegeStatements(t *testing.T) {
 			want:   `ALTER DEFAULT PRIVILEGES FOR ROLE "migrator" REVOKE USAGE ON SEQUENCES FROM "app"`,
 		},
 		{
+			// A default-privileges owner comes from the catalog, and a role created
+			// outside the panel may have a name the allowlist would refuse. Revoking
+			// the entry the listing showed must work; the quote is escaped.
+			name: "a catalog owner name with a space and a quote",
+			change: PrivilegeChange{
+				Action: "revoke", Target: "defaultTables", Schema: "public", Owner: `App "Owner"`,
+				Privileges: []string{"SELECT"},
+			},
+			want: `ALTER DEFAULT PRIVILEGES FOR ROLE "App ""Owner""" IN SCHEMA "public" REVOKE SELECT ON TABLES FROM "app"`,
+		},
+		{
 			// Lower case, duplicated and out of order in; one canonical statement
 			// out, so the same request always runs the same SQL.
 			name:   "privileges are canonicalised",
@@ -140,8 +151,10 @@ func TestPrivilegeStatementsRefusals(t *testing.T) {
 			changes: []PrivilegeChange{{Action: "grant", Target: "defaultTables", Schema: "public", Privileges: []string{"SELECT"}}},
 		},
 		{
-			name:    "a default with an unsafe owner",
-			changes: []PrivilegeChange{{Action: "grant", Target: "defaultTables", Owner: `x" --`, Privileges: []string{"SELECT"}}},
+			// The owner is escaped rather than allowlisted, but a NUL cannot be in
+			// any identifier and is still refused.
+			name:    "a default with a null byte in the owner",
+			changes: []PrivilegeChange{{Action: "grant", Target: "defaultTables", Owner: "app\x00owner", Privileges: []string{"SELECT"}}},
 		},
 	}
 
@@ -185,5 +198,19 @@ func TestOrderPrivileges(t *testing.T) {
 	if got := orderPrivileges(tablePrivileges, nil); got == nil || len(got) != 0 {
 		// An empty list, not null: the panel iterates it.
 		t.Errorf("orderPrivileges(nil) = %#v, want an empty slice", got)
+	}
+}
+
+// Foreign grants arrive as "PRIVILEGE:grantor". A grantor's name may contain a
+// colon, so only the first one splits; privileges the panel does not show are
+// dropped, and the order is the allowlist's.
+func TestParseForeignGrants(t *testing.T) {
+	got := parseForeignGrants(tablePrivileges, []string{"DELETE:team:lead", "MAINTAIN:x", "SELECT:migrator"})
+	want := []ForeignGrant{{Privilege: "SELECT", Grantor: "migrator"}, {Privilege: "DELETE", Grantor: "team:lead"}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("parseForeignGrants() = %v, want %v", got, want)
+	}
+	if got := parseForeignGrants(tablePrivileges, nil); got == nil || len(got) != 0 {
+		t.Errorf("parseForeignGrants(nil) = %#v, want an empty slice", got)
 	}
 }

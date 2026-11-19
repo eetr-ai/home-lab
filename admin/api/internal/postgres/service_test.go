@@ -166,10 +166,14 @@ func (f *fakeRepo) ListPrivileges(_ context.Context, database, role string) (Rol
 	return result, f.err
 }
 
-func (f *fakeRepo) ApplyPrivileges(_ context.Context, database string, statements []string) error {
+func (f *fakeRepo) ApplyPrivileges(
+	_ context.Context, database, role string, _ []PrivilegeChange, statements []string,
+) (RolePrivileges, error) {
 	f.appliedDatabase = database
 	f.appliedStatements = append(f.appliedStatements, statements...)
-	return f.err
+	result := f.privileges
+	result.Database, result.Role = database, role
+	return result, f.err
 }
 
 const goodPassword = "a-long-enough-password"

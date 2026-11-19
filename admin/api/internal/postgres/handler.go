@@ -81,7 +81,10 @@ func (h *Handler) listPrivileges(w http.ResponseWriter, r *http.Request) {
 //	@Description	objects that owner creates). Privileges are checked against a fixed list per
 //	@Description	target. PostgreSQL's own roles and databases, superusers, and the panel's own
 //	@Description	account are refused. Returns the statements that ran and the role's state
-//	@Description	afterwards; a statement the server refuses is a 422 with its message.
+//	@Description	afterwards; a statement the server refuses is a 422 with its message. A revoke
+//	@Description	only removes grants the object's owner made: one that would leave a grant by
+//	@Description	another role in place (see foreignGrants) is a 422 naming it, and nothing is
+//	@Description	applied.
 //	@Tags			postgres
 //	@Accept			json
 //	@Produce		json
@@ -504,6 +507,11 @@ func respondError(w http.ResponseWriter, err error) {
 		// which names the syntax position or the write it refused — and that is the
 		// whole value of a query console.
 		httpx.Error(w, http.StatusUnprocessableEntity, "query_failed", err.Error())
+	case errors.Is(err, ErrNotRevocable):
+		// 422 for the same reason as a refused query: the request was well formed,
+		// and what it asked for cannot be done from here. The message names the
+		// grant and its grantor, which is what the operator has to act on.
+		httpx.Error(w, http.StatusUnprocessableEntity, "not_revocable", err.Error())
 	default:
 		slog.Error("postgres request failed", slog.Any("error", err))
 		httpx.Error(w, http.StatusInternalServerError, "internal_error", "the request could not be completed")

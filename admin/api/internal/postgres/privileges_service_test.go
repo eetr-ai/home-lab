@@ -101,8 +101,10 @@ type failingApply struct {
 	err error
 }
 
-func (f *failingApply) ApplyPrivileges(_ context.Context, _ string, _ []string) error {
-	return f.err
+func (f *failingApply) ApplyPrivileges(
+	_ context.Context, _, _ string, _ []PrivilegeChange, _ []string,
+) (RolePrivileges, error) {
+	return RolePrivileges{}, f.err
 }
 
 func TestListPrivileges(t *testing.T) {

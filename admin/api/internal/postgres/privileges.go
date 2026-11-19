@@ -72,8 +72,8 @@ var privilegeTargets = map[string]privilegeTarget{
 // The database and role are validated with the strict allowlist, like every role
 // and database name in this slice. Schema, table and sequence names go through
 // quoteName instead: they name objects that already exist and that the panel
-// listed, and a real table may be capitalised or spaced. The default-privileges
-// owner is a role, so it gets the allowlist.
+// listed, and a real table may be capitalised or spaced. So does the
+// default-privileges owner, for the reason defaultPrivilegesStatement gives.
 func privilegeStatements(database, role string, changes []PrivilegeChange) ([]string, error) {
 	if len(changes) == 0 {
 		return nil, fmt.Errorf("%w: there are no changes to make", ErrInvalidName)
@@ -244,8 +244,14 @@ func privilegeObject(quotedDatabase string, change PrivilegeChange) (string, err
 // current user is the panel's own account, and a default that covers only the
 // tables the panel creates covers nothing an application creates through its own
 // migrations — the statement would succeed and protect nothing.
+//
+// The owner is quoted with quoteName, not the role allowlist: it is read back from
+// the catalog (the default-privileges listing, a table's owner), and a role
+// created outside the panel may be called "App Owner". Revoking its entry must
+// not be refused for a name the listing itself showed. The service still checks
+// that the role exists.
 func defaultPrivilegesStatement(change PrivilegeChange, clause, preposition, quotedRole string) (string, error) {
-	quotedOwner, err := quoteIdentifier(change.Owner)
+	quotedOwner, err := quoteName(change.Owner)
 	if err != nil {
 		return "", fmt.Errorf("owner: %w", err)
 	}

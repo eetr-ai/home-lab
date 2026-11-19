@@ -128,7 +128,11 @@ func (r *Repository) inReadOnlyTx(
 	}
 	defer func() { _ = conn.Close(ctx) }()
 
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	// REPEATABLE READ, so a callback that reads more than once — the privilege
+	// listing reads five catalogs — sees one snapshot rather than a mix of before
+	// and after a change committed in between. A read-only transaction at this
+	// level cannot raise a serialization failure, so it costs callers nothing.
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return fmt.Errorf("begin a read-only transaction: %w", err)
 	}

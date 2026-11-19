@@ -84,11 +84,10 @@ func (s *Service) ChangePrivileges(
 		return ChangePrivilegesResult{}, err
 	}
 
-	if err := s.repo.ApplyPrivileges(ctx, database, statements); err != nil {
-		return ChangePrivilegesResult{}, err
-	}
-
-	privileges, err := s.repo.ListPrivileges(ctx, database, role)
+	// The state comes back from inside the transaction that applied the change,
+	// so a committed change is never reported as a failure because a second read
+	// afterwards did not succeed.
+	privileges, err := s.repo.ApplyPrivileges(ctx, database, role, req.Changes, statements)
 	if err != nil {
 		return ChangePrivilegesResult{}, err
 	}
