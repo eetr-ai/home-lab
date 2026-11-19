@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -218,9 +220,9 @@ func (f *fakeRepo) DeleteSecret(_ context.Context, _ string, target SecretSummar
 // against nothing.
 func (f *fakeRepo) EditSecretKeys(
 	_ context.Context, _, name string, edit SecretEdit,
-) error {
+) ([]string, error) {
 	if f.secretErr != nil {
-		return f.secretErr
+		return nil, f.secretErr
 	}
 	merged := map[string]string{}
 	for key, value := range f.live[name].data {
@@ -236,7 +238,8 @@ func (f *fakeRepo) EditSecretKeys(
 		delete(merged, key)
 	}
 	f.edited = append(f.edited, merged)
-	return nil
+	keys := slices.Sorted(maps.Keys(merged))
+	return keys, nil
 }
 
 // A malformed namespace must be refused here rather than sent to the API server,

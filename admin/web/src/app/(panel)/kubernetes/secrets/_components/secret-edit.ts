@@ -38,11 +38,27 @@ export function actionFor(draft: EditDraft, key: string): KeyAction {
 	return draft.existing[key]?.action ?? "keep";
 }
 
-/** The draft with one existing key moved to a new action, its value reset. */
+/**
+ * The draft with one existing key moved to a new action, its value reset.
+ *
+ * Built with computed keys rather than assigned through `existing[key]`: a key
+ * is whatever the Secret holds, and assigning `__proto__` on a plain object
+ * sets its prototype instead of adding an entry, which the next copy then drops.
+ */
 export function withAction(draft: EditDraft, key: string, action: KeyAction): EditDraft {
-	const existing = { ...draft.existing };
-	if (action === "keep") delete existing[key];
-	else existing[key] = { action, value: "", format: "password" };
+	// Object.fromEntries defines own properties, so it is safe for any key too.
+	const rest = Object.fromEntries(Object.entries(draft.existing).filter(([held]) => held !== key));
+	const existing: Record<string, ExistingKeyDraft> =
+		action === "keep" ? rest : { ...rest, [key]: { action, value: "", format: "password" } };
+	return { ...draft, existing };
+}
+
+/** The draft with new values for keys already being replaced. Same care as withAction. */
+export function withReplacedValues(draft: EditDraft, rows: SecretRow[]): EditDraft {
+	let existing = draft.existing;
+	for (const row of rows) {
+		existing = { ...existing, [row.key]: { action: "replace", value: row.value, format: row.format } };
+	}
 	return { ...draft, existing };
 }
 

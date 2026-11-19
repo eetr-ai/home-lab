@@ -25,7 +25,13 @@ export function SecretList({
 }) {
 	const [error, setError] = useState<string | null>(loadError);
 	const [creating, setCreating] = useState(false);
-	const [editing, setEditing] = useState<SecretSummary | null>(null);
+	// The namespace is held with the Secret it was chosen in, so a panel left open
+	// across a namespace change cannot send one namespace's draft to a Secret of
+	// the same name in another.
+	const [editing, setEditing] = useState<{ secret: SecretSummary; namespace: string } | null>(
+		null,
+	);
+	const editTarget = editing?.namespace === namespace ? editing : null;
 	const rowDelete = useRowDelete(setError);
 
 	const create = (
@@ -80,7 +86,7 @@ export function SecretList({
 									secret={secret}
 									namespace={namespace}
 									rowDelete={rowDelete}
-									onEdit={() => setEditing(secret)}
+									onEdit={() => setEditing({ secret, namespace })}
 								/>
 							</Td>
 						</>
@@ -88,7 +94,7 @@ export function SecretList({
 					// Only a row with an edit to open is clickable; one that looks
 					// interactive and does nothing is worse than one that plainly is not.
 					return editable(secret) ? (
-						<InteractiveRow key={secret.name} onActivate={() => setEditing(secret)}>
+						<InteractiveRow key={secret.name} onActivate={() => setEditing({ secret, namespace })}>
 							{cells}
 						</InteractiveRow>
 					) : (
@@ -105,9 +111,9 @@ export function SecretList({
 			<EditSecretPanel
 				// Keyed by name so the panel re-initialises per row rather than
 				// carrying the previous Secret's keys into the next one.
-				key={editing?.name}
-				secret={editing}
-				namespace={namespace}
+				key={editTarget ? `${editTarget.namespace}/${editTarget.secret.name}` : undefined}
+				secret={editTarget?.secret ?? null}
+				namespace={editTarget?.namespace ?? namespace}
 				onClose={() => setEditing(null)}
 			/>
 		</>

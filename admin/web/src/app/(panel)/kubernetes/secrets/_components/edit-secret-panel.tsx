@@ -14,6 +14,7 @@ import {
 	isEditDirty,
 	planEdit,
 	withAction,
+	withReplacedValues,
 	type EditDraft,
 } from "./secret-edit";
 import type { SecretSummary } from "@/lib/api/types";
@@ -51,16 +52,6 @@ export function EditSecretPanel({
 		onClose();
 	}
 
-	function setReplaced(rows: SecretRow[]) {
-		setDraft((current) => {
-			const existing = { ...current.existing };
-			for (const row of rows) {
-				existing[row.key] = { action: "replace", value: row.value, format: row.format };
-			}
-			return { ...current, existing };
-		});
-	}
-
 	return (
 		<CreatePanel
 			open={secret !== null}
@@ -70,7 +61,7 @@ export function EditSecretPanel({
 			// The thing that is true and easy to miss. Nothing in this panel
 			// restarts anything, and an edit somebody believes took effect is worse
 			// than one they know is waiting.
-			description="Replace a value, remove a key, or add new ones; keys you leave alone keep their values. This writes the Secret and stops — pods already running hold the old values until something restarts them, which is the Workloads tab."
+			description="Replace a value, remove a key, or add new ones; keys you leave alone keep their values. This writes the Secret and restarts nothing: pods that mount it as a volume see the change shortly, but ones that read it through environment variables keep the old values until restarted, which is the Workloads tab."
 			dirty={isEditDirty(draft)}
 			onClose={reset}
 			onSubmit={async () => {
@@ -91,7 +82,7 @@ export function EditSecretPanel({
 					idPrefix="replace"
 					rows={replacing}
 					keyOptions={secret?.keys ?? []}
-					onChange={setReplaced}
+					onChange={(rows) => setDraft((current) => withReplacedValues(current, rows))}
 				/>
 			) : null}
 

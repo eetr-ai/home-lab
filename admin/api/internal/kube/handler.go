@@ -741,12 +741,18 @@ func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) {
 //	@Description	add one it does not have, or remove one it has. A key in the wrong
 //	@Description	list is refused rather than reinterpreted, so a mistyped rotation
 //	@Description	cannot quietly add a new key — 400 for replacing or removing a key
-//	@Description	that is not there, 409 for adding one that is. Removing every key is
-//	@Description	refused; delete the Secret instead. Refused for the same namespaces and
-//	@Description	Secret types as a delete, and for an immutable Secret. The response
-//	@Description	carries the keys the Secret now has and nothing else. NOTE that this
-//	@Description	writes the Secret and stops: pods already running hold the old values
-//	@Description	until something restarts them.
+//	@Description	that is not there, 409 for adding one that is. An edit is refused only
+//	@Description	when the Secret it would leave has no keys at all — removing every key
+//	@Description	while adding another in the same edit is accepted; to empty a Secret,
+//	@Description	delete it. A key named twice anywhere in the request is refused.
+//	@Description	Refused for the same namespaces and Secret types as a delete, for an
+//	@Description	immutable Secret, and with 400 when Kubernetes rejects the result (a
+//	@Description	TLS Secret without tls.key, say). The response carries the keys the
+//	@Description	Secret now has and nothing else. NOTE that this writes the Secret and
+//	@Description	restarts nothing. A Secret mounted as an ordinary volume is updated in
+//	@Description	running pods after a short delay, removed keys included; one read
+//	@Description	through environment variables or a subPath mount keeps its old values
+//	@Description	until the pod restarts.
 //	@Tags			kubernetes
 //	@Accept			json
 //	@Produce		json
@@ -762,8 +768,8 @@ func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) {
 //	@Failure		409			{object}	http.ErrorBody
 //	@Router			/api/kubernetes/namespaces/{namespace}/secrets/{name} [patch]
 func (h *Handler) editSecret(w http.ResponseWriter, r *http.Request) {
-	var edit SecretEdit
-	if !httpx.DecodeJSON(w, r, &edit) {
+	edit, ok := decodeSecretEdit(w, r)
+	if !ok {
 		return
 	}
 

@@ -5,13 +5,9 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
-)
 
-// maxSecretKeyLength is Kubernetes' bound on a data key. The key is a path
-// segment when the Secret is mounted as a volume, which is where the limit comes
-// from.
-const maxSecretKeyLength = 253
+	"k8s.io/apimachinery/pkg/util/validation"
+)
 
 // PutSecret writes an Opaque Secret into a namespace.
 //
@@ -153,17 +149,17 @@ func validateSecretData(data map[string]string) error {
 	return nil
 }
 
-// validateSecretKey checks one data key against the characters and length
-// Kubernetes accepts.
+// validateSecretKey checks one data key with apimachinery's own rule, which is
+// the one the API server applies: the characters and length, and also that the
+// key is not ".", "..", or anything starting with "..", because a key becomes a
+// filename when the Secret is mounted. Matching it exactly is the point — a key
+// it would refuse otherwise comes back as a 500 about a field path.
 func validateSecretKey(key string) error {
-	if key == "" || len(key) > maxSecretKeyLength || strings.Trim(key, secretKeyCharset) != "" {
+	if len(validation.IsConfigMapKey(key)) > 0 {
 		return fmt.Errorf("%w: %q is not a valid Secret key", ErrInvalidName, key)
 	}
 	return nil
 }
-
-// secretKeyCharset is every character Kubernetes permits in a data key.
-const secretKeyCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
 
 // ListSecrets reports the Secrets in a namespace, without any of their contents.
 //
@@ -269,12 +265,15 @@ func (s *Service) EditSecret(
 	if live.Immutable {
 		return SecretRef{}, fmt.Errorf("%w: %s is immutable", ErrReserved, name)
 	}
-	keys, err := editedKeys(name, live.Keys, edit)
-	if err != nil {
+	if err := checkEditKeys(name, live.Keys, edit); err != nil {
 		return SecretRef{}, err
 	}
 
-	if err := s.repo.EditSecretKeys(ctx, namespace, name, edit); err != nil {
+	// The keys from the object that was written, not from the read above: a
+	// key another writer added in between survives the merge, and a response
+	// that left it out would be describing a Secret that no longer exists.
+	keys, err := s.repo.EditSecretKeys(ctx, namespace, name, edit)
+	if err != nil {
 		return SecretRef{}, err
 	}
 	return SecretRef{Namespace: namespace, Name: name, Keys: keys}, nil
@@ -321,46 +320,38 @@ func validateSecretEdit(edit SecretEdit) error {
 	return nil
 }
 
-// editedKeys checks an edit against the keys a Secret has and returns the keys
-// it will have afterwards, sorted.
+// checkEditKeys checks an edit against the keys a Secret has: replace and
+// remove must name keys that are there, add must name keys that are not, and the
+// Secret must be left with at least one key.
 //
 // Pure, and shared with the repository, which repeats it against the object it
 // is about to write — see editable.
-func editedKeys(name string, have []string, edit SecretEdit) ([]string, error) {
+func checkEditKeys(name string, have []string, edit SecretEdit) error {
 	for key := range edit.Replace {
 		if !slices.Contains(have, key) {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: %s has no key %q to replace — add it instead", ErrInvalidName, name, key)
 		}
 	}
 	for _, key := range edit.Remove {
 		if !slices.Contains(have, key) {
-			return nil, fmt.Errorf("%w: %s has no key %q to remove", ErrInvalidName, name, key)
+			return fmt.Errorf("%w: %s has no key %q to remove", ErrInvalidName, name, key)
 		}
 	}
 	for key := range edit.Add {
 		if slices.Contains(have, key) {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: %s already has a key %q — replace it instead", ErrAlreadyExists, name, key)
 		}
 	}
-
-	keys := make([]string, 0, len(have)+len(edit.Add))
-	for _, key := range have {
-		if !slices.Contains(edit.Remove, key) {
-			keys = append(keys, key)
-		}
-	}
-	for key := range edit.Add {
-		keys = append(keys, key)
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf(
+	// Every key named in Remove is one the Secret has, and none is named twice —
+	// validateSecretEdit saw to that — so this is the count it will be left with.
+	if len(have)-len(edit.Remove)+len(edit.Add) == 0 {
+		return fmt.Errorf(
 			"%w: removing every key from %s would leave it empty — delete the Secret instead",
 			ErrInvalidName, name)
 	}
-	sort.Strings(keys)
-	return keys, nil
+	return nil
 }
 
 // writableSecret runs every check the two write paths share and hands back the

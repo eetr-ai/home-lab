@@ -525,6 +525,32 @@ func TestSecretWritesRefuseBeforeTheyReachTheCluster(t *testing.T) {
 			wantErr:    ErrInvalidName,
 		},
 		{
+			// A key becomes a filename when the Secret is mounted, so Kubernetes
+			// refuses "." and anything starting with "..". Rotation never reached
+			// this because the key had to exist; adding can.
+			name:       "adding the key . is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Add: map[string]string{".": "new-value"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			name:       "adding a key starting with .. is refused",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Add: map[string]string{"..name": "new-value"}},
+			editOnly:   true,
+			wantErr:    ErrInvalidName,
+		},
+		{
+			name:       "adding a key starting with a single dot is an edit",
+			namespace:  "apps",
+			secretName: "octo-database",
+			edit:       SecretEdit{Add: map[string]string{".env": "new-value"}},
+			editOnly:   true,
+		},
+		{
 			name:       "an edit that changes nothing is refused",
 			namespace:  "apps",
 			secretName: "octo-database",
@@ -838,5 +864,80 @@ func TestApplySecretEditChangesOnlyTheNamedKeys(t *testing.T) {
 	}
 	if live.StringData != nil {
 		t.Errorf("StringData = %v, want it cleared", live.StringData)
+	}
+}
+
+// The response describes the object that was written. A key another writer added
+// after the service's read survives the merge, so it has to be in the answer.
+func TestEditSecretReportsKeysFromTheWrite(t *testing.T) {
+	live := liveSecretsForTests()
+	secret := live["octo-database"]
+	secret.data["region"] = "added by somebody else after the read"
+	live["octo-database"] = secret
+
+	repo := &fakeRepo{namespaces: namespacesForSecretTests(), live: live}
+	ref, err := newTestService(repo).EditSecret(t.Context(), "apps", "octo-database",
+		SecretEdit{Replace: map[string]string{"password": "new-password"}})
+	if err != nil {
+		t.Fatalf("EditSecret() error = %v", err)
+	}
+	if !slices.Contains(ref.Keys, "region") {
+		t.Errorf("Keys = %v, want the key the write kept", ref.Keys)
+	}
+}
+
+// encoding/json keeps the last of two members with one name, so a request with
+// two values for one key would otherwise succeed with whichever came second.
+func TestEditSecretRefusesAKeyRepeatedInsideOneObject(t *testing.T) {
+	bodies := map[string]string{
+		"replace": `{"replace":{"password":"a","password":"b"}}`,
+		"add":     `{"add":{"apikey":"a","apikey":"b"}}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepo{namespaces: namespacesForSecretTests(), live: liveSecretsForTests()}
+			mux := http.NewServeMux()
+			NewHandler(newTestService(repo)).Register(mux)
+
+			req := httptest.NewRequestWithContext(t.Context(), "PATCH",
+				"/api/kubernetes/namespaces/apps/secrets/octo-database", strings.NewReader(body))
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, req)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400: %s", recorder.Code, recorder.Body)
+			}
+			if len(repo.edited) != 0 {
+				t.Errorf("a refused edit wrote %v", repo.edited)
+			}
+		})
+	}
+}
+
+// The handler's own decoding must still accept what it used to: absent maps,
+// null maps, and an ordinary edit.
+func TestDecodeUniqueStringMap(t *testing.T) {
+	tests := []struct {
+		raw     string
+		want    map[string]string
+		wantErr bool
+	}{
+		{raw: ``, want: nil},
+		{raw: `null`, want: nil},
+		{raw: `{}`, want: map[string]string{}},
+		{raw: `{"a":"1","b":"2"}`, want: map[string]string{"a": "1", "b": "2"}},
+		{raw: `{"a":"1","a":"2"}`, wantErr: true},
+		{raw: `{"a":1}`, wantErr: true},
+		{raw: `["a"]`, wantErr: true},
+	}
+	for _, test := range tests {
+		got, err := decodeUniqueStringMap([]byte(test.raw))
+		if (err != nil) != test.wantErr {
+			t.Errorf("decodeUniqueStringMap(%s) error = %v, wantErr %v", test.raw, err, test.wantErr)
+			continue
+		}
+		if !test.wantErr && !maps.Equal(got, test.want) {
+			t.Errorf("decodeUniqueStringMap(%s) = %v, want %v", test.raw, got, test.want)
+		}
 	}
 }

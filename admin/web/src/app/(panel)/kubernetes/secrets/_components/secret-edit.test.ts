@@ -4,6 +4,7 @@ import {
 	isEditDirty,
 	planEdit,
 	withAction,
+	withReplacedValues,
 	type EditDraft,
 } from "./secret-edit";
 import type { SecretRow } from "./secret-draft";
@@ -120,6 +121,33 @@ describe("withAction", () => {
 	it("forgets a key put back to keep", () => {
 		const draft = withAction(withAction(emptyEdit(), "password", "remove"), "password", "keep");
 		expect(draft.existing).toEqual({});
+	});
+});
+
+// A key is whatever the Secret holds. Assigning "__proto__" through a plain
+// object sets its prototype instead, and the next copy loses the entry.
+describe("a key named __proto__", () => {
+	const odd: SecretSummary = { ...secret, keys: ["__proto__", "password"] };
+
+	it("survives being replaced and copied", () => {
+		let draft = withAction(emptyEdit(), "__proto__", "replace");
+		draft = withReplacedValues(draft, [
+			{ id: "__proto__", key: "__proto__", value: "new", format: "password" },
+		]);
+		draft = { ...draft, existing: { ...draft.existing } };
+
+		expect(isEditDirty(draft)).toBe(true);
+		const plan = planEdit(odd, draft);
+		expect(plan.ok && Object.keys(plan.request.replace ?? {})).toEqual(["__proto__"]);
+	});
+
+	// Acting on a second key copies the map, which is where an entry stored as
+	// the prototype rather than as an own property would be lost.
+	it("survives another key being acted on after it", () => {
+		let draft = withAction(emptyEdit(), "__proto__", "remove");
+		draft = withAction(draft, "password", "remove");
+		expect(planEdit(odd, { ...draft, added: [{ id: "0", key: "apikey", value: "x", format: "password" }] }))
+			.toEqual({ ok: true, request: { add: { apikey: "x" }, remove: ["__proto__", "password"] } });
 	});
 });
 

@@ -3,8 +3,11 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -455,10 +458,15 @@ func (r *Repository) DeleteSecret(ctx context.Context, namespace string, target 
 // Data rather than StringData, because the object read back has its values in
 // Data and setting both leaves StringData winning for the keys it names and Data
 // for the rest — which works, and is a rule nobody should have to know.
+//
+// It returns the keys of the object the API server accepted, which is the only
+// list that accounts for a key another writer added between the service's read
+// and this write.
 func (r *Repository) EditSecretKeys(
 	ctx context.Context, namespace, name string, edit SecretEdit,
-) error {
+) ([]string, error) {
 	secrets := r.client.CoreV1().Secrets(namespace)
+	var keys []string
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		live, err := secrets.Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
@@ -476,12 +484,45 @@ func (r *Repository) EditSecretKeys(
 		// Wrapped with %w rather than returned bare: RetryOnConflict decides
 		// whether to go round again with apierrors.IsConflict, which unwraps, so
 		// the retry still sees a conflict for what it is.
-		if _, err = secrets.Update(ctx, live, metav1.UpdateOptions{}); err != nil {
+		written, err := secrets.Update(ctx, live, metav1.UpdateOptions{})
+		if err != nil {
 			return fmt.Errorf("write for edit: %w", err)
 		}
+		keys = summarizeSecret(written).Keys
 		return nil
 	})
-	return translate(err, "edit secret "+namespace+"/"+name)
+	// Kubernetes validates a Secret against its type — a kubernetes.io/tls
+	// Secret must keep tls.crt and tls.key, a basic-auth one a username or a
+	// password — and none of that is checked here. Its refusal is the caller's
+	// to fix, so it is a 400 rather than a 500, carrying only the field paths
+	// it names (which are key names, never values) rather than the server's
+	// message wholesale.
+	if apierrors.IsInvalid(err) {
+		return nil, fmt.Errorf("%w: Kubernetes refused the edit to %s/%s as invalid for its type%s",
+			ErrInvalidName, namespace, name, invalidFields(err))
+	}
+	if err != nil {
+		return nil, translate(err, "edit secret "+namespace+"/"+name)
+	}
+	return keys, nil
+}
+
+// invalidFields names the fields an Invalid reply blamed, or nothing.
+func invalidFields(err error) string {
+	var status apierrors.APIStatus
+	if !errors.As(err, &status) || status.Status().Details == nil {
+		return ""
+	}
+	fields := []string{}
+	for _, cause := range status.Status().Details.Causes {
+		if cause.Field != "" && !slices.Contains(fields, cause.Field) {
+			fields = append(fields, cause.Field)
+		}
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(fields, ", ") + ")"
 }
 
 // applySecretEdit changes the object in place. Separate so the merge — the part
@@ -528,8 +569,7 @@ func editable(live *corev1.Secret, edit SecretEdit) error {
 	if live.Immutable != nil && *live.Immutable {
 		return fmt.Errorf("%w: %s is immutable", ErrReserved, live.Name)
 	}
-	_, err := editedKeys(live.Name, summarizeSecret(live).Keys, edit)
-	return err
+	return checkEditKeys(live.Name, summarizeSecret(live).Keys, edit)
 }
 
 // summarizeSecret is the projection, and the only place a live Secret is turned
