@@ -3,13 +3,16 @@ import type { ActionResult } from "./result";
 import type {
 	BrowseRequest,
 	BrowseResult,
+	ChangePostgresPrivilegesResult,
 	ExecuteResult,
 	CreatePostgresDatabase,
 	CreatePostgresRole,
 	PostgresDatabase,
 	PostgresExtension,
 	PostgresRelation,
+	PostgresPrivilegeChange,
 	PostgresRole,
+	PostgresRolePrivileges,
 	QueryResult,
 	UpdatePostgresDatabase,
 	UpdatePostgresRole,
@@ -96,4 +99,28 @@ export function browseTable(
 	request: BrowseRequest,
 ): Promise<ActionResult<BrowseResult>> {
 	return call<BrowseResult>("POST", `/api/postgres/databases/${seg(database)}/browse`, request);
+}
+
+/** What one role holds in one database. Privileges are per database, so this names one. */
+export function listRolePrivileges(
+	database: string,
+	role: string,
+): Promise<ActionResult<PostgresRolePrivileges>> {
+	return call<PostgresRolePrivileges>(
+		"GET",
+		`/api/postgres/databases/${seg(database)}/roles/${seg(role)}/privileges`,
+	);
+}
+
+/** Apply a set of grants and revokes together, in one transaction. */
+export function changeRolePrivileges(
+	database: string,
+	role: string,
+	changes: PostgresPrivilegeChange[],
+): Promise<ActionResult<ChangePostgresPrivilegesResult>> {
+	return call<ChangePostgresPrivilegesResult>(
+		"POST",
+		`/api/postgres/databases/${seg(database)}/roles/${seg(role)}/privileges`,
+		{ changes },
+	);
 }

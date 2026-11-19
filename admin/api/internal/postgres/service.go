@@ -41,7 +41,7 @@ const reservedPrefix = "pg_"
 // satisfies it without importing it.
 //
 // It is wide on purpose: this is the whole persistence surface of the slice —
-// databases, roles, extensions, and the two consoles — and the fake in the test
+// databases, roles, extensions, privileges, and the two consoles — and the fake in the test
 // implements all of it. Splitting it would only scatter one seam across several.
 //
 //nolint:interfacebloat // the persistence surface is genuinely this wide.
@@ -67,6 +67,11 @@ type repository interface {
 	Execute(ctx context.Context, database, sql string) (ExecuteResult, error)
 	ListRelations(ctx context.Context, database string) ([]Relation, error)
 	Browse(ctx context.Context, database, schema, table, cursor string, pageSize int) (BrowseResult, error)
+
+	ListPrivileges(ctx context.Context, database, role string) (RolePrivileges, error)
+	ApplyPrivileges(
+		ctx context.Context, database, role string, changes []PrivilegeChange, statements []string,
+	) (RolePrivileges, error)
 }
 
 // Service manages the databases and roles on the PostgreSQL server.
