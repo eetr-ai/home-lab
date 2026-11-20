@@ -32,13 +32,7 @@
     # alone instead of reformatted — a reformat would restart Docker for nothing.
     content: "{{ (host_toolchain_daemon_json.content | default('e30=') | b64decode | from_json)
       | combine({'data-root': host_toolchain_docker_volume}) | to_nice_json(indent=2) }}\n"
-  notify: Restart docker
 
-# Last before the flush, on purpose. A notified handler is dropped when a later
-# task fails, and on the retry this line already matches, so it would never
-# notify again: containerd would keep its old root while the run reported
-# success. With nothing between the notification and the flush, there is no
-# later task to fail.
 - name: Point containerd at the Docker volume
   ansible.builtin.lineinfile:
     path: /etc/containerd/config.toml
@@ -49,17 +43,41 @@
     # A top-level key has to come before the first table, so the top of the
     # file is the one place it is always valid.
     insertbefore: BOF
-  notify:
-    - Restart containerd
-    - Restart docker
 
-- name: Apply the Docker storage configuration
-  ansible.builtin.meta: flush_handlers
+# We decide whether to restart from the daemons themselves, not from what this
+# run changed. A handler notification is lost when a later task or another
+# restart fails, and the retry finds the files already correct and notifies
+# nothing, leaving a daemon on its old root while the run reports success.
+# Asking "is the configuration newer than the running daemon?" has no such gap.
+#
+# containerd comes first, and restarting it restarts Docker too: Docker talks to
+# containerd, and keeping a connection to the old store would defeat the move.
+- name: Find daemons running with an older configuration
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      stale() {
+        started=$(systemctl show --property=ActiveEnterTimestamp --value "$1")
+        # Never started: the next task starts it with the current file.
+        [ -n "$started" ] || return 1
+        [ "$(stat -c %Y "$2")" -gt "$(date -d "$started" +%s)" ]
+      }
+      if stale containerd /etc/containerd/config.toml; then
+        printf '%s\n' containerd docker
+      elif stale docker /etc/docker/daemon.json; then
+        printf '%s\n' docker
+      fi
+    executable: /bin/bash
+  register: host_toolchain_stale_daemons
+  changed_when: false
+  check_mode: false
 
-# The handlers only run when something changed. If a restart failed, the retry
-# finds the files already correct, notifies nothing, and would leave the daemon
-# down. A stopped daemon reads its configuration when it starts, so making sure
-# both are running is enough to land them on the configured roots.
+- name: Restart daemons onto the new configuration
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: restarted
+  loop: "{{ host_toolchain_stale_daemons.stdout_lines }}"
+
 - name: Keep containerd and Docker running
   ansible.builtin.service:
     name: "{{ item }}"

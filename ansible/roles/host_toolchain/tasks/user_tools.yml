@@ -10,11 +10,14 @@
     HOME: "{{ host_toolchain_home }}"
     PATH: "{{ host_toolchain_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
   block:
+    # Created even in check mode: an empty directory changes nothing, and a
+    # check run on a fresh host would otherwise fail at the first copy into it.
     - name: Create the user binary directory
       ansible.builtin.file:
         path: "{{ host_toolchain_home }}/.local/bin"
         state: directory
         mode: "0755"
+      check_mode: false
 
     # zsh is the login shell and does not read .profile, which is where Ubuntu
     # puts ~/.local/bin on PATH. Without this line every tool below is installed
@@ -47,8 +50,9 @@
       failed_when: false
       check_mode: false
 
-    # Each tool prints its version its own way, but both include the number.
-    # Compare against that rather than parsing two formats.
+    # Each tool prints its version its own way, but the first x.y.z in the
+    # output is the tool's own (golangci-lint names its Go version after it).
+    # Compare that whole, so a pin of 1.2.3 is not satisfied by 1.2.30.
     - name: Install the pinned Go tools
       ansible.builtin.command:
         argv: [go, install, "{{ item.item.package }}@{{ item.item.version }}"]
@@ -57,7 +61,9 @@
       loop: "{{ host_toolchain_go_tool_versions.results }}"
       loop_control:
         label: "{{ item.item.name }}"
-      when: (item.item.version | regex_replace('^v', '')) not in (item.stdout | default(''))
+      when: >-
+        (item.stdout | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+') | default('', true))
+        != (item.item.version | regex_replace('^v', ''))
       changed_when: true
 
     - name: Read the installed pnpm version
