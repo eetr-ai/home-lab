@@ -30,7 +30,7 @@ host_toolchain_packages:
   - nodejs
   - npm
   - pkg-config
-  - postgresql-client-18
+  - postgresql-client
   - shellcheck
   - tmux
   - unzip

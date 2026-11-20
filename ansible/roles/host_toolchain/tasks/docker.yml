@@ -4,18 +4,6 @@
 # right for a new host and harmless for one already configured, where these tasks
 # change nothing. Moving a populated store is a manual job.
 
-- name: Point containerd at the Docker volume
-  ansible.builtin.lineinfile:
-    path: /etc/containerd/config.toml
-    regexp: '^root\s*='
-    line: 'root = "{{ host_toolchain_containerd_root }}"'
-    # A top-level key has to come before the first table, so the top of the
-    # file is the one place it is always valid.
-    insertbefore: BOF
-  notify:
-    - Restart containerd
-    - Restart docker
-
 - name: Create the Docker configuration directory
   ansible.builtin.file:
     path: /etc/docker
@@ -24,14 +12,46 @@
     group: root
     mode: "0755"
 
+- name: Read the existing Docker daemon configuration
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: host_toolchain_daemon_json
+  failed_when: false
+
+# We own one key in this file, not the file. Merging keeps whatever else
+# somebody configured — a registry mirror, a proxy — instead of erasing it on
+# the next run.
 - name: Point Docker at the Docker volume
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
     owner: root
     group: root
     mode: "0644"
-    content: "{{ {'data-root': host_toolchain_docker_volume} | to_nice_json }}\n"
+    # Two-space indent and a trailing newline match what Docker's own docs
+    # write, so a hand-written file that already says the same thing is left
+    # alone instead of reformatted — a reformat would restart Docker for nothing.
+    content: "{{ (host_toolchain_daemon_json.content | default('e30=') | b64decode | from_json)
+      | combine({'data-root': host_toolchain_docker_volume}) | to_nice_json(indent=2) }}\n"
   notify: Restart docker
+
+# Last before the flush, on purpose. A notified handler is dropped when a later
+# task fails, and on the retry this line already matches, so it would never
+# notify again: containerd would keep its old root while the run reported
+# success. With nothing between the notification and the flush, there is no
+# later task to fail.
+- name: Point containerd at the Docker volume
+  ansible.builtin.lineinfile:
+    path: /etc/containerd/config.toml
+    # TOML allows the key quoted. Indented is allowed too, but an indented match
+    # could be a root key inside a table, so we leave those alone.
+    regexp: "^[\"']?root[\"']?\\s*="
+    line: 'root = "{{ host_toolchain_containerd_root }}"'
+    # A top-level key has to come before the first table, so the top of the
+    # file is the one place it is always valid.
+    insertbefore: BOF
+  notify:
+    - Restart containerd
+    - Restart docker
 
 - name: Apply the Docker storage configuration
   ansible.builtin.meta: flush_handlers
