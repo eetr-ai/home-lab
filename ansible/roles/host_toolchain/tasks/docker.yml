@@ -12,11 +12,18 @@
     group: root
     mode: "0755"
 
+- name: Check for an existing Docker daemon configuration
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: host_toolchain_daemon_json_stat
+
+# Only a file that is not there counts as empty. Anything else that stops us
+# reading it should stop the run, not erase the settings we could not see.
 - name: Read the existing Docker daemon configuration
   ansible.builtin.slurp:
     src: /etc/docker/daemon.json
   register: host_toolchain_daemon_json
-  failed_when: false
+  when: host_toolchain_daemon_json_stat.stat.exists
 
 # We own one key in this file, not the file. Merging keeps whatever else
 # somebody configured — a registry mirror, a proxy — instead of erasing it on
@@ -26,12 +33,14 @@
     dest: /etc/docker/daemon.json
     owner: root
     group: root
-    mode: "0644"
+    # Keep a stricter mode somebody chose: proxy settings in this file can carry
+    # credentials.
+    mode: "{{ host_toolchain_daemon_json_stat.stat.mode | default('0644') }}"
     # Two-space indent and a trailing newline match what Docker's own docs
     # write, so a hand-written file that already says the same thing is left
     # alone instead of reformatted — a reformat would restart Docker for nothing.
-    content: "{{ (host_toolchain_daemon_json.content | default('e30=') | b64decode | from_json)
-      | combine({'data-root': host_toolchain_docker_volume}) | to_nice_json(indent=2) }}\n"
+    content: "{{ ((host_toolchain_daemon_json.content if host_toolchain_daemon_json_stat.stat.exists else 'e30=')
+      | b64decode | from_json) | combine({'data-root': host_toolchain_docker_volume}) | to_nice_json(indent=2) }}\n"
 
 - name: Point containerd at the Docker volume
   ansible.builtin.lineinfile:
@@ -56,11 +65,15 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
+      # Both sides in microseconds: a file written in the same second the
+      # daemon started would otherwise look older than it is, and every later
+      # run would agree.
       stale() {
-        started=$(systemctl show --property=ActiveEnterTimestamp --value "$1")
+        started=$(systemctl show --timestamp=us+utc --property=ActiveEnterTimestamp --value "$1")
         # Never started: the next task starts it with the current file.
         [ -n "$started" ] || return 1
-        [ "$(stat -c %Y "$2")" -gt "$(date -d "$started" +%s)" ]
+        awk -v f="$(stat -c %.6Y "$2")" -v d="$(date -d "$started" +%s.%6N)" \
+          'BEGIN { exit !(f > d) }'
       }
       if stale containerd /etc/containerd/config.toml; then
         printf '%s\n' containerd docker
