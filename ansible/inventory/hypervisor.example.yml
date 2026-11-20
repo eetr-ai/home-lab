@@ -1,0 +1,12 @@
+# The virtualization host itself, kept apart from hosts.yml because that file is
+# rendered from Terraform output and rewritten on every render. The host is not a
+# Terraform resource, so nothing would put it back.
+#
+# Copy to the ignored hypervisor.yml and replace the placeholders.
+all:
+  children:
+    hypervisor:
+      hosts:
+        your-libvirt-host:
+          ansible_host: 192.0.2.1
+          ansible_user: your-host-user

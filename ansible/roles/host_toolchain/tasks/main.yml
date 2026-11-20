@@ -1,0 +1,22 @@
+---
+# Turn a fresh Ubuntu host into the machine we build on: the development
+# toolset, Docker, and the coding agent, with everything that grows — build
+# caches, images, containers — kept off the deliberately small root volume.
+#
+# The order matters. The Go caches are pointed at the working volume before
+# anything is compiled, so the first `go install` already builds there.
+
+- name: Verify the host
+  ansible.builtin.import_tasks: preflight.yml
+
+- name: Install system packages
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Keep Docker storage off the root volume
+  ansible.builtin.import_tasks: docker.yml
+
+- name: Keep build caches off the root volume
+  ansible.builtin.import_tasks: caches.yml
+
+- name: Install user tools
+  ansible.builtin.import_tasks: user_tools.yml

@@ -42,6 +42,7 @@ cloud-init/*.yaml
 *.retry
 ansible/collections/
 ansible/inventory/hosts.yml
+ansible/inventory/hypervisor.yml
 ansible/artifacts/
 
 # Generated and local files

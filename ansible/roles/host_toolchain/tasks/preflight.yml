@@ -1,0 +1,31 @@
+---
+- name: Verify the supported host platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == "Ubuntu"
+      - ansible_facts['architecture'] == "x86_64"
+    fail_msg: This role supports x86_64 Ubuntu hosts.
+
+# Both volumes exist to keep growth off /. A missing mount would not fail
+# anything; it would just put the growth back on / without a word, which is how
+# the root volume filled the last two times.
+- name: Verify the working and Docker volumes are their own mounts
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['mounts'] | selectattr('mount', 'equalto', item) | list | length == 1
+    fail_msg: >-
+      {{ item }} is not a mount point. Create and mount its volume first;
+      otherwise what this role puts there lands on the root filesystem.
+  loop:
+    - "{{ host_toolchain_volume }}"
+    - "{{ host_toolchain_docker_volume }}"
+
+- name: Look up the build user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ host_toolchain_user }}"
+
+- name: Remember the build user's home and group
+  ansible.builtin.set_fact:
+    host_toolchain_home: "{{ ansible_facts['getent_passwd'][host_toolchain_user][4] }}"
+    host_toolchain_group: "{{ ansible_facts['getent_passwd'][host_toolchain_user][2] }}"

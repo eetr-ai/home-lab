@@ -1,0 +1,43 @@
+---
+# Changing either root on a host that already has images does not move them: the
+# daemon starts against an empty store and the old one stays behind on /. That is
+# right for a new host and harmless for one already configured, where these tasks
+# change nothing. Moving a populated store is a manual job.
+
+- name: Point containerd at the Docker volume
+  ansible.builtin.lineinfile:
+    path: /etc/containerd/config.toml
+    regexp: '^root\s*='
+    line: 'root = "{{ host_toolchain_containerd_root }}"'
+    # A top-level key has to come before the first table, so the top of the
+    # file is the one place it is always valid.
+    insertbefore: BOF
+  notify:
+    - Restart containerd
+    - Restart docker
+
+- name: Create the Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Point Docker at the Docker volume
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ {'data-root': host_toolchain_docker_volume} | to_nice_json }}\n"
+  notify: Restart docker
+
+- name: Apply the Docker storage configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Let the build user run Docker
+  ansible.builtin.user:
+    name: "{{ host_toolchain_user }}"
+    groups: docker
+    append: true

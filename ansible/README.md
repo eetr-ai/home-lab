@@ -223,3 +223,60 @@ while it is down and are reconciled when it returns.
 
 The key is on every node, readable by root. Treat node access as registry access,
 and keep the key read-only and scoped to the one repository it needs.
+
+## The virtualization host
+
+`playbooks/hypervisor.yml` configures the libvirt host itself rather than the VMs
+on it: the machine we build on. It has its own inventory because `hosts.yml` is
+rendered from Terraform output and rewritten on every render, and the host is
+not a Terraform resource.
+
+```bash
+cp inventory/hypervisor.example.yml inventory/hypervisor.yml
+# Replace the placeholders, then:
+ansible-playbook -i inventory/hypervisor.yml playbooks/hypervisor.yml -K
+```
+
+`-K` asks for the sudo password; the host does not allow passwordless sudo. Add
+`--check --diff` first to see what a run would change.
+
+The `host_toolchain` role installs:
+
+- **From the Ubuntu archive:** Go, Node.js and npm, build tools, git, gh, jq,
+  tmux, zsh, shellcheck, and the PostgreSQL client.
+- **From vendor repositories:** Docker with Buildx and Compose, Terraform, and
+  kubectl pinned to the cluster's `kubernetes_package_version` from the same
+  repository the nodes use.
+- **Into `~/.local/bin`, pinned in the role's defaults:** go-task and
+  golangci-lint through `go install`, pnpm through npm, and Helm from its release
+  tarball with the published checksum verified.
+- **Claude Code**, from the `latest` channel. It is the one tool left unpinned,
+  because it updates itself in place.
+
+It does not install the virtualization stack — QEMU, libvirt, NFS, and the
+bridge. Those come first, by hand, as step 1 of the [setup guide](../README.md).
+
+### Keeping growth off the root volume
+
+The root volume is deliberately small, and it has filled twice: once with Docker
+images, once with Go build caches. The role moves everything that grows to a
+volume of its own, and refuses to run unless `/srv/claude` and `/srv/docker` are
+separate mounts, so it cannot quietly put any of it back on `/`.
+
+- Go's build and module caches go to `/srv/claude/.cache`, set in
+  `~/.config/go/env` — the file `go env -w` writes. Go reads it in every process,
+  including the non-interactive shells coding agents run, which never source a
+  shell profile.
+- Docker's `data-root` goes to `/srv/docker`, and containerd's `root` to
+  `/srv/docker/containerd`. Docker uses the containerd image store, so image
+  layers follow containerd's root, not Docker's; moving only `data-root` leaves
+  every image on `/`.
+
+None of this moves data that already exists. Changing a root starts the daemon
+against an empty store, and changing a cache path leaves the old cache behind.
+On a host that was set up by hand, clear the old Go caches **before** the first
+run, while `go clean` still points at them:
+
+```bash
+go clean -cache -modcache
+```

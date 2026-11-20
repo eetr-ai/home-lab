@@ -1,0 +1,11 @@
+---
+# Configuration for the virtualization host, as opposed to the Kubernetes VMs it
+# runs. Run it with the hypervisor inventory:
+#
+#   ansible-playbook -i inventory/hypervisor.yml playbooks/hypervisor.yml -K
+- name: Prepare the virtualization host
+  hosts: hypervisor
+  become: true
+  gather_facts: true
+  roles:
+    - role: host_toolchain
