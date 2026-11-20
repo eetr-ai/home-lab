@@ -24,6 +24,8 @@
     src: /etc/docker/daemon.json
   register: host_toolchain_daemon_json
   when: host_toolchain_daemon_json_stat.stat.exists
+  # The file can hold proxy credentials; keep it out of the run's output.
+  no_log: true
 
 # We own one key in this file, not the file. Merging keeps whatever else
 # somebody configured — a registry mirror, a proxy — instead of erasing it on
@@ -41,6 +43,8 @@
     # alone instead of reformatted — a reformat would restart Docker for nothing.
     content: "{{ ((host_toolchain_daemon_json.content if host_toolchain_daemon_json_stat.stat.exists else 'e30=')
       | b64decode | from_json) | combine({'data-root': host_toolchain_docker_volume}) | to_nice_json(indent=2) }}\n"
+  no_log: true
+  diff: false
 
 - name: Point containerd at the Docker volume
   ansible.builtin.lineinfile:
