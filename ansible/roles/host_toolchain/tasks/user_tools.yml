@@ -1,0 +1,139 @@
+---
+# Everything here belongs to the build user and lives in ~/.local/bin, so it runs
+# as that user: root-owned files in a home directory are how the next
+# `npm install -g` fails with EACCES.
+
+- name: Install the user tools
+  become: true
+  become_user: "{{ host_toolchain_user }}"
+  environment:
+    HOME: "{{ host_toolchain_home }}"
+    PATH: "{{ host_toolchain_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+  block:
+    # Created even in check mode: an empty directory changes nothing, and a
+    # check run on a fresh host would otherwise fail at the first copy into it.
+    - name: Create the user binary directory
+      ansible.builtin.file:
+        path: "{{ host_toolchain_home }}/.local/bin"
+        state: directory
+        mode: "0755"
+      check_mode: false
+
+    # zsh is the login shell and does not read .profile, which is where Ubuntu
+    # puts ~/.local/bin on PATH. Without this line every tool below is installed
+    # and then not found.
+    - name: Put the user binary directory on the zsh PATH
+      ansible.builtin.lineinfile:
+        path: "{{ host_toolchain_home }}/.zshrc"
+        line: 'export PATH="$HOME/.local/bin:$PATH"'
+        create: true
+        mode: "0644"
+
+    # npm's default global prefix is /usr, which needs root. Pointing it at
+    # ~/.local keeps global installs the user's and puts them on the same PATH.
+    - name: Point npm global installs at the user directory
+      ansible.builtin.lineinfile:
+        path: "{{ host_toolchain_home }}/.npmrc"
+        regexp: '^prefix='
+        line: "prefix={{ host_toolchain_home }}/.local"
+        create: true
+        mode: "0600"
+
+    - name: Read the installed Go tool versions
+      ansible.builtin.command:
+        argv: ["{{ host_toolchain_home }}/.local/bin/{{ item.name }}", --version]
+      loop: "{{ host_toolchain_go_tools }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: host_toolchain_go_tool_versions
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # Each tool prints its version its own way, but the first x.y.z in the
+    # output is the tool's own (golangci-lint names its Go version after it).
+    # Compare that whole, so a pin of 1.2.3 is not satisfied by 1.2.30.
+    - name: Install the pinned Go tools
+      ansible.builtin.command:
+        argv: [go, install, "{{ item.item.package }}@{{ item.item.version }}"]
+      environment:
+        GOBIN: "{{ host_toolchain_home }}/.local/bin"
+      loop: "{{ host_toolchain_go_tool_versions.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: >-
+        (item.stdout | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+') | default('', true))
+        != (item.item.version | regex_replace('^v', ''))
+      changed_when: true
+
+    - name: Read the installed pnpm version
+      ansible.builtin.command:
+        argv: ["{{ host_toolchain_home }}/.local/bin/pnpm", --version]
+      register: host_toolchain_pnpm
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Install the pinned pnpm
+      ansible.builtin.command:
+        argv: [npm, install, --global, "pnpm@{{ host_toolchain_pnpm_version }}"]
+      when: (host_toolchain_pnpm.stdout | default('') | trim) != host_toolchain_pnpm_version
+      changed_when: true
+
+    - name: Read the installed Helm version
+      ansible.builtin.command:
+        argv: ["{{ host_toolchain_home }}/.local/bin/helm", version, --short]
+      register: host_toolchain_helm
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Install the pinned Helm
+      when: not (host_toolchain_helm.stdout | default('')).startswith(host_toolchain_helm_version + '+')
+      block:
+        - name: Create a scratch directory for the Helm download
+          ansible.builtin.tempfile:
+            state: directory
+          # The scratch directory and the download change nothing outside a
+          # temporary path, and a check run that skipped them could not show what
+          # the install would do — or catch a checksum that no longer matches.
+          check_mode: false
+          register: host_toolchain_helm_tmp
+
+        - name: Download Helm and verify its checksum
+          ansible.builtin.get_url:
+            url: "https://get.helm.sh/helm-{{ host_toolchain_helm_version }}-linux-amd64.tar.gz"
+            checksum: "sha256:https://get.helm.sh/helm-{{ host_toolchain_helm_version }}-linux-amd64.tar.gz.sha256sum"
+            dest: "{{ host_toolchain_helm_tmp.path }}/helm.tar.gz"
+            mode: "0644"
+          check_mode: false
+
+        - name: Unpack Helm
+          ansible.builtin.unarchive:
+            src: "{{ host_toolchain_helm_tmp.path }}/helm.tar.gz"
+            dest: "{{ host_toolchain_helm_tmp.path }}"
+            remote_src: true
+          check_mode: false
+
+        - name: Install the Helm binary
+          ansible.builtin.copy:
+            src: "{{ host_toolchain_helm_tmp.path }}/linux-amd64/helm"
+            dest: "{{ host_toolchain_home }}/.local/bin/helm"
+            remote_src: true
+            mode: "0755"
+      always:
+        - name: Remove the Helm scratch directory
+          ansible.builtin.file:
+            path: "{{ host_toolchain_helm_tmp.path }}"
+            state: absent
+          when: host_toolchain_helm_tmp.path is defined
+          check_mode: false
+
+    # The one unpinned tool, on purpose: Claude Code updates itself in place, so a
+    # pin here would only describe the version it started at. We install it once
+    # from the latest channel and let it manage itself from then on.
+    - name: Install Claude Code
+      ansible.builtin.shell:
+        cmd: set -o pipefail && curl -fsSL https://claude.ai/install.sh | bash -s latest
+        executable: /bin/bash
+        creates: "{{ host_toolchain_home }}/.local/bin/claude"

@@ -1,0 +1,44 @@
+---
+# The root volume is small on purpose, and Go's defaults put its build cache and
+# module cache under the home directory, which lives there. A few weeks of
+# building the admin API on the host grew them to about 8 GiB, filled / and left
+# the host with under 200 MiB free. We move them to the working volume, which is
+# sized for exactly this kind of churn.
+
+- name: Create the cache directories on the working volume
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ host_toolchain_user }}"
+    group: "{{ host_toolchain_group }}"
+    mode: "0755"
+  loop:
+    - "{{ host_toolchain_cache_root }}"
+    - "{{ host_toolchain_cache_root }}/go-build"
+    - "{{ host_toolchain_cache_root }}/go-mod"
+
+- name: Create the Go configuration directory
+  ansible.builtin.file:
+    path: "{{ host_toolchain_home }}/.config/go"
+    state: directory
+    owner: "{{ host_toolchain_user }}"
+    group: "{{ host_toolchain_group }}"
+    mode: "0755"
+
+# This is the file `go env -w` writes, and Go reads it in every process. That
+# matters here: agents run non-interactive shells that never source a profile,
+# so an export in .zshrc would miss exactly the builds that filled the disk.
+# We edit single lines so a setting somebody added by hand (GOTOOLCHAIN, say)
+# survives the run. No mode either: `go env -w` rewrites the file with the
+# user's umask, and pinning one here would flip it back on every run.
+- name: Point the Go caches at the working volume
+  ansible.builtin.lineinfile:
+    path: "{{ host_toolchain_home }}/.config/go/env"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    create: true
+    owner: "{{ host_toolchain_user }}"
+    group: "{{ host_toolchain_group }}"
+  loop:
+    - { key: GOCACHE, value: "{{ host_toolchain_cache_root }}/go-build" }
+    - { key: GOMODCACHE, value: "{{ host_toolchain_cache_root }}/go-mod" }

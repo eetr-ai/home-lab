@@ -1,0 +1,52 @@
+---
+# The account that builds on the host — the one coding agents and the operator
+# sign in as. Defaults to whoever Ansible connects as.
+host_toolchain_user: "{{ ansible_user }}"
+
+# A dedicated volume for working copies and their build output. It must be a
+# mount of its own: the point is to keep caches off the root filesystem, and a
+# plain directory under / would put them right back there.
+host_toolchain_volume: /srv/claude
+host_toolchain_cache_root: "{{ host_toolchain_volume }}/.cache"
+
+# Docker's volume. Container state goes to data-root, but with the containerd
+# image store the image layers follow containerd's root instead, so both have to
+# move or the images stay on /.
+host_toolchain_docker_volume: /srv/docker
+host_toolchain_containerd_root: "{{ host_toolchain_docker_volume }}/containerd"
+
+# Plain Ubuntu packages. Versions come from the release, which is the point of
+# taking them from the archive.
+host_toolchain_packages:
+  - build-essential
+  - curl
+  - gh
+  - git
+  - golang-go
+  - htop
+  - jq
+  - net-tools
+  - nmap
+  - nodejs
+  - npm
+  - pkg-config
+  - postgresql-client
+  - shellcheck
+  - tmux
+  - unzip
+  - zsh
+
+# HashiCorp publishes no suite for every Ubuntu release on day one. Use the
+# newest one they do publish until they catch up.
+host_toolchain_hashicorp_suite: noble
+
+# Tools that come from upstream rather than apt, pinned like everything else.
+host_toolchain_helm_version: v3.21.3
+host_toolchain_pnpm_version: 10.32.1
+host_toolchain_go_tools:
+  - name: task
+    package: github.com/go-task/task/v3/cmd/task
+    version: v3.54.0
+  - name: golangci-lint
+    package: github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+    version: v2.15.0

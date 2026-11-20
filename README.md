@@ -75,7 +75,10 @@ operator laptop unless they explicitly say otherwise.
 On the Ubuntu Server virtualization host:
 
 1. Install QEMU/KVM, libvirt, and NFS server packages.
-2. Mount VM image storage and the NFS export outside the root filesystem.
+2. Mount VM image storage, the NFS export, and the `/srv/claude` working
+   volume outside the root filesystem. Build caches go on the working volume;
+   the [hypervisor playbook](ansible/README.md#the-virtualization-host) points
+   them there.
 3. Configure the existing Ethernet interface as a member of `br0` using the
    [bridge guide](docs/network-bridge.md). Use `netplan try`, retain console
    recovery, and prove the bridge survives a reboot.
@@ -94,6 +97,7 @@ ip route
 virsh -c qemu:///system list --all
 findmnt /srv/images
 findmnt /srv/nfs/k8s
+findmnt /srv/claude
 sudo exportfs -v
 ```
 
@@ -419,7 +423,7 @@ status is not the same as a successful deploy are in the
 │   ├── api/          # Go API server managing the databases and reading the cluster
 │   ├── web/          # Next.js panel, signed in against eetr-auth
 │   └── agent/        # The assistant: an Octo app answering questions about the cluster
-├── ansible/          # Kubernetes-node configuration and kubeadm bootstrap
+├── ansible/          # Host and Kubernetes-node configuration, kubeadm bootstrap
 ├── docs/             # Architecture, operations, and recovery guides
 ├── charts/           # Cluster platform and repository-owned Helm charts
 ├── helm-values/      # Reviewed values for standalone upstream charts

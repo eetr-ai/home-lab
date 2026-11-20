@@ -1,0 +1,111 @@
+---
+# Changing either root on a host that already has images does not move them: the
+# daemon starts against an empty store and the old one stays behind on /. That is
+# right for a new host and harmless for one already configured, where these tasks
+# change nothing. Moving a populated store is a manual job.
+
+- name: Create the Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check for an existing Docker daemon configuration
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: host_toolchain_daemon_json_stat
+
+# Only a file that is not there counts as empty. Anything else that stops us
+# reading it should stop the run, not erase the settings we could not see.
+- name: Read the existing Docker daemon configuration
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: host_toolchain_daemon_json
+  when: host_toolchain_daemon_json_stat.stat.exists
+  # The file can hold proxy credentials; keep it out of the run's output.
+  no_log: true
+
+# We own one key in this file, not the file. Merging keeps whatever else
+# somebody configured — a registry mirror, a proxy — instead of erasing it on
+# the next run.
+- name: Point Docker at the Docker volume
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    # Keep a stricter mode somebody chose: proxy settings in this file can carry
+    # credentials.
+    mode: "{{ host_toolchain_daemon_json_stat.stat.mode | default('0644') }}"
+    # Two-space indent and a trailing newline match what Docker's own docs
+    # write, so a hand-written file that already says the same thing is left
+    # alone instead of reformatted — a reformat would restart Docker for nothing.
+    content: "{{ ((host_toolchain_daemon_json.content if host_toolchain_daemon_json_stat.stat.exists else 'e30=')
+      | b64decode | from_json) | combine({'data-root': host_toolchain_docker_volume}) | to_nice_json(indent=2) }}\n"
+  no_log: true
+  diff: false
+
+- name: Point containerd at the Docker volume
+  ansible.builtin.lineinfile:
+    path: /etc/containerd/config.toml
+    # TOML allows the key quoted. Indented is allowed too, but an indented match
+    # could be a root key inside a table, so we leave those alone.
+    regexp: "^[\"']?root[\"']?\\s*="
+    line: 'root = "{{ host_toolchain_containerd_root }}"'
+    # A top-level key has to come before the first table, so the top of the
+    # file is the one place it is always valid.
+    insertbefore: BOF
+
+# We decide whether to restart from the daemons themselves, not from what this
+# run changed. A handler notification is lost when a later task or another
+# restart fails, and the retry finds the files already correct and notifies
+# nothing, leaving a daemon on its old root while the run reports success.
+# Asking "is the configuration newer than the running daemon?" has no such gap.
+#
+# containerd comes first, and restarting it restarts Docker too: Docker talks to
+# containerd, and keeping a connection to the old store would defeat the move.
+- name: Find daemons running with an older configuration
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      # Both sides in microseconds: a file written in the same second the
+      # daemon started would otherwise look older than it is, and every later
+      # run would agree.
+      stale() {
+        started=$(systemctl show --timestamp=us+utc --property=ActiveEnterTimestamp --value "$1")
+        # Never started: the next task starts it with the current file.
+        [ -n "$started" ] || return 1
+        awk -v f="$(stat -c %.6Y "$2")" -v d="$(date -d "$started" +%s.%6N)" \
+          'BEGIN { exit !(f > d) }'
+      }
+      if stale containerd /etc/containerd/config.toml; then
+        printf '%s\n' containerd docker
+      elif stale docker /etc/docker/daemon.json; then
+        printf '%s\n' docker
+      fi
+    executable: /bin/bash
+  register: host_toolchain_stale_daemons
+  changed_when: false
+  check_mode: false
+
+- name: Restart daemons onto the new configuration
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: restarted
+  loop: "{{ host_toolchain_stale_daemons.stdout_lines }}"
+
+- name: Keep containerd and Docker running
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - containerd
+    - docker
+
+- name: Let the build user run Docker
+  ansible.builtin.user:
+    name: "{{ host_toolchain_user }}"
+    groups: docker
+    append: true

@@ -141,13 +141,14 @@ tasks:
   # --- Ansible --------------------------------------------------------------
 
   ansible:syntax:
-    desc: Syntax-check the bootstrap playbook against the example inventory
+    desc: Syntax-check the playbooks against their example inventories
     dir: ansible
     preconditions:
       - sh: command -v ansible-playbook
         msg: 'ansible-playbook not found. Install it with: python3 -m pip install ansible-core=={{.ANSIBLE_CORE_VERSION}}'
     cmds:
       - ansible-playbook -i inventory/hosts.example.yml playbooks/bootstrap.yml --syntax-check
+      - ansible-playbook -i inventory/hypervisor.example.yml playbooks/hypervisor.yml --syntax-check
 
   # --- Shell ----------------------------------------------------------------
 

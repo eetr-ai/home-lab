@@ -1,0 +1,101 @@
+---
+# deb822_repository needs python3-debian on the target before it can write
+# anything, so it goes in on its own first.
+- name: Install the APT repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the repository signing keys
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/etc/apt/keyrings/{{ item.name }}.asc"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - name: docker
+      url: https://download.docker.com/linux/ubuntu/gpg
+    - name: hashicorp
+      url: https://apt.releases.hashicorp.com/gpg
+    - name: kubernetes-apt-keyring
+      url: >-
+        https://pkgs.k8s.io/core:/stable:/{{ kubernetes_package_repository_minor }}/deb/Release.key
+  loop_control:
+    label: "{{ item.name }}"
+
+# A host set up by hand before this role existed may carry the one-line
+# HashiCorp source. Left beside the deb822 one, apt warns about the duplicate on
+# every update.
+- name: Remove the legacy HashiCorp source
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/hashicorp.list
+    state: absent
+
+- name: Configure the package repositories
+  ansible.builtin.deb822_repository:
+    name: "{{ item.name }}"
+    types:
+      - deb
+    uris:
+      - "{{ item.uri }}"
+    suites:
+      - "{{ item.suite }}"
+    components: "{{ item.components | default(omit) }}"
+    signed_by: "/etc/apt/keyrings/{{ item.key | default(item.name) }}.asc"
+    state: present
+  loop:
+    - name: docker
+      uri: https://download.docker.com/linux/ubuntu
+      suite: "{{ ansible_facts['distribution_release'] }}"
+      components: [stable]
+    - name: hashicorp
+      uri: https://apt.releases.hashicorp.com
+      suite: "{{ host_toolchain_hashicorp_suite }}"
+      components: [main]
+    # The same repository the cluster nodes use, so kubectl on the host matches
+    # the cluster it talks to.
+    - name: kubernetes
+      uri: >-
+        https://pkgs.k8s.io/core:/stable:/{{ kubernetes_package_repository_minor }}/deb/
+      suite: /
+      key: kubernetes-apt-keyring
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Install the development toolset
+  ansible.builtin.apt:
+    name: "{{ host_toolchain_packages + host_toolchain_docker_packages + ['terraform'] }}"
+    state: present
+    update_cache: true
+  vars:
+    host_toolchain_docker_packages:
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+
+- name: Install the pinned kubectl
+  ansible.builtin.apt:
+    name: "kubectl={{ kubernetes_package_version }}"
+    state: present
+    allow_downgrade: true
+    allow_change_held_packages: true
+
+- name: Hold kubectl at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: kubectl
+    selection: hold
