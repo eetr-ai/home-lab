@@ -56,6 +56,19 @@
 - name: Apply the Docker storage configuration
   ansible.builtin.meta: flush_handlers
 
+# The handlers only run when something changed. If a restart failed, the retry
+# finds the files already correct, notifies nothing, and would leave the daemon
+# down. A stopped daemon reads its configuration when it starts, so making sure
+# both are running is enough to land them on the configured roots.
+- name: Keep containerd and Docker running
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - containerd
+    - docker
+
 - name: Let the build user run Docker
   ansible.builtin.user:
     name: "{{ host_toolchain_user }}"
